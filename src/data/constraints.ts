@@ -266,15 +266,15 @@ export function assertVideo(row: Video): void {
   timestamp(t, 'created_at', row.created_at, { nullable: false })
   timestamp(t, 'updated_at', row.updated_at, { nullable: false })
 
-  // constraint posted_is_priced. This is what makes the ledger non-rewritable:
-  // a posted video has locked in the rate it earned at, so a later rate change
-  // cannot retroactively repay past work.
-  if (row.phase === 'posted' && (row.posted_at === null || row.rate_snapshot_cents === null)) {
-    fail(
-      t,
-      'posted_is_priced',
-      'a posted video must carry both posted_at and the rate it locked in at',
-    )
+  // constraint posted_is_timestamped. A posted video must say when it went
+  // live. It need not carry a rate: rate_snapshot_cents null means UNPRICED,
+  // not free. An unconfirmed rate must not block the posting tap, and a 0 in
+  // the ledger would be a fabricated "earned nothing".
+  //
+  // What still makes the ledger non-rewritable is that a snapshot, once
+  // written, is never touched by a later rate change.
+  if (row.phase === 'posted' && row.posted_at === null) {
+    fail(t, 'posted_is_timestamped', 'a posted video must say when it went live')
   }
 }
 

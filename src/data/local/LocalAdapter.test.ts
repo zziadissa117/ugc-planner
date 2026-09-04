@@ -148,6 +148,20 @@ describe('the rate snapshot', () => {
     ).rejects.toBeInstanceOf(ConstraintError)
   })
 
+  it('stays null when the campaign has no rate - unpriced, not free', async () => {
+    const campaign = await makeCampaign({ approval_mode: 'none', pay_per_video_cents: null })
+    const video = await makeVideo(campaign.id)
+
+    // The tap still goes through: an unconfirmed rate must never block work he
+    // can do right now.
+    const posted = await advanceTo(video.id, 'posted')
+
+    expect(posted.posted_at).not.toBeNull()
+    // Null, not 0. A zero here would be a fabricated "earned nothing" sitting
+    // in the one table that must never carry an invented figure.
+    expect(posted.rate_snapshot_cents).toBeNull()
+  })
+
   it('is cleared when a post is undone, so re-posting takes a fresh rate', async () => {
     const campaign = await makeCampaign({ approval_mode: 'none', pay_per_video_cents: 3500 })
     const video = await makeVideo(campaign.id)
@@ -420,8 +434,10 @@ describe('backup', () => {
     const before = await adapter.listVideos()
 
     const snapshot = await adapter.exportAll()
-    // A posted video with no rate on it - exactly what posted_is_priced exists
-    // to stop, and the sort of corruption a hand-edited backup could carry.
+    // A posted video that never says when it went live - what
+    // posted_is_timestamped exists to stop, and the sort of corruption a
+    // hand-edited backup could carry. Note rate_snapshot_cents null is fine on
+    // its own; it is the missing posted_at that makes this row invalid.
     snapshot.videos.push({
       ...video,
       id: crypto.randomUUID(),

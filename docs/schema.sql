@@ -184,16 +184,30 @@ create table videos (
   -- RATE SNAPSHOT. Written when the video reaches 'posted'. If the campaign's
   -- rate changes later, already-posted videos keep the rate they earned at.
   -- This is what makes the ledger non-rewritable.
+  --
+  -- Null means UNPRICED, not free. A campaign whose rate has not been confirmed
+  -- yet still has to let its videos be posted - a missing detail must never
+  -- hide work that could be done right now - and writing 0 there would put a
+  -- fabricated "earned nothing" into the ledger.
   rate_snapshot_cents integer check (rate_snapshot_cents >= 0),
   posted_at     timestamptz,
 
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now(),
 
-  -- Posted implies both a timestamp and a locked-in rate.
-  constraint posted_is_priced
-    check (phase <> 'posted'
-           or (posted_at is not null and rate_snapshot_cents is not null))
+  -- Posted implies a timestamp. It does NOT imply a rate.
+  --
+  -- This was posted_is_priced, which also required rate_snapshot_cents. That
+  -- forced an unpriced post to snapshot 0, which reads as "earned nothing"
+  -- when the truth is "no rate confirmed yet" - a fabricated figure in the one
+  -- table that must never carry one. Null now means unpriced.
+  --
+  -- Phase 7 owes three things because of this: exclude unpriced videos from
+  -- the DOCUMENTED base-earned figure, show their count in amber, and backfill
+  -- the snapshot onto exactly those videos - no others - once the campaign's
+  -- rate is confirmed.
+  constraint posted_is_timestamped
+    check (phase <> 'posted' or posted_at is not null)
 );
 
 create index on videos (user_id, phase);

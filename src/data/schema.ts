@@ -366,7 +366,7 @@ export const SQL_TABLE_CONSTRAINTS: Readonly<Record<string, readonly string[]>> 
     "constraint missing_is_empty check (source <> 'missing' or field_value is null)",
   ],
   videos: [
-    "constraint posted_is_priced check (phase <> 'posted' or (posted_at is not null and rate_snapshot_cents is not null))",
+    "constraint posted_is_timestamped check (phase <> 'posted' or posted_at is not null)",
   ],
   video_posts: [
     "unique (video_id, platform)",

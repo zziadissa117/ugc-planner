@@ -518,12 +518,13 @@ export class LocalAdapter implements DataAdapter {
           // RATE SNAPSHOT. What the campaign pays right now is locked onto the
           // video, so a later rate change cannot rewrite what past work earned.
           //
-          // A campaign with no rate saved snapshots 0 rather than a guess. 0 is
-          // not an estimate of the rate - it is the absence of a documented
-          // claim to any money, which is the honest position when no document
-          // has said otherwise. It also keeps a missing rate from blocking the
-          // posting tap, which must never wait on a detail he can fill in later.
-          row.rate_snapshot_cents = campaign.pay_per_video_cents ?? 0
+          // A campaign with no confirmed rate leaves this null, which means
+          // UNPRICED - not free, and not zero. The posting tap still goes
+          // through, because a detail he can fill in later must never block
+          // work he can do right now. Phase 7 keeps unpriced videos out of the
+          // DOCUMENTED figure, counts them in amber, and backfills the
+          // snapshot onto exactly those videos once the rate is confirmed.
+          row.rate_snapshot_cents = campaign.pay_per_video_cents
         }
 
         if (video.phase === 'posted' && target !== 'posted') {

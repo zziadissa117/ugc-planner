@@ -199,14 +199,61 @@ export class LocalAdapter implements DataAdapter {
     id: string,
     patch: Partial<Omit<Campaign, 'id' | 'user_id'>>,
   ): Promise<Campaign> {
-    return this.tx([this.db.campaigns, this.db._outbox], async (tx) => {
+    return this.tx([this.db.campaigns, this.db.videos, this.db._outbox], async (tx) => {
       const existing = (await this.requireRow(tx, 'campaigns', id)) as Campaign
       const row: Campaign = { ...existing, ...patch, updated_at: now() }
       assertRow('campaigns', row)
       await tx.table('campaigns').put(row)
       this.enqueue(tx, 'campaigns', id, 'update', row)
+
+      // A campaign that had no rate now has one, so the posts made while it
+      // had none can finally be priced. Same transaction: the rate and the
+      // videos it explains land together or not at all.
+      if (existing.pay_per_video_cents === null && row.pay_per_video_cents !== null) {
+        await this.backfillWithin(tx, row)
+      }
+
       return row
     })
+  }
+
+  async backfillUnpricedVideos(campaignId: string): Promise<number> {
+    return this.tx([this.db.campaigns, this.db.videos, this.db._outbox], async (tx) => {
+      const campaign = (await this.requireRow(tx, 'campaigns', campaignId)) as Campaign
+      return this.backfillWithin(tx, campaign)
+    })
+  }
+
+  /** Prices the campaign's posted-but-unpriced videos at its current rate.
+   *
+   *  The filter is the whole point: `rate_snapshot_cents === null` and nothing
+   *  else. A video that already carries a snapshot keeps it forever, because
+   *  that snapshot is what stops a rate change from rewriting what past work
+   *  earned. This only ever fills in a blank. */
+  private async backfillWithin(tx: Transaction, campaign: Campaign): Promise<number> {
+    if (campaign.pay_per_video_cents === null) return 0
+
+    const posted = (await tx
+      .table('videos')
+      .where('[campaign_id+phase]')
+      .equals([campaign.id, 'posted'])
+      .toArray()) as Video[]
+
+    const unpriced = posted.filter((video) => video.rate_snapshot_cents === null)
+    const timestamp = now()
+
+    for (const video of unpriced) {
+      const row: Video = {
+        ...video,
+        rate_snapshot_cents: campaign.pay_per_video_cents,
+        updated_at: timestamp,
+      }
+      assertRow('videos', row)
+      await tx.table('videos').put(row)
+      this.enqueue(tx, 'videos', row.id, 'update', row)
+    }
+
+    return unpriced.length
   }
 
   // --- Documents ---------------------------------------------------------

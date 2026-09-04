@@ -87,7 +87,24 @@ export interface DataAdapter {
   listCampaigns(options?: { includeInactive?: boolean }): Promise<Campaign[]>
   getCampaign(id: string): Promise<Campaign | null>
   createCampaign(campaign: NewCampaign): Promise<Campaign>
+
+  /** Setting `pay_per_video_cents` on a campaign that had none also backfills
+   *  the rate onto that campaign's posted-but-unpriced videos - see
+   *  backfillUnpricedVideos for exactly what that does and does not touch. */
   updateCampaign(id: string, patch: Partial<Omit<Campaign, 'id' | 'user_id'>>): Promise<Campaign>
+
+  /** Writes the campaign's current rate onto its posted videos that have no
+   *  rate snapshot yet, and returns how many it changed.
+   *
+   *  Only videos where `rate_snapshot_cents` is null - videos posted while the
+   *  campaign had no confirmed rate. A video that already snapshotted a real
+   *  rate is never touched, at any rate, ever: that snapshot is what makes the
+   *  ledger non-rewritable, and backfilling over it would repay past work at
+   *  today's number.
+   *
+   *  A no-op when the campaign still has no rate. There is nothing to write,
+   *  and 0 would be a fabricated "earned nothing". */
+  backfillUnpricedVideos(campaignId: string): Promise<number>
 
   // --- Documents ---------------------------------------------------------
 

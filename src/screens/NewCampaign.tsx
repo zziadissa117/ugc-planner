@@ -1,5 +1,363 @@
-import { Placeholder } from '../components/Placeholder'
+import { useCallback, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+
+import { useData } from '../data/useData'
+import {
+  NEVER_PARSED_FIELDS,
+  PASTE_SCHEMA_EXAMPLE,
+  ParseError,
+  PastedJsonParser,
+  applyParseResult,
+  inspectBrief,
+  verifyQuotes,
+  type ParseResult,
+} from '../parser'
+import { EdgeFunctionParser } from '../parser/edgeFunction'
+import { fieldLabel } from '../components/fieldLabel'
+
+interface Upload {
+  text: string
+  filename: string | null
+}
 
 export function NewCampaign() {
-  return <Placeholder title="New campaign" phase="phase 8 builds the drop box" />
+  const data = useData()
+  const navigate = useNavigate()
+
+  const [brief, setBrief] = useState<Upload>({ text: '', filename: null })
+  const [contract, setContract] = useState<Upload>({ text: '', filename: null })
+  const [json, setJson] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const [review, setReview] = useState<ParseResult | null>(null)
+  const [rejected, setRejected] = useState<string[]>([])
+  const [confirmed, setConfirmed] = useState<Set<string>>(new Set())
+
+  const briefText = brief.text.trim() === '' ? null : brief.text
+  const contractText = contract.text.trim() === '' ? null : contract.text
+
+  const runParse = useCallback(async () => {
+    setError(null)
+    try {
+      const result = await new PastedJsonParser().parse({ briefText, contractText, json })
+
+      // The brief is inspected directly rather than taking the paste's word
+      // for whether it is intact.
+      const integrity = briefText === null ? null : inspectBrief(briefText)
+
+      const verified = verifyQuotes(
+        {
+          ...result,
+          brief_is_incomplete: integrity?.isIncomplete ?? false,
+          warnings: [...result.warnings, ...(integrity?.reasons ?? [])],
+        },
+        { briefText, contractText },
+      )
+
+      setReview(verified.result)
+      setRejected(verified.rejected)
+      setConfirmed(new Set())
+    } catch (caught) {
+      setError(caught instanceof ParseError ? caught.message : String(caught))
+    }
+  }, [briefText, contractText, json])
+
+  const save = useCallback(async () => {
+    if (!review) return
+    setBusy(true)
+    try {
+      const campaign = await applyParseResult(data, {
+        result: review,
+        confirmed,
+        briefText,
+        briefFilename: brief.filename,
+        contractText,
+        contractFilename: contract.filename,
+      })
+      void navigate(`/campaigns/${campaign.id}`)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught))
+    } finally {
+      setBusy(false)
+    }
+  }, [brief.filename, briefText, confirmed, contract.filename, contractText, data, navigate, review])
+
+  if (review) {
+    return (
+      <Review
+        result={review}
+        rejected={rejected}
+        confirmed={confirmed}
+        onToggle={(key) =>
+          setConfirmed((current) => {
+            const next = new Set(current)
+            if (next.has(key)) next.delete(key)
+            else next.add(key)
+            return next
+          })
+        }
+        onBack={() => setReview(null)}
+        onSave={() => void save()}
+        busy={busy}
+        error={error}
+      />
+    )
+  }
+
+  return (
+    <section className="mx-auto flex max-w-screen-sm flex-col gap-6">
+      <h1 className="text-2xl font-semibold text-text">New campaign</h1>
+
+      <DocumentInput label="BRIEF (.md)" upload={brief} onChange={setBrief} />
+      <DocumentInput label="CONTRACT (.md)" upload={contract} onChange={setContract} />
+
+      <div>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-state-later">
+          Parsed JSON
+        </h2>
+        <p className="mt-1 text-sm text-state-later">
+          {new EdgeFunctionParser().isAvailable()
+            ? 'The server parser is available.'
+            : 'The server parser is not deployed yet, so run the documents through a model yourself and paste what it gives back. Every field needs the exact text it came from, and anything that cannot be found in the document above is dropped.'}
+        </p>
+        <textarea
+          value={json}
+          onChange={(event) => setJson(event.target.value)}
+          aria-label="Parsed JSON"
+          spellCheck={false}
+          placeholder={PASTE_SCHEMA_EXAMPLE}
+          className="mt-3 h-56 w-full resize-y rounded-lg border border-edge bg-surface p-3 font-mono text-xs text-text placeholder:text-state-later"
+        />
+      </div>
+
+      {error ? <p className="text-state-blocked">{error}</p> : null}
+
+      <button
+        type="button"
+        onClick={() => void runParse()}
+        disabled={json.trim() === ''}
+        className="min-h-tap rounded-lg border border-state-now bg-surface-raised px-4 font-semibold text-state-now active:bg-surface disabled:border-edge disabled:bg-surface disabled:text-state-later"
+      >
+        Review it
+      </button>
+    </section>
+  )
+}
+
+/** One document slot. Tap-to-pick comes first and is the biggest target:
+ *  phones do not really drag and drop, and SPEC section 7 says that matters
+ *  more than the drop area does. */
+function DocumentInput({
+  label,
+  upload,
+  onChange,
+}: {
+  label: string
+  upload: Upload
+  onChange: (upload: Upload) => void
+}) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [dragging, setDragging] = useState(false)
+
+  const readFile = useCallback(
+    (file: File) => {
+      void file.text().then((text) => onChange({ text, filename: file.name }))
+    },
+    [onChange],
+  )
+
+  return (
+    <div
+      onDragOver={(event) => {
+        event.preventDefault()
+        setDragging(true)
+      }}
+      onDragLeave={() => setDragging(false)}
+      onDrop={(event) => {
+        event.preventDefault()
+        setDragging(false)
+        const file = event.dataTransfer.files[0]
+        if (file) readFile(file)
+      }}
+      className={`rounded-lg border p-4 ${dragging ? 'border-state-now' : 'border-edge'}`}
+    >
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-state-later">{label}</h2>
+
+      <input
+        ref={inputRef}
+        type="file"
+        accept=".md,.markdown,.txt,text/markdown,text/plain"
+        aria-label={`${label} file`}
+        onChange={(event) => {
+          const file = event.target.files?.[0]
+          if (file) readFile(file)
+        }}
+        className="hidden"
+      />
+      <button
+        type="button"
+        onClick={() => inputRef.current?.click()}
+        className="mt-3 min-h-tap w-full rounded-lg border border-edge bg-surface px-4 font-semibold text-text active:bg-surface-raised"
+      >
+        {upload.filename ?? 'Choose a file'}
+      </button>
+
+      <textarea
+        value={upload.text}
+        onChange={(event) => onChange({ ...upload, text: event.target.value })}
+        aria-label={`${label} text`}
+        spellCheck={false}
+        placeholder="or paste the text here"
+        className="mt-3 h-32 w-full resize-y rounded-lg border border-edge bg-surface p-3 font-mono text-xs text-text placeholder:text-state-later"
+      />
+
+      {upload.text.trim() === '' ? null : (
+        <p className="mt-2 text-sm text-state-later">
+          {upload.text.length.toLocaleString()} characters, stored as-is.
+        </p>
+      )}
+    </div>
+  )
+}
+
+function Review({
+  result,
+  rejected,
+  confirmed,
+  onToggle,
+  onBack,
+  onSave,
+  busy,
+  error,
+}: {
+  result: ParseResult
+  rejected: readonly string[]
+  confirmed: ReadonlySet<string>
+  onToggle: (key: string) => void
+  onBack: () => void
+  onSave: () => void
+  busy: boolean
+  error: string | null
+}) {
+  const entries = Object.entries(result.fields).sort(([a], [b]) => a.localeCompare(b))
+  const found = entries.filter(([, field]) => field.value !== null)
+  const blank = entries.filter(([, field]) => field.value === null)
+
+  return (
+    <section className="mx-auto flex max-w-screen-sm flex-col gap-6">
+      <header>
+        <h1 className="text-2xl font-semibold text-text">Review</h1>
+        <p className="text-state-later">{result.campaign.name}</p>
+      </header>
+
+      {result.brief_is_incomplete ? (
+        <p className="rounded-lg border border-state-waiting/40 bg-state-waiting/10 px-4 py-3 text-state-waiting">
+          This brief looks incomplete. Some rules may be missing.
+        </p>
+      ) : null}
+
+      {result.warnings.length > 0 ? (
+        <ul className="flex flex-col gap-1 text-sm text-state-waiting">
+          {result.warnings.map((warning) => (
+            <li key={warning}>{warning}</li>
+          ))}
+        </ul>
+      ) : null}
+
+      {found.length > 0 ? (
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-state-later">
+            Found in the documents
+          </h2>
+          <p className="mt-1 text-sm text-state-later">
+            Tap a row to confirm it against the quote. Nothing counts as a documented rate or a
+            verified quota until you do.
+          </p>
+          <ul aria-label="Parsed fields" className="mt-3 flex flex-col gap-3">
+            {found.map(([key, field]) => {
+              const isConfirmed = confirmed.has(key)
+              return (
+                <li key={key}>
+                  <button
+                    type="button"
+                    onClick={() => onToggle(key)}
+                    aria-pressed={isConfirmed}
+                    className={`flex min-h-tap w-full flex-col justify-center rounded-lg border px-4 py-3 text-left active:bg-surface-raised ${
+                      isConfirmed
+                        ? 'border-state-posted/40 bg-state-posted/5'
+                        : 'border-state-waiting/40 bg-state-waiting/5'
+                    }`}
+                  >
+                    <span className="text-xs font-semibold uppercase tracking-wide text-state-later">
+                      {fieldLabel(key)}
+                    </span>
+                    <span
+                      className={isConfirmed ? 'text-state-posted' : 'text-state-waiting'}
+                    >
+                      {field.value}
+                    </span>
+                    <span
+                      className={`mt-1 text-xs font-semibold uppercase tracking-wide ${
+                        isConfirmed ? 'text-state-posted' : 'text-state-waiting'
+                      }`}
+                    >
+                      {isConfirmed ? 'confirmed' : 'from file - unreviewed'}
+                    </span>
+                    <span className="mt-1 text-xs text-state-later">"{field.source_quote}"</span>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      ) : null}
+
+      {blank.length > 0 ? (
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-state-later">
+            Not found
+          </h2>
+          <ul aria-label="Blank fields" className="mt-2 flex flex-col gap-1 text-sm">
+            {blank.map(([key]) => (
+              <li key={key} className="flex justify-between gap-4">
+                <span className="text-state-later">{fieldLabel(key)}</span>
+                <span className="text-state-later">
+                  {rejected.includes(key) ? 'quote not in the document' : 'not saved yet'}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {/* One plain line, so that "it did not fill that in" reads as the app
+          working rather than as a bug. */}
+      <p className="text-sm text-state-later">
+        No document states your {NEVER_PARSED_FIELDS.slice(0, 2).join(' or ')}, setup type, real
+        per-stage times or daily quota, so nothing was guessed for them. Fill them in yourself
+        when you are ready.
+      </p>
+
+      {error ? <p className="text-state-blocked">{error}</p> : null}
+
+      <div className="flex gap-3">
+        <button
+          type="button"
+          onClick={onBack}
+          className="min-h-tap flex-1 rounded-lg border border-edge bg-surface px-4 font-semibold text-state-later active:bg-surface-raised"
+        >
+          Back
+        </button>
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={busy}
+          className="min-h-tap flex-1 rounded-lg border border-state-now bg-surface-raised px-4 font-semibold text-state-now active:bg-surface disabled:opacity-60"
+        >
+          Save campaign
+        </button>
+      </div>
+    </section>
+  )
 }

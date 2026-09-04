@@ -18,7 +18,25 @@
 //
 // Everything is integer cents. Division happens only at the display edge.
 
-import type { BonusClaim, BonusTier, Campaign, Video } from './data'
+import type { BonusClaim, BonusTier, Campaign, CampaignField, Video } from './data'
+
+/** The rate he says his carried-over posts were paid at.
+ *
+ *  Read only once he has confirmed it. It is never derived from the campaign's
+ *  current rate: today's rate is a fact about today, and using it here would
+ *  turn a guess into earnings history that nothing afterwards could flag as
+ *  unchecked. Unset means unknown, and unknown stays blank. */
+export const OPENING_BALANCE_RATE_KEY = 'opening_balance_rate_cents'
+
+function confirmedOpeningRate(fields: readonly CampaignField[]): number | null {
+  const field = fields.find((f) => f.field_key === OPENING_BALANCE_RATE_KEY)
+  if (!field || field.confirmed_at === null || field.field_value === null) return null
+
+  const cents = Number(field.field_value)
+  // Money is integer cents. Anything else is not a rate we will show.
+  if (!Number.isInteger(cents) || cents < 0) return null
+  return cents
+}
 
 export interface CampaignMoney {
   campaign: Campaign
@@ -37,10 +55,22 @@ export interface CampaignMoney {
   /** USER ENTERED. Only what was logged as received. */
   receivedBonusCents: number
 
-  /** Posts carried in from before the app existed. A count, never money: no
-   *  rate was ever recorded for them, and inventing one would fabricate
-   *  earnings history. */
+  /** Posts carried in from before the app existed. A count, and money only if
+   *  he has told us what they paid - see openingBalanceCents. */
   openingPostCount: number
+
+  /** The rate he confirmed for those carried-over posts, or null if he has not
+   *  said. Never derived from the campaign's current rate. */
+  openingBalanceRateCents: number | null
+
+  /** openingPostCount times that rate, or null while the rate is unknown.
+   *
+   *  Documented in the same sense as the per-video total - he stated it - but
+   *  kept as its own figure rather than added to it. The per-video total is
+   *  built from rates this app watched being locked in; this one is his
+   *  recollection of what happened before it existed. Both are honest; they
+   *  are not the same kind of honest. */
+  openingBalanceCents: number | null
   /** Posts this app has actually seen happen. */
   postedInAppCount: number
 
@@ -59,6 +89,7 @@ export function summariseCampaignMoney(
   videos: readonly Video[],
   tiers: readonly BonusTier[],
   claims: readonly BonusClaim[],
+  fields: readonly CampaignField[] = [],
 ): CampaignMoney {
   const mine = videos.filter((v) => v.campaign_id === campaign.id)
   const posted = mine.filter((v) => v.phase === 'posted')
@@ -90,6 +121,10 @@ export function summariseCampaignMoney(
   const completedCycles = cycleSize === null ? 0 : Math.floor(cyclePosition / cycleSize)
   const postsIntoCurrentCycle = cycleSize === null ? cyclePosition : cyclePosition % cycleSize
 
+  const openingBalanceRateCents = confirmedOpeningRate(
+    fields.filter((f) => f.campaign_id === campaign.id),
+  )
+
   return {
     campaign,
     documentedCents,
@@ -99,6 +134,11 @@ export function summariseCampaignMoney(
     expectedBonusCents,
     receivedBonusCents,
     openingPostCount: campaign.opening_post_count,
+    openingBalanceRateCents,
+    openingBalanceCents:
+      openingBalanceRateCents === null
+        ? null
+        : campaign.opening_post_count * openingBalanceRateCents,
     postedInAppCount,
     cyclePosition,
     cycleSize,
@@ -115,8 +155,11 @@ export function summariseAllMoney(
   videos: readonly Video[],
   tiers: readonly BonusTier[],
   claims: readonly BonusClaim[],
+  fields: readonly CampaignField[] = [],
 ): CampaignMoney[] {
-  return campaigns.map((campaign) => summariseCampaignMoney(campaign, videos, tiers, claims))
+  return campaigns.map((campaign) =>
+    summariseCampaignMoney(campaign, videos, tiers, claims, fields),
+  )
 }
 
 /** Totals per figure, across campaigns. Each figure is only ever added to more

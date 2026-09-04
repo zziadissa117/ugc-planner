@@ -179,6 +179,22 @@ export const INFLOW_FIELDS: readonly SeedField[] = [
     source: 'user_entered',
   },
 
+  // --- What the carried-over posts were paid at --------------------------
+  {
+    // Ships blank, and is never filled in from pay_per_video_cents.
+    //
+    // The 13 posts carried over happened before this app existed and no rate
+    // was ever recorded for them. Today's $35.00 is a fact about today; using
+    // it here would silently turn a guess into $455.00 of earnings history and
+    // there would be no way to tell afterwards that nobody had checked. If he
+    // confirms a rate himself, the money screen shows what those posts were
+    // worth - on its own line, never folded into the per-video total.
+    field_key: 'opening_balance_rate_cents',
+    field_value: null,
+    source: 'missing',
+    note: 'Never auto-derived from the campaign rate. Only he knows what the carried-over posts paid.',
+  },
+
   // --- Trial period. SPEC section 12.4 -----------------------------------
   {
     field_key: 'trial_length_days',

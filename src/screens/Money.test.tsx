@@ -96,6 +96,30 @@ describe('the money screen', () => {
     expect(screen.queryByText('$455.00')).toBeNull()
   })
 
+  it('asks what the carried-over posts were paid at, and values them once told', async () => {
+    const user = userEvent.setup()
+    await renderMoney()
+
+    // It cannot derive this, but it does not stay quiet about it either.
+    const input = screen.getByLabelText(/what were those 13 carried-over posts paid at/i)
+    await user.type(input, '35')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/13 posts carried over at \$35\.00 each/)).toBeInTheDocument()
+    })
+    // Its own line inside the DOCUMENTED card, not added to the figure.
+    expect(screen.getByText('$455.00')).toBeInTheDocument()
+    expect(screen.getByText('Documented').parentElement).toHaveTextContent('$0.00')
+  })
+
+  it('does not assume the current rate applies to the carried-over posts', async () => {
+    await renderMoney()
+    // Inflow pays $35.00 today, and that is not evidence about the old posts.
+    expect(screen.getByText(/no recorded earnings/)).toBeInTheDocument()
+    expect(screen.queryByText('$455.00')).toBeNull()
+  })
+
   it('says base pay is accrued and not yet payable', async () => {
     await postVideos(1)
     await renderMoney()

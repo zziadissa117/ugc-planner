@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import type { BonusClaim, BonusTier, Campaign, Video } from './data'
+import type { BonusClaim, BonusTier, Campaign, CampaignField, Video } from './data'
 import { summariseCampaignMoney, totalMoney } from './money'
 
 const USER = 'u'
@@ -234,6 +234,81 @@ describe('the opening balance', () => {
     expect(money.cyclePosition).toBe(15)
     expect(money.postedInAppCount).toBe(2)
     expect(money.documentedCents).toBe(7000)
+  })
+})
+
+describe('the opening balance rate', () => {
+  const rateField = (overrides: Partial<CampaignField> = {}): CampaignField => ({
+    id: 'f1',
+    user_id: USER,
+    campaign_id: 'c1',
+    field_key: 'opening_balance_rate_cents',
+    field_value: '3500',
+    source: 'user_entered',
+    source_quote: null,
+    source_document_id: null,
+    confirmed_at: '2026-09-04T00:00:00.000Z',
+    updated_at: '2026-09-04T00:00:00.000Z',
+    ...overrides,
+  })
+
+  it('is unknown until he confirms one', () => {
+    const money = summariseCampaignMoney(campaign(), [], [], [], [])
+    expect(money.openingBalanceRateCents).toBeNull()
+    expect(money.openingBalanceCents).toBeNull()
+  })
+
+  it('is never derived from the campaign current rate', () => {
+    // The campaign pays $35.00 today. That says nothing about what the posts
+    // carried over from before the app existed were paid at.
+    const money = summariseCampaignMoney(campaign({ pay_per_video_cents: 3500 }), [], [], [], [])
+    expect(money.openingBalanceRateCents).toBeNull()
+  })
+
+  it('values the carried-over posts once he confirms a rate', () => {
+    const money = summariseCampaignMoney(campaign(), [], [], [], [rateField()])
+    expect(money.openingBalanceRateCents).toBe(3500)
+    expect(money.openingBalanceCents).toBe(45_500) // 13 x $35.00
+  })
+
+  it('stays out of the per-video documented total', () => {
+    const money = summariseCampaignMoney(campaign(), [posted(3500)], [], [], [rateField()])
+    // The two figures are reported side by side, not added together.
+    expect(money.documentedCents).toBe(3500)
+    expect(money.openingBalanceCents).toBe(45_500)
+  })
+
+  it('ignores a rate he typed but never confirmed', () => {
+    const money = summariseCampaignMoney(campaign(), [], [], [], [rateField({ confirmed_at: null })])
+    expect(money.openingBalanceCents).toBeNull()
+  })
+
+  it('ignores a missing field, and one holding something that is not cents', () => {
+    expect(
+      summariseCampaignMoney(
+        campaign(),
+        [],
+        [],
+        [],
+        [rateField({ source: 'missing', field_value: null })],
+      ).openingBalanceCents,
+    ).toBeNull()
+
+    expect(
+      summariseCampaignMoney(campaign(), [], [], [], [rateField({ field_value: '35.50' })])
+        .openingBalanceCents,
+    ).toBeNull()
+  })
+
+  it('does not read another campaign rate', () => {
+    const money = summariseCampaignMoney(
+      campaign(),
+      [],
+      [],
+      [],
+      [rateField({ campaign_id: 'c2' })],
+    )
+    expect(money.openingBalanceCents).toBeNull()
   })
 })
 

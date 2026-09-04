@@ -1,8 +1,13 @@
-import { useCallback, useEffect, useState } from 'react'
+﻿import { useCallback, useEffect, useState } from 'react'
 
 import type { Campaign } from '../data'
 import { useData } from '../data/useData'
-import { summariseAllMoney, totalMoney, type CampaignMoney } from '../money'
+import {
+  OPENING_BALANCE_RATE_KEY,
+  summariseAllMoney,
+  totalMoney,
+  type CampaignMoney,
+} from '../money'
 import { formatCents } from '../session'
 
 /** SPEC section 10.
@@ -22,8 +27,11 @@ export function Money() {
       data.listVideos(),
       data.listBonusClaims(),
     ])
-    const tiers = (await Promise.all(campaigns.map((c) => data.listBonusTiers(c.id)))).flat()
-    return summariseAllMoney(campaigns, videos, tiers, claims)
+    const [tiers, fields] = await Promise.all([
+      Promise.all(campaigns.map((c) => data.listBonusTiers(c.id))).then((r) => r.flat()),
+      Promise.all(campaigns.map((c) => data.listCampaignFields(c.id))).then((r) => r.flat()),
+    ])
+    return summariseAllMoney(campaigns, videos, tiers, claims, fields)
   }, [data])
 
   useEffect(() => {
@@ -50,6 +58,29 @@ export function Money() {
     [data, load],
   )
 
+  const saveOpeningRate = useCallback(
+    async (campaign: Campaign, cents: number) => {
+      setBusy(true)
+      try {
+        await data.setCampaignField({
+          campaign_id: campaign.id,
+          field_key: OPENING_BALANCE_RATE_KEY,
+          field_value: String(cents),
+          // His own figure, with no document behind it. Confirming it below
+          // leaves it user_entered rather than promoting it to documented.
+          source: 'user_entered',
+          source_quote: null,
+          source_document_id: null,
+        })
+        await data.confirmCampaignField(campaign.id, OPENING_BALANCE_RATE_KEY)
+        setSummaries(await load())
+      } finally {
+        setBusy(false)
+      }
+    },
+    [data, load],
+  )
+
   if (summaries === null) return null
   const totals = totalMoney(summaries)
 
@@ -62,7 +93,25 @@ export function Money() {
           label="Documented"
           note="Posted videos at the rate each one locked in at."
           cents={totals.documentedCents}
-        />
+        >
+          {/* Its own line inside the card, never added to the figure above.
+              The per-video total is built from rates this app watched being
+              locked in; this is his recollection of what happened before it
+              existed. Both are honest, and they are not the same kind. */}
+          {summaries
+            .filter((s) => s.openingBalanceCents !== null)
+            .map((s) => (
+              <p key={s.campaign.id} className="mt-2 border-t border-edge pt-2 text-sm">
+                <span className="text-state-later">
+                  {s.campaign.name} - {s.openingPostCount} posts carried over at{' '}
+                  {formatCents(s.openingBalanceRateCents ?? 0)}:{' '}
+                </span>
+                <span className="tabular-nums text-text">
+                  {formatCents(s.openingBalanceCents ?? 0)}
+                </span>
+              </p>
+            ))}
+        </Figure>
         <Figure
           label="Expected"
           note="Bonus payouts times the odds you gave them. Not earned."
@@ -91,6 +140,7 @@ export function Money() {
           summary={summary}
           busy={busy}
           onBackfill={() => void backfill(summary.campaign)}
+          onSaveOpeningRate={(campaign, cents) => void saveOpeningRate(campaign, cents)}
         />
       ))}
     </section>
@@ -103,12 +153,14 @@ function Figure({
   cents,
   muted,
   zeroNote,
+  children,
 }: {
   label: string
   note: string
   cents: number
   muted?: boolean
   zeroNote?: string
+  children?: React.ReactNode
 }) {
   return (
     <div className="rounded-lg border border-edge bg-surface p-4">
@@ -120,6 +172,7 @@ function Figure({
       </p>
       <p className="mt-1 text-sm text-state-later">{note}</p>
       {muted && zeroNote ? <p className="mt-1 text-sm text-state-later">{zeroNote}</p> : null}
+      {children}
     </div>
   )
 }
@@ -128,10 +181,12 @@ function CampaignSection({
   summary,
   busy,
   onBackfill,
+  onSaveOpeningRate,
 }: {
   summary: CampaignMoney
   busy: boolean
   onBackfill: () => void
+  onSaveOpeningRate: (campaign: Campaign, cents: number) => void
 }) {
   const { campaign } = summary
 
@@ -167,15 +222,14 @@ function CampaignSection({
 
       <dl className="flex flex-col gap-2 text-sm">
         <Line label="Posted in this app">
-          {summary.postedInAppCount} · {formatCents(summary.documentedCents)} documented
+          {summary.postedInAppCount} Â· {formatCents(summary.documentedCents)} documented
         </Line>
 
-        {/* Its own line, never folded into the posted-video maths. These posts
-            happened before the app existed and no rate was ever recorded for
-            them, so they count toward the cycle and carry no money. */}
+        {/* Its own line, never folded into the posted-video maths. */}
         <Line label="Opening balance">
-          {summary.openingPostCount} posts carried over - counted toward the cycle, with no
-          recorded earnings
+          {summary.openingBalanceCents === null
+            ? `${summary.openingPostCount} posts carried over - counted toward the cycle, with no recorded earnings`
+            : `${summary.openingPostCount} posts carried over at ${formatCents(summary.openingBalanceRateCents ?? 0)} each`}
         </Line>
 
         <Line label="Cycle position">
@@ -183,6 +237,10 @@ function CampaignSection({
           {summary.cycleSize === null ? '' : ` of ${summary.cycleSize}`}
         </Line>
       </dl>
+
+      {summary.openingPostCount > 0 && summary.openingBalanceCents === null ? (
+        <OpeningRateAsk summary={summary} onSave={onSaveOpeningRate} busy={busy} />
+      ) : null}
 
       {summary.unpricedPostedCount > 0 ? (
         <div className="rounded-lg border border-state-waiting/40 bg-state-waiting/10 p-4">
@@ -208,6 +266,58 @@ function CampaignSection({
           )}
         </div>
       ) : null}
+    </div>
+  )
+}
+
+/** Asks what the carried-over posts were paid at.
+ *
+ *  The app cannot work this out. Today's rate is a fact about today, and the
+ *  posts predate everything it has ever seen. But being unable to derive it is
+ *  not a reason to stay quiet about it - he knows, and nobody has asked. */
+function OpeningRateAsk({
+  summary,
+  onSave,
+  busy,
+}: {
+  summary: CampaignMoney
+  onSave: (campaign: Campaign, cents: number) => void
+  busy: boolean
+}) {
+  const [dollars, setDollars] = useState('')
+  const cents = Math.round(Number(dollars) * 100)
+  const valid = dollars.trim() !== '' && Number.isFinite(cents) && cents >= 0
+
+  return (
+    <div className="rounded-lg border border-edge bg-surface p-4">
+      <label
+        htmlFor={`opening-rate-${summary.campaign.id}`}
+        className="text-sm text-state-later"
+      >
+        What were those {summary.openingPostCount} carried-over posts paid at? Nothing here
+        records it, and it is not assumed to be the current rate.
+      </label>
+      <div className="mt-3 flex gap-3">
+        <input
+          id={`opening-rate-${summary.campaign.id}`}
+          type="number"
+          inputMode="decimal"
+          min={0}
+          step="0.01"
+          value={dollars}
+          onChange={(event) => setDollars(event.target.value)}
+          placeholder="35.00"
+          className="min-h-tap flex-1 rounded-lg border border-edge bg-ink px-4 text-text placeholder:text-state-later"
+        />
+        <button
+          type="button"
+          disabled={!valid || busy}
+          onClick={() => onSave(summary.campaign, cents)}
+          className="min-h-tap rounded-lg border border-edge bg-surface px-5 font-semibold text-text active:bg-surface-raised disabled:text-state-later"
+        >
+          Save
+        </button>
+      </div>
     </div>
   )
 }

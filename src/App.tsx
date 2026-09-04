@@ -1,4 +1,8 @@
+import { useEffect, useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
+
+import { ensureSeeded } from './data/seed'
+import { useData } from './data/useData'
 
 /** The tabs worth a permanent slot. SHOOT and the tick-off list are reached
  *  from NOW, because both only make sense once he has said what he is doing. */
@@ -10,11 +14,29 @@ const TABS = [
 ]
 
 export function App() {
+  const data = useData()
+  const [ready, setReady] = useState(false)
+
+  // The seed runs before anything renders, so no screen ever paints an empty
+  // state that is about to fill itself in a moment later.
+  useEffect(() => {
+    let cancelled = false
+    void ensureSeeded(data)
+      .catch(() => {
+        // A failed seed must not take the app down with it: everything else
+        // still works, and the campaigns list will simply be empty.
+      })
+      .finally(() => {
+        if (!cancelled) setReady(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [data])
+
   return (
     <div className="flex min-h-dvh flex-col bg-ink text-text">
-      <main className="flex-1 px-4 pt-6 pb-4">
-        <Outlet />
-      </main>
+      <main className="flex-1 px-4 pt-6 pb-4">{ready ? <Outlet /> : null}</main>
 
       <nav
         className="sticky bottom-0 border-t border-edge bg-surface"

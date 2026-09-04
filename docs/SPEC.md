@@ -235,6 +235,24 @@ needing filming.
    whole pipeline.
 5. In a POST session, prioritise anything at risk: aging approved videos, and
    the day's quota.
+6. **In a FILM or WARM-UP session, spend leftover time generating new supply.**
+   Today's already-owed rows are packed first, as above. Whatever session time
+   is left is then filled with *new* videos, created in priority order until the
+   window runs out.
+
+   He batches - roughly 7 videos a session - so a FILM session that could only
+   ever offer the one video owed today would be useless. New rows are created
+   with `owed_for_date = null`, which is what the schema means by supply built
+   ahead of demand: they are stock, not an obligation for any particular day.
+   Phase is the start of the campaign's chain, and `video_kind` follows the
+   campaign - `warm_up` in a WARM-UP session, `contracted` for a campaign with a
+   daily quota, `no_quota` otherwise.
+
+   **He never picks a count.** The algorithm fills the window: it keeps adding
+   supply, in the same setup-batched priority order as everything else and
+   charging the same switch cost, until the next video would not fit. Asking
+   "how many tonight?" would be one more thing to decide, and removing the
+   deciding is the entire point of the app.
 
 Keep the weights in one clearly named exported object with a comment per weight.
 

@@ -16,7 +16,6 @@ import type { DataAdapter } from '../data/DataAdapter'
 import { LocalDatabase } from '../data/local/db'
 import { LocalAdapter } from '../data/local/LocalAdapter'
 import { INFLOW_CAMPAIGN_ID, ensureSeeded } from '../data/seed'
-import { ensureTodaysQuota } from '../data/today'
 import { Now } from './Now'
 import { TickOff } from './TickOff'
 
@@ -98,13 +97,20 @@ describe('the NOW screen', () => {
     ).toBeInTheDocument()
   })
 
-  it('scopes a FILM session to videos needing filming', async () => {
+  it('fills the window with film work, existing and newly generated', async () => {
     await seedFilmBacklog(2)
     const user = userEvent.setup()
     const list = await startFilmSession(user)
 
-    // Today's quota video plus the two built ahead.
-    expect(within(list).getAllByRole('button')).toHaveLength(3)
+    // A 60 minute window at 12 film minutes a video: today's owed one, the two
+    // already built ahead, and enough new supply to use the rest. He never
+    // picked a count - the window decided.
+    expect(within(list).getAllByRole('button')).toHaveLength(5)
+
+    // Everything offered is film work, so everything starts undone.
+    for (const row of within(list).getAllByRole('button')) {
+      expect(row).toHaveAttribute('aria-pressed', 'false')
+    }
   })
 
   it('marks a video done in one tap, turns it green, and leaves it in place', async () => {
@@ -115,9 +121,8 @@ describe('the NOW screen', () => {
     const before = within(list)
       .getAllByRole('button')
       .map((button) => button.textContent)
-    expect(before).toHaveLength(3)
 
-    // Tap the middle row - the most disruptive one to move.
+    // Tap a middle row - the most disruptive one to move.
     const target = within(list).getAllByRole('button')[1]
     expect(target).toHaveAttribute('aria-pressed', 'false')
     await user.click(target)
@@ -127,8 +132,8 @@ describe('the NOW screen', () => {
     })
 
     const rows = within(list).getAllByRole('button')
-    // Still three rows, still in the same positions.
-    expect(rows).toHaveLength(3)
+    // Same rows, same count, same positions.
+    expect(rows).toHaveLength(before.length)
     expect(rows[0].textContent).toBe(before[0])
     expect(rows[2].textContent).toBe(before[2])
     // The tapped row is the one that changed, and it turned green.
@@ -141,28 +146,47 @@ describe('the NOW screen', () => {
     const user = userEvent.setup()
     const list = await startFilmSession(user)
 
+    const count = within(list).getAllByRole('button').length
     const row = () => within(list).getAllByRole('button')[0]
+
     await user.click(row())
     await waitFor(() => expect(row()).toHaveAttribute('aria-pressed', 'true'))
 
     await user.click(row())
     await waitFor(() => expect(row()).toHaveAttribute('aria-pressed', 'false'))
-    // Still there, still first.
-    expect(within(list).getAllByRole('button')).toHaveLength(2)
+    // Still there, still first, and nothing else appeared or vanished.
+    expect(within(list).getAllByRole('button')).toHaveLength(count)
   })
 
   it('never proposes editing in a FILM session', async () => {
-    await ensureTodaysQuota(adapter)
-    const [video] = await adapter.listVideos()
-    await adapter.advanceVideoPhase(video.id, { session: 'film' }) // now 'filmed'
+    // A second campaign whose only video is waiting to be edited. It has no
+    // default setup, so the film-ahead pass cannot generate supply for it and
+    // its name can only appear if edit work leaked into the session.
+    const other = await adapter.createCampaign({
+      name: 'Other campaign',
+      company: null,
+      default_setup: null,
+      approval_mode: 'none',
+      pay_per_video_cents: 1000,
+      cycle_size: null,
+    })
+    const toEdit = await adapter.createVideo({
+      campaign_id: other.id,
+      setup: 'face',
+      angle_id: null,
+      script: null,
+      blocked_reason: null,
+      owed_for_date: null,
+      rate_snapshot_cents: null,
+      posted_at: null,
+    })
+    await adapter.advanceVideoPhase(toEdit.id, { session: 'film' }) // now 'filmed'
 
     const user = userEvent.setup()
-    await openFilmSession(user)
+    const list = await startFilmSession(user)
 
-    // The filmed video belongs to an EDIT session, not this one, so a FILM
-    // session has nothing to show rather than quietly offering edit work.
-    expect(await screen.findByText(/nothing at this stage right now/i)).toBeInTheDocument()
-    expect(screen.queryByRole('list', { name: 'Tonight' })).toBeNull()
+    // The filmed video belongs to an EDIT session, not this one.
+    expect(within(list).queryByText('Other campaign')).toBeNull()
   })
 })
 

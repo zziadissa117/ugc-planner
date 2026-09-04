@@ -2,14 +2,16 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { VideoRow } from '../components/VideoRow'
-import type { Campaign, SessionType, TimeEstimate, Video } from '../data'
+import type { BonusClaim, BonusTier, Campaign, SessionType, TimeEstimate, Video } from '../data'
+import { localToday } from '../data'
 import { ensureTodaysQuota, shouldNudgeToEdit, summariseToday } from '../data/today'
 import { useData } from '../data/useData'
+import { approvedAtFromEvents, fitSession } from '../fitting/fit'
+import { materialiseSupply } from '../fitting/supply'
 import {
   SESSION_MINUTES,
   SESSION_PHASE,
   SESSION_TYPES,
-  eligibleVideos,
   formatCents,
   formatMinutes,
   stageMinutes,
@@ -33,15 +35,29 @@ export function Now() {
   const [rowIds, setRowIds] = useState<string[] | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
 
+  const [switchMinutes, setSwitchMinutes] = useState(10)
+  const [tiers, setTiers] = useState<BonusTier[]>([])
+  const [claims, setClaims] = useState<BonusClaim[]>([])
+
   const reload = useCallback(async () => {
-    const [nextCampaigns, nextVideos, nextEstimates] = await Promise.all([
+    const [nextCampaigns, nextVideos, nextEstimates, settings, nextClaims] = await Promise.all([
       data.listCampaigns(),
       data.listVideos(),
       data.listTimeEstimates(),
+      data.getUserSettings(),
+      data.listBonusClaims(),
     ])
+    const nextTiers = (
+      await Promise.all(nextCampaigns.map((c) => data.listBonusTiers(c.id)))
+    ).flat()
+
     setCampaigns(nextCampaigns)
     setVideos(nextVideos)
     setEstimates(nextEstimates)
+    setSwitchMinutes(settings.setup_switch_minutes)
+    setClaims(nextClaims)
+    setTiers(nextTiers)
+    return { nextCampaigns, nextVideos, nextEstimates, settings, nextTiers, nextClaims }
   }, [data])
 
   useEffect(() => {
@@ -70,13 +86,43 @@ export function Now() {
     [campaigns, videos],
   )
 
+  /** Runs the fitting algorithm for the chosen session and window, creates any
+   *  supply it decided to make, and freezes the resulting order.
+   *
+   *  He never picks a count: the plan fills the window, and what comes back is
+   *  simply the evening's list, in the order to work it. */
   const startSession = useCallback(
-    (type: SessionType, windowMinutes: number) => {
+    async (type: SessionType, windowMinutes: number) => {
       setSession(type)
       setMinutes(windowMinutes)
-      setRowIds(eligibleVideos(type, videos).map((v) => v.id))
+      setRowIds(null)
+
+      const events = await data.listPhaseEvents()
+      const plan = fitSession({
+        session: type,
+        windowMinutes,
+        videos,
+        campaigns,
+        estimates,
+        setupSwitchMinutes: switchMinutes,
+        today: localToday(),
+        approvedAt: approvedAtFromEvents(events),
+        bonusTiers: tiers,
+        bonusClaims: claims,
+      })
+
+      // Supply rows are created in plan order, so they can be zipped back into
+      // the plan to give the row list its final order.
+      const created = await materialiseSupply(data, plan)
+      const queue = [...created]
+      const ordered = plan.items.map((item) =>
+        item.kind === 'existing' ? item.video.id : (queue.shift()?.id ?? ''),
+      )
+
+      await reload()
+      setRowIds(ordered.filter((id) => id !== ''))
     },
-    [videos],
+    [campaigns, claims, data, estimates, reload, switchMinutes, tiers, videos],
   )
 
   const handleTap = useCallback(
@@ -105,7 +151,7 @@ export function Now() {
         <Chooser
           freeMinutes={freeMinutes}
           setFreeMinutes={setFreeMinutes}
-          onStart={startSession}
+          onStart={(type, windowMinutes) => void startSession(type, windowMinutes)}
           nudgeToEdit={shouldNudgeToEdit(summary)}
         />
       ) : (
@@ -303,8 +349,12 @@ function SessionList({
         <p className="text-lg font-semibold tabular-nums text-text">
           {doneCount} of {rows.length}
         </p>
+        {/* Prospective, not earned. Worded so it cannot be read as a ledger
+            figure: it is what tonight is worth if he finishes it, and it is
+            never summed with base earned, expected bonus or paid bonus. */}
         <p className="text-sm tabular-nums text-state-later">
-          {formatCents(centsLeft)} tonight - ~{formatMinutes(minutesLeft)} of {minutes}m
+          ~{formatCents(centsLeft)} if you finish tonight - ~{formatMinutes(minutesLeft)} of{' '}
+          {minutes}m
         </p>
       </div>
 

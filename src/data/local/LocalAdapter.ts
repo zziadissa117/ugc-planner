@@ -481,6 +481,45 @@ export class LocalAdapter implements DataAdapter {
     return this.movePhase(id, 'back', options)
   }
 
+  async markVideoPosted(id: string, options?: AdvanceOptions): Promise<Video> {
+    return this.tx(
+      [this.db.videos, this.db.campaigns, this.db.phase_events, this.db._outbox],
+      async (tx) => {
+        const video = (await this.requireRow(tx, 'videos', id)) as Video
+        const campaign = (await this.requireRow(tx, 'campaigns', video.campaign_id)) as Campaign
+        if (video.phase === 'posted') return video
+        // Straight there from wherever it is. The event records the real jump
+        // rather than inventing the intermediate steps he never told us about.
+        return this.applyPhase(tx, video, campaign, 'posted', options)
+      },
+    )
+  }
+
+  async undoLastPhaseMove(id: string, options?: AdvanceOptions): Promise<Video> {
+    return this.tx(
+      [this.db.videos, this.db.campaigns, this.db.phase_events, this.db._outbox],
+      async (tx) => {
+        const video = (await this.requireRow(tx, 'videos', id)) as Video
+        const campaign = (await this.requireRow(tx, 'campaigns', video.campaign_id)) as Campaign
+
+        const events = (await tx
+          .table('phase_events')
+          .where('video_id')
+          .equals(id)
+          .toArray()) as PhaseEvent[]
+        const last = events.sort((a, b) => a.id - b.id).at(-1)
+
+        if (!last || last.from_phase === null) {
+          // The only event with a null from_phase is the video's creation, and
+          // undoing a video into not existing is not an undo.
+          throw new DataError(`video ${id} has no phase move to undo`)
+        }
+
+        return this.applyPhase(tx, video, campaign, last.from_phase, options)
+      },
+    )
+  }
+
   /** The one-tap interaction, and the only path that changes a video's phase.
    *  The row moves and its history row is written in the same transaction, so
    *  there is no state in which a video has advanced but the log does not say
@@ -510,51 +549,64 @@ export class LocalAdapter implements DataAdapter {
           )
         }
 
-        const timestamp = now()
-        const row: Video = { ...video, phase: target, updated_at: timestamp }
-
-        if (target === 'posted') {
-          row.posted_at = timestamp
-          // RATE SNAPSHOT. What the campaign pays right now is locked onto the
-          // video, so a later rate change cannot rewrite what past work earned.
-          //
-          // A campaign with no confirmed rate leaves this null, which means
-          // UNPRICED - not free, and not zero. The posting tap still goes
-          // through, because a detail he can fill in later must never block
-          // work he can do right now. Phase 7 keeps unpriced videos out of the
-          // DOCUMENTED figure, counts them in amber, and backfills the
-          // snapshot onto exactly those videos once the rate is confirmed.
-          row.rate_snapshot_cents = campaign.pay_per_video_cents
-        }
-
-        if (video.phase === 'posted' && target !== 'posted') {
-          // Undoing a post. The snapshot is cleared so that re-posting takes a
-          // fresh one; leaving a stale rate attached would silently price the
-          // next post at an old number.
-          row.posted_at = null
-          row.rate_snapshot_cents = null
-        }
-
-        assertRow('videos', row)
-        await tx.table('videos').put(row)
-
-        // Append-only, in both directions. An undo is a new event recording
-        // the move back, never the deletion of the event it reverses - the log
-        // is what MEASURED timings are derived from, and it has to show what
-        // actually happened.
-        const event: Omit<PhaseEvent, 'id'> = {
-          user_id: this.userId,
-          video_id: id,
-          from_phase: video.phase,
-          to_phase: target,
-          session: options?.session ?? null,
-          occurred_at: timestamp,
-          duration_seconds: options?.durationSeconds ?? null,
-        }
-        await tx.table('phase_events').add(event)
-        this.enqueue(tx, 'videos', id, 'update', row)
-        return row
+        return this.applyPhase(tx, video, campaign, target, options)
       })
+  }
+
+  /** Moves a video to `target` and appends the matching history row. Shared by
+   *  the chain step, the skip straight to posted, and the undo, so all three
+   *  handle the rate snapshot and the log identically. */
+  private async applyPhase(
+    tx: Transaction,
+    video: Video,
+    campaign: Campaign,
+    target: VideoPhase,
+    options?: AdvanceOptions,
+  ): Promise<Video> {
+    const id = video.id
+    const timestamp = now()
+    const row: Video = { ...video, phase: target, updated_at: timestamp }
+
+    if (target === 'posted') {
+      row.posted_at = timestamp
+      // RATE SNAPSHOT. What the campaign pays right now is locked onto the
+      // video, so a later rate change cannot rewrite what past work earned.
+      //
+      // A campaign with no confirmed rate leaves this null, which means
+      // UNPRICED - not free, and not zero. The posting tap still goes through,
+      // because a detail he can fill in later must never block work he can do
+      // right now. Phase 7 keeps unpriced videos out of the DOCUMENTED figure,
+      // counts them in amber, and backfills the snapshot onto exactly those
+      // videos once the rate is confirmed.
+      row.rate_snapshot_cents = campaign.pay_per_video_cents
+    }
+
+    if (video.phase === 'posted' && target !== 'posted') {
+      // Undoing a post. The snapshot is cleared so that re-posting takes a
+      // fresh one; leaving a stale rate attached would silently price the next
+      // post at an old number.
+      row.posted_at = null
+      row.rate_snapshot_cents = null
+    }
+
+    assertRow('videos', row)
+    await tx.table('videos').put(row)
+
+    // Append-only, in every direction. An undo is a new event recording the
+    // move back, never the deletion of the event it reverses - the log is what
+    // MEASURED timings are derived from, and it has to show what happened.
+    const event: Omit<PhaseEvent, 'id'> = {
+      user_id: this.userId,
+      video_id: id,
+      from_phase: video.phase,
+      to_phase: target,
+      session: options?.session ?? null,
+      occurred_at: timestamp,
+      duration_seconds: options?.durationSeconds ?? null,
+    }
+    await tx.table('phase_events').add(event)
+    this.enqueue(tx, 'videos', id, 'update', row)
+    return row
   }
 
   // --- Video posts -------------------------------------------------------

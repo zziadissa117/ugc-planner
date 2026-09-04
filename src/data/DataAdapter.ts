@@ -149,6 +149,25 @@ export interface DataAdapter {
    *  recording the reversal - history is added to, never erased. */
   revertVideoPhase(id: string, options?: AdvanceOptions): Promise<Video>
 
+  /** Straight to posted from wherever it is.
+   *
+   *  This is the tick-off list's tap. He posted it on his phone an hour ago;
+   *  the app is being told after the fact, and making him walk the chain five
+   *  taps to record one thing that already happened would defeat the point of
+   *  a screen that must not require planning anything first.
+   *
+   *  The skip is recorded honestly: one event, from whatever phase it was in,
+   *  to posted. The log says what the app was actually told. */
+  markVideoPosted(id: string, options?: AdvanceOptions): Promise<Video>
+
+  /** Undo the most recent phase move, whatever it was.
+   *
+   *  Reads the last phase_event and returns the video to that event's
+   *  from_phase, so undoing a skip straight to posted goes back where it came
+   *  from rather than to the chain's predecessor. Appends a new event; it
+   *  never deletes the one it reverses. */
+  undoLastPhaseMove(id: string, options?: AdvanceOptions): Promise<Video>
+
   // --- Where a video went live -------------------------------------------
 
   /** One piece of content on two platforms is one video and two rows here -

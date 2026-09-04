@@ -27,9 +27,17 @@ export interface ApplyInput {
 }
 
 export async function applyParseResult(
-  adapter: DataAdapter,
+  outerAdapter: DataAdapter,
   input: ApplyInput,
 ): Promise<Campaign> {
+  // A campaign is not one write - it is a row, its documents, a field per
+  // extracted value, its tiers and its rules. Half of that is not a campaign
+  // with some parts missing; it is a campaign that lies about what its
+  // documents said. All of it lands, or none of it does.
+  return outerAdapter.runTransaction((adapter) => applyWithin(adapter, input))
+}
+
+async function applyWithin(adapter: DataAdapter, input: ApplyInput): Promise<Campaign> {
   const { result, confirmed } = input
 
   // The campaign starts with no rate and no cycle. Both are claims about a

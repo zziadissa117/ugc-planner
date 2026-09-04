@@ -235,6 +235,23 @@ describe('saving a reviewed parse', () => {
     expect(await adapter.listCampaignRules(campaign.id)).toHaveLength(1)
   })
 
+  it('leaves nothing behind when a later write fails', async () => {
+    const result = baseResult()
+    // A tier the schema will refuse: threshold_views must be > 0. It is
+    // written after the campaign, its documents and all of its fields.
+    result.bonus_tiers = [
+      { label: 'bad', threshold_views: 0, payout_cents: 5000, view_window_days: 30 },
+    ]
+
+    await expect(apply(['pay_per_video_cents'], result)).rejects.toThrow()
+
+    // Not a campaign missing its bonus tiers - no campaign at all. A
+    // half-built one would claim a documented rate its own documents no longer
+    // sat behind.
+    expect(await adapter.listCampaigns()).toEqual([])
+    expect(await adapter.listVideos()).toEqual([])
+  })
+
   it('will not write a rate that is not integer cents', async () => {
     const result = baseResult()
     result.fields.pay_per_video_cents.value = '35.5'

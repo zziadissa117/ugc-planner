@@ -82,6 +82,24 @@ export type ResetScope =
   | 'everything'
 
 export interface DataAdapter {
+  /** Runs `body` so that everything written inside it lands together or not
+   *  at all.
+   *
+   *  Exists for one situation: creating a campaign is not one write. It is a
+   *  campaign row, then its documents, then a field per extracted value, then
+   *  its bonus tiers and rules. Without this, a failure partway leaves a
+   *  half-built campaign - a rate with no document behind it, or a brief page
+   *  with rules and no fields - and the app has no way to tell that apart from
+   *  a campaign that genuinely lacks them. That is exactly the kind of
+   *  plausible-looking wrong state the rest of the design works to prevent.
+   *
+   *  The adapter passed to `body` is the one to use inside it. Calls made on
+   *  the outer adapter from within `body` are not part of the transaction.
+   *
+   *  Deliberately narrow. Most writes are a single row and need nothing here;
+   *  reach for it only where several rows are one fact. */
+  runTransaction<T>(body: (adapter: DataAdapter) => Promise<T>): Promise<T>
+
   // --- Campaigns ---------------------------------------------------------
 
   listCampaigns(options?: { includeInactive?: boolean }): Promise<Campaign[]>

@@ -126,6 +126,19 @@ export class LocalAdapter implements DataAdapter {
     }
   }
 
+  /** Opens one transaction over every table and runs `body` inside it.
+   *
+   *  The adapter handed back is `this`. Dexie tracks the open transaction for
+   *  the scope, so the per-method transactions the writes open individually
+   *  join this one instead of starting their own - they are all subsets of it.
+   *  So the existing methods need no transaction-aware variants, and a throw
+   *  anywhere inside rolls back everything, including the outbox entries. */
+  async runTransaction<T>(body: (adapter: DataAdapter) => Promise<T>): Promise<T> {
+    return this.tx([...MIRRORED_TABLES.map((t) => this.db.table(t)), this.db._outbox], async () =>
+      body(this),
+    )
+  }
+
   /** Queue a write for the server. Phase 9 drains this; today it is a record
    *  of what would be sent, which keeps every write path local-first now
    *  rather than after a rewrite later. */

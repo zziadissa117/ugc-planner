@@ -1,0 +1,71 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+   Colour carries state only. Nothing here is decorative.
+
+     posted   green        - done, and it stays on screen to prove it
+     now      bright white - do this one, right now
+     later    grey         - real work, but not this one
+     waiting  amber        - blocked on someone else, or a parsed field nobody
+                             has confirmed yet
+     blocked  red          - stopped, with the reason written in plain words
+
+   Do not add a colour to this list without a state to attach it to.
+   --------------------------------------------------------------------------- */
+
+@theme {
+  --color-ink: #07090c;
+  --color-surface: #10141a;
+  --color-surface-raised: #191f28;
+  --color-edge: #262e3a;
+
+  --color-state-posted: #35c46a;
+  --color-state-now: #ffffff;
+  --color-state-later: #7b8798;
+  --color-state-waiting: #e2a03f;
+  --color-state-blocked: #e2564d;
+
+  --color-text: #e8edf4;
+  --color-text-dim: #94a1b3;
+
+  /* Nothing interactive is smaller than this. He taps in a hurry, one-handed,
+     often with the phone propped against something. */
+  --spacing-tap: 3.5rem;
+}
+
+html {
+  color-scheme: dark;
+  /* The address bar and the app should not disagree about where the page ends. */
+  background-color: var(--color-ink);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-ink);
+  color: var(--color-text);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    sans-serif;
+  /* A tap must never be swallowed by the browser waiting to see if it was a
+     double-tap-to-zoom. */
+  touch-action: manipulation;
+  overscroll-behavior-y: none;
+}
+
+/* Keyboard and switch users need to see focus. Pointer users should not get a
+   ring on every tap. */
+:focus-visible {
+  outline: 2px solid var(--color-state-now);
+  outline-offset: 2px;
+}
+
+/* No hover-only interactions: a phone has no hover, so every affordance has to
+   be legible at rest. Hover, where it exists at all, only ever repeats
+   something already visible. */
+@media (hover: none) {
+  * {
+    /* Kill the grey flash Android paints over taps; components own their own
+       pressed state. */
+    -webkit-tap-highlight-color: transparent;
+  }
+}

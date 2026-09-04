@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="UGC planner">
+  <rect width="512" height="512" rx="96" fill="#07090c"/>
+  <rect x="112" y="128" width="288" height="44" rx="22" fill="#35c46a"/>
+  <rect x="112" y="234" width="288" height="44" rx="22" fill="#ffffff"/>
+  <rect x="112" y="340" width="184" height="44" rx="22" fill="#7b8798"/>
+</svg>

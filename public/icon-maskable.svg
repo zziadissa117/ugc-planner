@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="UGC planner">
+  <!-- Artwork kept inside the safe zone so platform masks cannot clip it. -->
+  <rect width="512" height="512" fill="#07090c"/>
+  <rect x="152" y="160" width="208" height="36" rx="18" fill="#35c46a"/>
+  <rect x="152" y="238" width="208" height="36" rx="18" fill="#ffffff"/>
+  <rect x="152" y="316" width="132" height="36" rx="18" fill="#7b8798"/>
+</svg>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+﻿import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { VideoRow } from '../components/VideoRow'
@@ -16,6 +16,7 @@ import {
   formatMinutes,
   stageMinutes,
 } from '../session'
+import { useSession } from '../session/useSession'
 
 export function Now() {
   const data = useData()
@@ -25,15 +26,14 @@ export function Now() {
   const [estimates, setEstimates] = useState<TimeEstimate[]>([])
   const [loaded, setLoaded] = useState(false)
 
-  const [session, setSession] = useState<SessionType | null>(null)
-  const [minutes, setMinutes] = useState<number | null>(null)
   const [freeMinutes, setFreeMinutes] = useState('')
-
-  /** The row order is frozen when the session starts and never recomputed.
-   *  This is what keeps rows from moving under his thumb: the list is a list
-   *  of ids, and a tap changes what a row says, never where it is. */
-  const [rowIds, setRowIds] = useState<string[] | null>(null)
+  const [planning, setPlanning] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
+
+  /** The evening in progress lives in the session context so SHOOT is walking
+   *  the same list, in the same frozen order, that NOW is showing. */
+  const { active, start, goTo, stop } = useSession()
+  const session = active?.type ?? null
 
   const [switchMinutes, setSwitchMinutes] = useState(10)
   const [tiers, setTiers] = useState<BonusTier[]>([])
@@ -93,10 +93,7 @@ export function Now() {
    *  simply the evening's list, in the order to work it. */
   const startSession = useCallback(
     async (type: SessionType, windowMinutes: number) => {
-      setSession(type)
-      setMinutes(windowMinutes)
-      setRowIds(null)
-
+      setPlanning(true)
       const events = await data.listPhaseEvents()
       const plan = fitSession({
         session: type,
@@ -120,9 +117,14 @@ export function Now() {
       )
 
       await reload()
-      setRowIds(ordered.filter((id) => id !== ''))
+      start({
+        type,
+        windowMinutes,
+        videoIds: ordered.filter((id) => id !== ''),
+      })
+      setPlanning(false)
     },
-    [campaigns, claims, data, estimates, reload, switchMinutes, tiers, videos],
+    [campaigns, claims, data, estimates, reload, start, switchMinutes, tiers, videos],
   )
 
   const handleTap = useCallback(
@@ -147,28 +149,26 @@ export function Now() {
     <section className="mx-auto flex max-w-screen-sm flex-col gap-6">
       <Header summary={summary} />
 
-      {session === null || minutes === null || rowIds === null ? (
+      {active === null ? (
         <Chooser
           freeMinutes={freeMinutes}
           setFreeMinutes={setFreeMinutes}
           onStart={(type, windowMinutes) => void startSession(type, windowMinutes)}
           nudgeToEdit={shouldNudgeToEdit(summary)}
+          planning={planning}
         />
       ) : (
         <SessionList
-          session={session}
-          minutes={minutes}
-          rowIds={rowIds}
+          session={active.type}
+          minutes={active.windowMinutes}
+          rowIds={active.videoIds}
           videosById={videosById}
           campaignsById={campaignsById}
           estimates={estimates}
           busyId={busyId}
           onTap={handleTap}
-          onChangeSession={() => {
-            setSession(null)
-            setMinutes(null)
-            setRowIds(null)
-          }}
+          onStartAt={goTo}
+          onChangeSession={stop}
         />
       )}
     </section>
@@ -209,11 +209,13 @@ function Chooser({
   setFreeMinutes,
   onStart,
   nudgeToEdit,
+  planning,
 }: {
   freeMinutes: string
   setFreeMinutes: (value: string) => void
   onStart: (session: SessionType, minutes: number) => void
   nudgeToEdit: boolean
+  planning: boolean
 }) {
   const [pending, setPending] = useState<SessionType | null>(null)
 
@@ -259,7 +261,7 @@ function Chooser({
             <button
               key={preset}
               type="button"
-              disabled={pending === null}
+              disabled={pending === null || planning}
               onClick={() => pending && onStart(pending, preset)}
               className="min-h-tap rounded-lg border border-edge bg-surface font-semibold text-text active:bg-surface-raised disabled:text-state-later"
             >
@@ -279,7 +281,7 @@ function Chooser({
           />
           <button
             type="button"
-            disabled={pending === null || Number(freeMinutes) <= 0}
+            disabled={pending === null || planning || Number(freeMinutes) <= 0}
             onClick={() => pending && onStart(pending, Number(freeMinutes))}
             className="min-h-tap rounded-lg border border-edge bg-surface px-5 font-semibold text-text active:bg-surface-raised disabled:text-state-later"
           >
@@ -307,6 +309,7 @@ function SessionList({
   estimates,
   busyId,
   onTap,
+  onStartAt,
   onChangeSession,
 }: {
   session: SessionType
@@ -317,6 +320,7 @@ function SessionList({
   estimates: readonly TimeEstimate[]
   busyId: string | null
   onTap: (video: Video, done: boolean) => void
+  onStartAt: (index: number) => void
   onChangeSession: () => void
 }) {
   const stagePhase = SESSION_PHASE[session]
@@ -396,9 +400,13 @@ function SessionList({
       )}
 
       {next ? (
-        <p className="text-center text-sm text-state-later">
-          Next up: {campaignsById.get(next.campaign_id)?.name ?? 'unknown campaign'}
-        </p>
+        <Link
+          to="/shoot"
+          onClick={() => onStartAt(rowIds.indexOf(next.id))}
+          className="flex min-h-tap items-center justify-center rounded-lg border border-state-now bg-surface-raised px-4 text-lg font-semibold tracking-wide text-state-now active:bg-surface"
+        >
+          START - {campaignsById.get(next.campaign_id)?.name ?? 'unknown campaign'}
+        </Link>
       ) : rows.length > 0 ? (
         <p className="text-center text-sm text-state-posted">Everything at this stage is done.</p>
       ) : null}

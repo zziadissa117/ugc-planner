@@ -14,6 +14,7 @@ import { Now } from './screens/Now'
 import { Settings } from './screens/Settings'
 import { Shoot } from './screens/Shoot'
 import { TickOff } from './screens/TickOff'
+import { SessionProvider } from './session/SessionProvider'
 
 const router = createBrowserRouter([
   {
@@ -38,7 +39,9 @@ const router = createBrowserRouter([
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <DataProvider>
-      <RouterProvider router={router} />
+      <SessionProvider>
+        <RouterProvider router={router} />
+      </SessionProvider>
     </DataProvider>
   </StrictMode>,
 )

@@ -16,6 +16,7 @@ import type { DataAdapter } from '../data/DataAdapter'
 import { LocalDatabase } from '../data/local/db'
 import { LocalAdapter } from '../data/local/LocalAdapter'
 import { INFLOW_CAMPAIGN_ID, ensureSeeded } from '../data/seed'
+import { SessionProvider } from '../session/SessionProvider'
 import { Now } from './Now'
 import { TickOff } from './TickOff'
 
@@ -51,7 +52,9 @@ async function seedFilmBacklog(count: number) {
 function renderScreen(element: React.ReactElement) {
   return render(
     <DataContext.Provider value={adapter}>
-      <MemoryRouter>{element}</MemoryRouter>
+      <SessionProvider>
+        <MemoryRouter>{element}</MemoryRouter>
+      </SessionProvider>
     </DataContext.Provider>,
   )
 }

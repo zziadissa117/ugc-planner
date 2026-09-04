@@ -7,7 +7,7 @@
 // The ordering and packing of that list is the fitting algorithm's job in
 // phase 5. This file only decides what is eligible and what it costs.
 
-import type { SessionType, SetupType, TimeEstimate, Video, VideoPhase } from './data'
+import type { SessionType, SetupType, TimeEstimate, Video, VideoPhase } from '../data'
 
 export const SESSION_TYPES: readonly { value: SessionType; label: string }[] = [
   { value: 'film', label: 'FILM' },

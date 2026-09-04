@@ -50,6 +50,9 @@ export interface OutboxEntry {
   queued_at: string
   /** Bumped by the drain when the server rejects transiently. */
   attempts: number
+  /** Why the last attempt failed, kept so a stuck queue can say what is wrong
+   *  rather than only that something is. */
+  last_error?: string | null
 }
 
 export class LocalDatabase extends Dexie {

@@ -13,6 +13,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.115.0",
     "@tailwindcss/vite": "^4.3.3",
     "dexie": "^4.4.5",
     "react": "^19.2.8",
@@ -21,6 +22,7 @@
     "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.7",

@@ -31,6 +31,7 @@ import type {
   NewVideoPost,
   PhaseEvent,
   SessionType,
+  TableName,
   TimeEstimate,
   UserSettings,
   Video,
@@ -251,4 +252,37 @@ export interface DataAdapter {
   importAll(snapshot: unknown): Promise<ImportResult>
 
   reset(scope: ResetScope): Promise<void>
+
+  // --- The outbox --------------------------------------------------------
+  //
+  // Every write enqueues one of these. Draining them is what "syncs in the
+  // background" means: the queue is the record of what the server has not been
+  // told yet, and it is the reason no user action ever waits on a network.
+
+  /** Oldest first, so writes reach the server in the order they happened. */
+  listPendingWrites(limit?: number): Promise<PendingWrite[]>
+
+  /** The server has it. Drop it from the queue. */
+  markWriteSynced(id: number): Promise<void>
+
+  /** Push failed. Records the reason and counts the attempt, leaving the entry
+   *  queued so the next drain tries again. */
+  markWriteFailed(id: number, reason: string): Promise<void>
+
+  /** Replaces a local row with the server's version, without enqueuing the
+   *  change - the server already has it, and echoing it back would loop. */
+  applyRemoteRow(table: TableName, row: unknown): Promise<void>
+}
+
+/** A write waiting to go to the server. */
+export interface PendingWrite {
+  id: number
+  table_name: TableName
+  row_id: string
+  op: 'insert' | 'update'
+  /** The row as it stood after the write. */
+  payload: unknown
+  queued_at: string
+  attempts: number
+  last_error?: string | null
 }

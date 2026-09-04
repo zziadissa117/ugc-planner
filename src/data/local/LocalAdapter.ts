@@ -16,6 +16,7 @@ import type {
   BackupSnapshot,
   DataAdapter,
   ImportResult,
+  PendingWrite,
   ResetScope,
 } from '../DataAdapter'
 import { ConstraintError, assertRow } from '../constraints'
@@ -994,6 +995,44 @@ export class LocalAdapter implements DataAdapter {
       })
 
     return { counts }
+  }
+
+  // --- The outbox --------------------------------------------------------
+
+  async listPendingWrites(limit?: number): Promise<PendingWrite[]> {
+    // Oldest first: the server is told things in the order they happened, so a
+    // create always reaches it before the update that follows it.
+    const all = (await this.db._outbox.orderBy('id').toArray()) as OutboxEntry[]
+    const pending = limit === undefined ? all : all.slice(0, limit)
+    return pending.map((entry) => ({
+      id: entry.id,
+      table_name: entry.table_name,
+      row_id: entry.row_id,
+      op: entry.op,
+      payload: entry.payload,
+      queued_at: entry.queued_at,
+      attempts: entry.attempts,
+      last_error: entry.last_error ?? null,
+    }))
+  }
+
+  async markWriteSynced(id: number): Promise<void> {
+    await this.db._outbox.delete(id)
+  }
+
+  async markWriteFailed(id: number, reason: string): Promise<void> {
+    const entry = await this.db._outbox.get(id)
+    if (!entry) return
+    // Stays queued. A failed push is a thing the server has not been told yet,
+    // which is exactly what the queue is for.
+    await this.db._outbox.put({ ...entry, attempts: entry.attempts + 1, last_error: reason })
+  }
+
+  async applyRemoteRow(table: TableName, row: unknown): Promise<void> {
+    assertRow(table, row as never)
+    // No enqueue: this came from the server, and sending it straight back
+    // would be an echo that never settles.
+    await this.db.table(table).put(row)
   }
 
   async reset(scope: ResetScope): Promise<void> {

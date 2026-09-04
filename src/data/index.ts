@@ -12,8 +12,10 @@ export type {
   BackupSnapshot,
   DataAdapter,
   ImportResult,
+  PendingWrite,
   ResetScope,
 } from './DataAdapter'
+export { MIRRORED_TABLES as MIRRORED_TABLE_NAMES } from './local/db'
 export { ConstraintError } from './constraints'
 export {
   DEFAULT_SETUP_SWITCH_MINUTES,

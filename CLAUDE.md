@@ -18,7 +18,8 @@ long he has, and it tells him exactly what to make and in what order.
 - `vite-plugin-pwa` for installability and offline
 - Dexie (IndexedDB) for the local store
 - Supabase (Postgres + Auth) for sync - **not yet provisioned**
-- Netlify for hosting - **not yet configured**
+- Netlify for hosting - live at https://ugc-planner.netlify.app, see
+  `docs/DEPLOY.md`
 
 Do not add a state management library, a component library, an ORM, or an
 analytics dependency. If you think one is needed, say so and stop.

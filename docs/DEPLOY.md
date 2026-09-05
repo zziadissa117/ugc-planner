@@ -15,6 +15,15 @@ Live at **https://ugc-planner.netlify.app**. Netlify site `ugc-planner`
   three are baked into the client bundle at build time, same as locally -
   none of them are secrets (the publishable key is the anon key; RLS is what
   actually protects data, per `src/sync/auth.ts`).
+
+  **Gotcha hit once already:** setting these with scope `["builds"]` did not
+  persist - a read-back immediately after showed an empty env var list, and
+  the resulting deploy shipped with no Supabase config at all (confirmed by
+  grepping the built bundle for the project ref - zero matches). Re-set with
+  scope `["all"]`, confirmed present via a read-back, then redeployed and
+  confirmed the ref appears in the new bundle before trusting it. If a future
+  env var change ever seems to have no effect, read it back before assuming
+  it applied, and grep the deployed bundle for a value that should be in it.
 - **Production visibility had to be set to Public.** The team's default
   project visibility is Private, which 401'd every request until changed
   under Site configuration → Visitor access → Project visibility →

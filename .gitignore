@@ -25,3 +25,8 @@ dev-dist
 *.njsproj
 *.sln
 *.sw?
+
+# Local secrets. .env.example is the committed template.
+.env
+.env.*
+!.env.example

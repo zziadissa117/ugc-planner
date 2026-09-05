@@ -10,5 +10,9 @@ export default defineConfig({
     // too, since fake-indexeddb supplies its own IndexedDB either way.
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
+    // *.live.test.ts talk to the real Supabase project. They are excluded
+    // here so the default suite stays offline, fast and deterministic - run
+    // them deliberately with `npm run test:live`.
+    exclude: ['**/node_modules/**', '**/dist/**', '**/*.live.test.ts'],
   },
 })

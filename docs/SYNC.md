@@ -69,35 +69,58 @@ Still unverified against real RLS, which is blocker 2.
 
 ## The blockers, in the order they need clearing
 
-### 1. Provision the project and set two environment variables
+### 1. Provision the project - DONE
 
-Create the Supabase project, then set in `.env`:
+Project `ugc-planner`, ref `uykuoibqdxmpbbrsmyad`, ca-central-1. `.env` holds
+the URL and the publishable key and is git-ignored; `.env.example` is the
+committed template. The publishable key is the client-side one and is
+independently rotatable - not the legacy anon JWT, and never the service role
+key.
 
-```
-VITE_SUPABASE_URL=...
-VITE_SUPABASE_PUBLISHABLE_KEY=...
-```
+### 2. Apply the schema and verify RLS - DONE, with one part outstanding
 
-The publishable (anon) key is the only one that may appear here. The service
-role key and the model API key must never be in anything the browser loads -
-that is the whole reason the parser runs server-side.
+`schema.sql` applied, matching commit f8810ee. Migration 0002 correctly
+skipped: `phase_events` carries exactly one unique constraint,
+`phase_events_user_id_client_id_key`, so there is no redundant second index.
+Twelve tables, all RLS-enabled, thirteen policies. `get_advisors` clean.
 
-Until these are set, `getSupabaseClient()` returns null, `isReady()` is false,
-and the drain does nothing. That is a normal state: the app is local-first and
-works completely without a server.
+RLS is verified behaviourally by `docs/rls-check.sql`, which runs as the
+`authenticated` role with real JWT claims - the same mechanism PostgREST sets
+per request. It proves account isolation in both directions, and that
+`phase_events` refuses UPDATE and DELETE even for the account that owns the
+row. It is self-validating: A inserts and asserts it can see its own row
+before B looks, so B’s zero counts cannot be an empty table passing for
+isolation. Re-run it after any policy change.
 
-### 2. Apply `docs/schema.sql` as the first migration
+**Outstanding:** the same assertions over HTTP, through two signed-in
+supabase-js sessions. That covers the client wiring rather than the policies,
+and it is blocked - see below.
 
-It applies cleanly to stock Postgres. The one thing PGlite could not check is
-Supabase's own machinery: `auth.users`, `auth.uid()` and the `authenticated`
-role are stubbed in the test. The RLS policies are created there but never
-exercised, because there is no authenticated role to exercise them as.
+## Blocked on one project setting
 
-**Verify after applying:** sign in as one account, create a row, sign in as
-another, and confirm the second cannot see it. Nothing so far proves RLS
-actually isolates users.
+Email confirmation is ON, so `signUp` returns a user but no session, and the
+built-in SMTP is rate-limited to roughly one message an hour. Writing
+`auth.users` rows directly is refused by this environment, which is the right
+call and was not worked around.
 
-### 3. Deploy the parser Edge Function
+To unblock, either:
+
+- turn **Authentication → Providers → Email → Confirm email** off (normal for
+  a dev project, and the quickest path), or
+- create two confirmed accounts by hand and share the credentials.
+
+Then two things run immediately, both already written:
+
+1. The two-account client test, asserting B never sees A’s rows over HTTP and
+   that UPDATE/DELETE on `phase_events` fails through PostgREST.
+2. `claimLocalRows` against a real first sign-in, confirming that local rows
+   minted under the localStorage id are all reassigned and that the first
+   drain pushes them without a single RLS rejection.
+
+One stray account from probing is left in `auth.users`
+(`ugc-rls-1788622981837-hdca4j@ugcplanner.app`, unconfirmed, owns no rows) -
+delete it whenever convenient.
+### 3. Deploy the parser Edge Function - contract ready
 
 `EdgeFunctionParser` is a stub. The contract it has to hold up is written down
 in `src/parser/edgeFunction.ts`: request structured JSON against a strict
@@ -105,9 +128,15 @@ schema, instruct the model to return null for anything absent and never to
 infer, require a `source_quote` on every field, and verify each quote against
 the uploaded text server-side before returning.
 
+The full contract is written up in `docs/EDGE_FUNCTION.md`: the request and
+response shapes, the three prompt instructions that carry the weight, the
+contract anchors to parse with high confidence, the fields never to attempt,
+and the post-response verification.
+
 `verifyQuotes` in `src/parser/verify.ts` is that check, already written and
-tested. The Edge Function should run the same logic, not a second version of
-it.
+tested. The function must run the same logic, not a second version of it - two
+implementations of "is this quote real?" will drift, and the day they disagree
+is the day a fabricated rate is written as `documented`.
 
 ### 4. A full `SupabaseAdapter` - decided: not wanted
 

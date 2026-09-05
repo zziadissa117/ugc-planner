@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto'
 import { IDBFactory } from 'fake-indexeddb'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { DataAdapter } from '../data'
 import { LocalDatabase } from '../data/local/db'
@@ -10,6 +10,16 @@ import { EdgeFunctionParser } from './edgeFunction'
 import { PastedJsonParser } from './pastedJson'
 import { ParseError, ParserUnavailableError, type ParseResult } from './types'
 import { verifyQuotes } from './verify'
+
+// EdgeFunctionParser reaches getSupabaseClient() from src/sync/auth, which
+// reads real env vars at module load - mocked here so this test controls
+// "configured" vs "not configured" itself rather than depending on whatever
+// happens to be in .env when the suite runs.
+const invoke = vi.fn()
+let mockClient: { functions: { invoke: typeof invoke } } | null = null
+vi.mock('../sync/auth', () => ({
+  getSupabaseClient: () => mockClient,
+}))
 
 const USER = '11111111-1111-4111-8111-111111111111'
 let adapter: DataAdapter
@@ -29,7 +39,13 @@ const parse = (json: string) =>
   new PastedJsonParser().parse({ briefText: null, contractText: CONTRACT, json })
 
 describe('the server parser', () => {
-  it('is not available, and says why rather than failing silently', async () => {
+  beforeEach(() => {
+    mockClient = null
+    invoke.mockReset()
+    vi.unstubAllEnvs()
+  })
+
+  it('is not available when the client is unconfigured, and says why rather than failing silently', async () => {
     const parser = new EdgeFunctionParser()
     expect(parser.isAvailable()).toBe(false)
 
@@ -40,6 +56,39 @@ describe('the server parser', () => {
     )
     await expect(parser.parse({ briefText: null, contractText: null })).rejects.toThrow(
       /Paste the JSON instead/,
+    )
+  })
+
+  it('is available once the client is configured and the function marked deployed', async () => {
+    vi.stubEnv('VITE_PARSE_CAMPAIGN_DEPLOYED', 'true')
+    mockClient = { functions: { invoke } }
+    const result: ParseResult = {
+      campaign: { name: 'Inflow', company: null, approval_mode: null },
+      fields: {},
+      bonus_tiers: [],
+      rules: [],
+      brief_is_incomplete: false,
+      warnings: [],
+    }
+    invoke.mockResolvedValue({ data: result, error: null })
+
+    const parser = new EdgeFunctionParser()
+    expect(parser.isAvailable()).toBe(true)
+
+    const got = await parser.parse({ briefText: null, contractText: 'text' })
+    expect(got).toEqual(result)
+    expect(invoke).toHaveBeenCalledWith('parse-campaign', {
+      body: { briefText: null, contractText: 'text' },
+    })
+  })
+
+  it('surfaces a function error as a ParseError rather than throwing raw', async () => {
+    mockClient = { functions: { invoke } }
+    invoke.mockResolvedValue({ data: null, error: { message: 'boom' } })
+
+    const parser = new EdgeFunctionParser()
+    await expect(parser.parse({ briefText: null, contractText: 'text' })).rejects.toBeInstanceOf(
+      ParseError,
     )
   })
 })

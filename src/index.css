@@ -52,6 +52,33 @@ body {
   overscroll-behavior-y: none;
 }
 
+/* An indeterminate progress bar, for the one wait in the app that is a real
+   network round trip: the parser reading uploaded documents. Deliberately
+   indeterminate - a single request reports no progress, and a bar creeping
+   towards a percentage nobody measured would be inventing a number, which is
+   the one thing this app does not do. */
+@keyframes indeterminate-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+
+.indeterminate-bar {
+  animation: indeterminate-sweep 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .indeterminate-bar {
+    animation: none;
+    transform: none;
+    width: 100%;
+    opacity: 0.5;
+  }
+}
+
 /* Keyboard and switch users need to see focus. Pointer users should not get a
    ring on every tap. */
 :focus-visible {

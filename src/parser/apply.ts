@@ -5,16 +5,8 @@
 // recorded: which fields he tapped to confirm.
 
 import type { Campaign, DataAdapter } from '../data'
+import { COLUMN_FIELDS } from '../data/campaignFields'
 import type { ParseResult } from './types'
-
-/** Field keys that also set an operational column on the campaign row, once
- *  confirmed. Unconfirmed, the column stays null and the field stays amber -
- *  nothing counts as a documented rate or a verified cycle until he has
- *  checked it against the document himself. */
-const COLUMN_FIELDS = {
-  pay_per_video_cents: 'pay_per_video_cents',
-  cycle_size: 'cycle_size',
-} as const satisfies Record<string, keyof Campaign>
 
 export interface ApplyInput {
   result: ParseResult

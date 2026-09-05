@@ -6,7 +6,8 @@
 // and two under the other, and no list anywhere containing all eight.
 
 import 'fake-indexeddb/auto'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { IDBFactory } from 'fake-indexeddb'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
@@ -107,5 +108,79 @@ describe('the brief page', () => {
     const row = label.closest('div')
     expect(row).not.toBeNull()
     expect(within(row!).getByText('not saved yet')).toBeInTheDocument()
+  })
+})
+
+describe('fixing what the parser missed', () => {
+  it('lets a blank field be filled in by hand, as user entered', async () => {
+    const user = userEvent.setup()
+    await renderBrief()
+
+    // The label sits in the row's text block; the Edit button is its sibling,
+    // so the row itself is one level up.
+    const row = screen.getByText('submission url').closest('div')!.parentElement!
+    await user.click(within(row).getByRole('button', { name: 'Edit' }))
+
+    await user.type(screen.getByLabelText(/submission url/i), 'https://sideshift.app/submit')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(async () => {
+      const fields = await adapter.listCampaignFields(INFLOW_CAMPAIGN_ID)
+      const saved = fields.find((f) => f.field_key === 'submission_url')
+      expect(saved?.field_value).toBe('https://sideshift.app/submit')
+      // His word for it, never a document's.
+      expect(saved?.source).toBe('user_entered')
+    })
+  })
+
+  it('confirms an unreviewed field in place, and fills the pay figure with it', async () => {
+    await adapter.setCampaignField({
+      campaign_id: INFLOW_CAMPAIGN_ID,
+      field_key: 'pay_per_video_cents',
+      field_value: '2000',
+      source: 'parsed_unreviewed',
+      source_quote: '$20.00 per approved deliverable',
+      source_document_id: null,
+    })
+
+    const user = userEvent.setup()
+    await renderBrief()
+
+    await user.click(screen.getAllByRole('button', { name: 'Confirm' })[0])
+
+    await waitFor(async () => {
+      const campaign = await adapter.getCampaign(INFLOW_CAMPAIGN_ID)
+      expect(campaign?.pay_per_video_cents).toBe(2000)
+    })
+  })
+
+  it('lets the daily quota be set - no document ever states it', async () => {
+    const user = userEvent.setup()
+    await renderBrief()
+
+    const row = screen.getByText('posts owed per day').closest('div')!.parentElement!
+    await user.click(within(row).getByRole('button', { name: 'Edit' }))
+
+    const input = screen.getByLabelText('posts owed per day')
+    await user.clear(input)
+    await user.type(input, '2')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(async () => {
+      const campaign = await adapter.getCampaign(INFLOW_CAMPAIGN_ID)
+      expect(campaign?.daily_post_quota).toBe(2)
+    })
+  })
+
+  it('keeps the wall of rules folded away until asked for', async () => {
+    await renderBrief()
+
+    const summary = screen.getByText(/never do - \d+ rules?/i)
+    // The rules are in the DOM for search and for screen readers, but the
+    // section is shut: opening the page onto paragraphs of them is what makes
+    // it unreadable.
+    const details = summary.closest('details')
+    expect(details).not.toBeNull()
+    expect(details).not.toHaveAttribute('open')
   })
 })

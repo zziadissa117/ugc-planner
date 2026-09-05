@@ -11,6 +11,15 @@ import { LocalDatabase } from '../data/local/db'
 import { LocalAdapter } from '../data/local/LocalAdapter'
 import { NewCampaign } from './NewCampaign'
 
+// EdgeFunctionParser reaches getSupabaseClient() from src/sync/auth - mocked
+// so tests control "the server call succeeded" directly instead of needing a
+// real network. See src/parser/parser.test.ts for the same pattern.
+const invoke = vi.fn()
+let mockClient: { functions: { invoke: typeof invoke } } | null = null
+vi.mock('../sync/auth', () => ({
+  getSupabaseClient: () => mockClient,
+}))
+
 const USER = '11111111-1111-4111-8111-111111111111'
 let adapter: DataAdapter
 
@@ -19,6 +28,18 @@ beforeEach(async () => {
   const db = new LocalDatabase(`drop-${crypto.randomUUID()}`)
   adapter = new LocalAdapter(db, USER)
   await db.open()
+
+  // Deterministic regardless of what's in .env (a real deployed function
+  // flips this to true) - most tests below exercise the paste-JSON fallback
+  // path specifically, and the availability-message tests override this
+  // themselves per case.
+  vi.stubEnv('VITE_PARSE_CAMPAIGN_DEPLOYED', 'false')
+  mockClient = null
+  invoke.mockReset()
+})
+
+afterEach(() => {
+  vi.unstubAllEnvs()
 })
 
 const CONTRACT = 'Per-post compensation: $35.00 per approved deliverable.'
@@ -66,20 +87,63 @@ describe('the drop box', () => {
   })
 
   describe('the server parser availability message', () => {
-    afterEach(() => {
-      vi.unstubAllEnvs()
-    })
-
     it('says it is not deployed and what to do instead, when the flag is off', async () => {
-      vi.stubEnv('VITE_PARSE_CAMPAIGN_DEPLOYED', 'false')
       renderDropBox()
       expect(screen.getByText(/server parser is not deployed yet/i)).toBeInTheDocument()
+      expect(screen.getByLabelText('Parsed JSON')).toBeInTheDocument()
     })
 
-    it('says it is available once the deploy flag is on and the client is configured', async () => {
+    it('offers to read the documents itself once the deploy flag is on, but keeps the paste box for offline', async () => {
       vi.stubEnv('VITE_PARSE_CAMPAIGN_DEPLOYED', 'true')
+      mockClient = { functions: { invoke } }
       renderDropBox()
-      expect(screen.getByText(/server parser is available/i)).toBeInTheDocument()
+      expect(screen.getByText(/the server reads the documents/i)).toBeInTheDocument()
+      // isAvailable() means "configured", not "there is a connection right
+      // now" - the offline fallback has to stay reachable, not hidden behind
+      // a flag that says nothing about actual connectivity.
+      expect(screen.getByLabelText('Parsed JSON')).toBeInTheDocument()
+    })
+
+    it('actually calls the server parser when available, rather than just saying it will', async () => {
+      vi.stubEnv('VITE_PARSE_CAMPAIGN_DEPLOYED', 'true')
+      mockClient = { functions: { invoke } }
+      invoke.mockResolvedValue({
+        data: {
+          campaign: { name: 'Server-parsed campaign', company: null, approval_mode: null },
+          fields: {},
+          bonus_tiers: [],
+          rules: [],
+          brief_is_incomplete: false,
+          warnings: [],
+        },
+        error: null,
+      })
+
+      const user = userEvent.setup()
+      renderDropBox()
+      await paste(user, 'CONTRACT (.md) text', CONTRACT)
+      await user.click(screen.getByRole('button', { name: 'Review it' }))
+
+      await screen.findByRole('heading', { name: 'Review' })
+      expect(screen.getByText('Server-parsed campaign')).toBeInTheDocument()
+      expect(invoke).toHaveBeenCalledWith('parse-campaign', {
+        body: { briefText: null, contractText: CONTRACT },
+      })
+    })
+
+    it('uses pasted JSON instead of the server when both are present - the offline path', async () => {
+      vi.stubEnv('VITE_PARSE_CAMPAIGN_DEPLOYED', 'true')
+      mockClient = { functions: { invoke } }
+      invoke.mockRejectedValue(new Error('should never be called'))
+
+      const user = userEvent.setup()
+      renderDropBox()
+      await paste(user, 'CONTRACT (.md) text', CONTRACT)
+      await paste(user, 'Parsed JSON', goodJson)
+      await user.click(screen.getByRole('button', { name: 'Review it' }))
+
+      await screen.findByRole('heading', { name: 'Review' })
+      expect(invoke).not.toHaveBeenCalled()
     })
   })
 

@@ -5,7 +5,6 @@ import { useData } from '../data/useData'
 import {
   NEVER_PARSED_FIELDS,
   PASTE_SCHEMA_EXAMPLE,
-  ParseError,
   PastedJsonParser,
   applyParseResult,
   inspectBrief,
@@ -29,6 +28,7 @@ export function NewCampaign() {
   const [json, setJson] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [parsing, setParsing] = useState(false)
 
   const [review, setReview] = useState<ParseResult | null>(null)
   const [rejected, setRejected] = useState<string[]>([])
@@ -37,19 +37,43 @@ export function NewCampaign() {
   const briefText = brief.text.trim() === '' ? null : brief.text
   const contractText = contract.text.trim() === '' ? null : contract.text
 
+  // Computed once per render rather than cached: isAvailable() reads live
+  // config (see edgeFunction.ts), and the whole point is that the deploy
+  // flag can flip without a code change.
+  const edgeParser = new EdgeFunctionParser()
+  const serverAvailable = edgeParser.isAvailable()
+
+  // isAvailable() means "the project is configured to reach a deployed
+  // function" - a build-time fact, not "there is a network connection right
+  // now." A pasted JSON always wins when present: it is the one path that
+  // works with no connection at all, and CLAUDE.md's local-first rule does
+  // not get to make an exception for the one screen that creates a campaign.
+  // The manual box therefore always stays visible, even when the server is
+  // configured - offline, or a failed server call, falls straight back to it
+  // rather than requiring the user to first discover it is missing.
+  const useServer = serverAvailable && json.trim() === ''
+
   const runParse = useCallback(async () => {
     setError(null)
+    setParsing(true)
     try {
-      const result = await new PastedJsonParser().parse({ briefText, contractText, json })
+      // The server parser already ran verifyQuotes before this ever reaches
+      // the browser (docs/EDGE_FUNCTION.md), but it is re-run here too rather
+      // than trusted blindly - the same check, so the two paths cannot drift
+      // into disagreeing about what "verified" means, and it is a no-op on an
+      // already-clean result.
+      const result = useServer
+        ? await edgeParser.parse({ briefText, contractText })
+        : await new PastedJsonParser().parse({ briefText, contractText, json })
 
-      // The brief is inspected directly rather than taking the paste's word
+      // The brief is inspected directly rather than taking the parser's word
       // for whether it is intact.
       const integrity = briefText === null ? null : inspectBrief(briefText)
 
       const verified = verifyQuotes(
         {
           ...result,
-          brief_is_incomplete: integrity?.isIncomplete ?? false,
+          brief_is_incomplete: (integrity?.isIncomplete ?? false) || result.brief_is_incomplete,
           warnings: [...result.warnings, ...(integrity?.reasons ?? [])],
         },
         { briefText, contractText },
@@ -59,9 +83,11 @@ export function NewCampaign() {
       setRejected(verified.rejected)
       setConfirmed(new Set())
     } catch (caught) {
-      setError(caught instanceof ParseError ? caught.message : String(caught))
+      setError(caught instanceof Error ? caught.message : String(caught))
+    } finally {
+      setParsing(false)
     }
-  }, [briefText, contractText, json])
+  }, [briefText, contractText, edgeParser, json, useServer])
 
   const save = useCallback(async () => {
     if (!review) return
@@ -117,8 +143,8 @@ export function NewCampaign() {
           Parsed JSON
         </h2>
         <p className="mt-1 text-sm text-state-later">
-          {new EdgeFunctionParser().isAvailable()
-            ? 'The server parser is available.'
+          {serverAvailable
+            ? "Tap Review and the server reads the documents above for you - nothing to paste here. Offline, or if the server can't be reached, paste JSON from a model yourself below instead and it's used in place of the server."
             : 'The server parser is not deployed yet, so run the documents through a model yourself and paste what it gives back. Every field needs the exact text it came from, and anything that cannot be found in the document above is dropped.'}
         </p>
         <textarea
@@ -136,10 +162,12 @@ export function NewCampaign() {
       <button
         type="button"
         onClick={() => void runParse()}
-        disabled={json.trim() === ''}
+        disabled={
+          parsing || (useServer ? briefText === null && contractText === null : json.trim() === '')
+        }
         className="min-h-tap rounded-lg border border-state-now bg-surface-raised px-4 font-semibold text-state-now active:bg-surface disabled:border-edge disabled:bg-surface disabled:text-state-later"
       >
-        Review it
+        {parsing ? 'Reading the documents...' : 'Review it'}
       </button>
     </section>
   )

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 
 import { EXPORT_REMINDER_DAYS } from '../data'
 import { useData } from '../data/useData'
+import { useAuth } from '../sync'
 
 type Status =
   | { kind: 'idle' }
@@ -80,6 +81,8 @@ export function Settings() {
         </p>
       ) : null}
 
+      <Account />
+
       <div>
         <h2 className="text-lg font-semibold text-text">Backup</h2>
         <p className="mt-1 text-state-later">
@@ -140,4 +143,76 @@ export function Settings() {
 
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+/** Sign-in, and the only place in the app that ever calls it.
+ *
+ *  Nothing here is required - the app is local-first and works completely
+ *  signed out. An account exists only to sync across devices and to reach
+ *  the AI parser, which spends money per call and therefore refuses
+ *  anonymous requests (docs/EDGE_FUNCTION.md). Magic-link rather than a
+ *  password: nothing to type on a phone beyond an email address, and nothing
+ *  to forget. */
+function Account() {
+  const auth = useAuth()
+  const [email, setEmail] = useState('')
+
+  if (!auth.configured) return null
+
+  if (auth.email) {
+    return (
+      <div>
+        <h2 className="text-lg font-semibold text-text">Account</h2>
+        <p className="mt-1 text-state-later">
+          Signed in as <span className="text-text">{auth.email}</span>. Syncs across devices, and
+          the AI parser can read your documents on the New campaign screen.
+        </p>
+        <button
+          type="button"
+          onClick={() => void auth.signOut()}
+          className="mt-3 min-h-tap rounded-lg border border-edge bg-surface px-4 font-semibold text-text active:bg-surface-raised"
+        >
+          Sign out
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <h2 className="text-lg font-semibold text-text">Account</h2>
+      <p className="mt-1 text-state-later">
+        Sign in to sync across devices and let the AI parser read your campaign documents. Not
+        required otherwise - everything works signed out.
+      </p>
+      <div className="mt-3 flex gap-3">
+        <input
+          type="email"
+          inputMode="email"
+          autoComplete="email"
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          placeholder="you@example.com"
+          disabled={auth.requestStatus === 'sending' || auth.requestStatus === 'sent'}
+          className="min-h-tap flex-1 rounded-lg border border-edge bg-surface px-4 text-text placeholder:text-state-later disabled:text-state-later"
+        />
+        <button
+          type="button"
+          onClick={() => void auth.requestLink(email)}
+          disabled={
+            email.trim() === '' || auth.requestStatus === 'sending' || auth.requestStatus === 'sent'
+          }
+          className="min-h-tap rounded-lg border border-edge bg-surface px-5 font-semibold text-text active:bg-surface-raised disabled:text-state-later"
+        >
+          {auth.requestStatus === 'sending' ? 'Sending...' : 'Send link'}
+        </button>
+      </div>
+      {auth.requestStatus === 'sent' ? (
+        <p className="mt-2 text-state-posted">Check your email for the sign-in link.</p>
+      ) : null}
+      {auth.requestStatus === 'error' ? (
+        <p className="mt-2 text-state-blocked">{auth.requestError}</p>
+      ) : null}
+    </div>
+  )
 }

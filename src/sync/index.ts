@@ -1,4 +1,7 @@
 export { claimLocalRows, type AuthLike, type ClaimOutcome } from './claim'
+export { AuthProvider } from './AuthProvider'
+export { useAuth } from './useAuth'
+export type { AuthControls } from './AuthContext'
 export {
   LOCAL_ROWS_NEED_CLAIMING,
   getAuthState,

@@ -14,6 +14,7 @@ import type { Table, Transaction } from 'dexie'
 import type {
   AdvanceOptions,
   BackupSnapshot,
+  ClaimResult,
   DataAdapter,
   ImportResult,
   PendingWrite,
@@ -90,7 +91,7 @@ export function localToday(date = new Date()): string {
 
 export class LocalAdapter implements DataAdapter {
   private readonly db: LocalDatabase
-  private readonly userId: string
+  private userId: string
 
   constructor(db: LocalDatabase = new LocalDatabase(), userId: string = localUserId()) {
     this.db = db
@@ -514,6 +515,9 @@ export class LocalAdapter implements DataAdapter {
           session: null,
           occurred_at: row.created_at,
           duration_seconds: null,
+          // Minted here, before the row lands, so the same key travels with
+          // every retry of the push that eventually carries it.
+          client_id: newId(),
         })
         this.enqueue(tx, 'videos', row.id, 'insert', row)
       })
@@ -664,6 +668,9 @@ export class LocalAdapter implements DataAdapter {
       session: options?.session ?? null,
       occurred_at: timestamp,
       duration_seconds: options?.durationSeconds ?? null,
+      // Minted here, before the row lands, so the same key travels with every
+      // retry of the push that eventually carries it.
+      client_id: newId(),
     }
     await tx.table('phase_events').add(event)
     this.enqueue(tx, 'videos', id, 'update', row)
@@ -1033,6 +1040,82 @@ export class LocalAdapter implements DataAdapter {
     // No enqueue: this came from the server, and sending it straight back
     // would be an echo that never settles.
     await this.db.table(table).put(row)
+  }
+
+  /** The current owner of every local row. */
+  currentUserId(): string {
+    return this.userId
+  }
+
+  async claimRowsForUser(userId: string): Promise<ClaimResult> {
+    const previousUserId = this.userId
+    if (previousUserId === userId) {
+      // Already claimed. Doing it again would be a no-op at best and, if
+      // the id had drifted, a way to split the data between two owners.
+      return { claimed: false, rowsClaimed: 0, pendingWritesRewritten: 0, previousUserId }
+    }
+
+    let rowsClaimed = 0
+    let pendingWritesRewritten = 0
+
+    await this.tx(
+      [...MIRRORED_TABLES.map((t) => this.db.table(t)), this.db._outbox],
+      async (tx) => {
+        for (const table of MIRRORED_TABLES) {
+          const rows = (await tx.table(table).toArray()) as {
+            user_id: string
+            id?: string
+          }[]
+
+          for (const row of rows) {
+            if (row.user_id !== previousUserId) continue
+            const claimedRow = { ...row, user_id: userId }
+
+            if (table === "user_settings") {
+              // Keyed by user_id, so this is a move rather than an edit.
+              await tx.table(table).delete(previousUserId)
+              await tx.table(table).add(claimedRow)
+            } else {
+              await tx.table(table).put(claimedRow)
+            }
+
+            rowsClaimed++
+            // phase_events is insert-only; the server has never seen any of
+            // this, because sync does not run before sign-in.
+            const op = table === "phase_events" ? "insert" : "update"
+            const rowId =
+              table === "user_settings" ? userId : (claimedRow.id ?? "")
+            this.enqueue(tx, table, String(rowId), op, claimedRow)
+          }
+        }
+
+        // Entries queued before sign-in still name the old owner. Left
+        // alone they would reach the server and be refused by RLS.
+        const queued = (await tx.table("_outbox").toArray()) as OutboxEntry[]
+        for (const entry of queued) {
+          const payload = entry.payload as { user_id?: string } | null
+          if (!payload || payload.user_id !== previousUserId) continue
+          await tx.table("_outbox").put({
+            ...entry,
+            payload: { ...payload, user_id: userId },
+            row_id: entry.table_name === "user_settings" ? userId : entry.row_id,
+          })
+          pendingWritesRewritten++
+        }
+      },
+    )
+
+    // Only after the rows are committed. If the transaction had failed, the
+    // adapter would still be pointing at the id its rows actually carry.
+    this.userId = userId
+    try {
+      localStorage.setItem(USER_ID_KEY, userId)
+    } catch {
+      // Storage blocked. The rows are claimed either way; the next run just
+      // mints a fresh local id and claims again on sign-in.
+    }
+
+    return { claimed: true, rowsClaimed, pendingWritesRewritten, previousUserId }
   }
 
   async reset(scope: ResetScope): Promise<void> {

@@ -311,10 +311,10 @@ describe('step 5 - a POST session prioritises what is at risk', () => {
 
   it('reads approval age off the append-only log', () => {
     const map = approvedAtFromEvents([
-      { id: 1, user_id: USER, video_id: 'v1', from_phase: 'submitted', to_phase: 'approved', session: null, occurred_at: '2026-09-01T00:00:00.000Z', duration_seconds: null },
+      { id: 1, client_id: `k1`, user_id: USER, video_id: 'v1', from_phase: 'submitted', to_phase: 'approved', session: null, occurred_at: '2026-09-01T00:00:00.000Z', duration_seconds: null },
       // Sent back, then approved again - the second arrival is what counts.
-      { id: 2, user_id: USER, video_id: 'v1', from_phase: 'approved', to_phase: 'edited', session: null, occurred_at: '2026-09-02T00:00:00.000Z', duration_seconds: null },
-      { id: 3, user_id: USER, video_id: 'v1', from_phase: 'submitted', to_phase: 'approved', session: null, occurred_at: '2026-09-03T00:00:00.000Z', duration_seconds: null },
+      { id: 2, client_id: `k2`, user_id: USER, video_id: 'v1', from_phase: 'approved', to_phase: 'edited', session: null, occurred_at: '2026-09-02T00:00:00.000Z', duration_seconds: null },
+      { id: 3, client_id: `k3`, user_id: USER, video_id: 'v1', from_phase: 'submitted', to_phase: 'approved', session: null, occurred_at: '2026-09-03T00:00:00.000Z', duration_seconds: null },
     ])
     expect(map.get('v1')).toBe('2026-09-03T00:00:00.000Z')
   })

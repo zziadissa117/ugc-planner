@@ -11,6 +11,7 @@ export type {
   AdvanceOptions,
   BackupSnapshot,
   DataAdapter,
+  ClaimResult,
   ImportResult,
   PendingWrite,
   ResetScope,

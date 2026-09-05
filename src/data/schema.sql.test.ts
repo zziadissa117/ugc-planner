@@ -16,6 +16,7 @@ import { beforeAll, afterAll, describe, expect, it } from 'vitest'
 // Imported as text rather than read off disk, so this runs the same file the
 // type generator reads and needs no node filesystem types.
 import SCHEMA from '../../docs/schema.sql?raw'
+import MIGRATION_0002 from '../../docs/migrations/0002_phase_events_client_id.sql?raw'
 
 /** The pieces Supabase supplies that plain Postgres does not. */
 const SUPABASE_STUB = `
@@ -214,6 +215,39 @@ describe('the constraints the local store mirrors', () => {
     expect(Number(claim.rows[0].probability)).toBe(0)
   })
 
+  it('refuses a second phase_event under the same client_id', async () => {
+    const campaignId = await insertCampaign()
+    const video = await db.query<{ id: string }>(
+      `insert into videos (user_id, campaign_id) values ('${USER}', '${campaignId}') returning id`,
+    )
+    const key = '22222222-2222-4222-8222-222222222222'
+    const insert = `insert into phase_events (user_id, video_id, to_phase, client_id)
+                    values ('${USER}', '${video.rows[0].id}', 'filmed', '${key}')`
+
+    await db.exec(insert)
+    // A push that succeeded but whose response was lost is retried with the
+    // same key. Postgres refuses it, and the sync target reads that refusal
+    // as "already applied" - so the event exists exactly once.
+    await expect(db.exec(insert)).rejects.toThrow()
+
+    const count = await db.query<{ n: string }>(
+      `select count(*) as n from phase_events where client_id = '${key}'`,
+    )
+    expect(Number(count.rows[0].n)).toBe(1)
+  })
+
+  it('mints a client_id when one is not supplied', async () => {
+    const campaignId = await insertCampaign()
+    const video = await db.query<{ id: string }>(
+      `insert into videos (user_id, campaign_id) values ('${USER}', '${campaignId}') returning id`,
+    )
+    const event = await db.query<{ client_id: string | null }>(
+      `insert into phase_events (user_id, video_id, to_phase)
+       values ('${USER}', '${video.rows[0].id}', 'filmed') returning client_id`,
+    )
+    expect(event.rows[0].client_id).toMatch(/^[0-9a-f-]{36}$/)
+  })
+
   it('ships the filmed-but-unedited opening count as null', async () => {
     const settings = await db.query<{ opening_unedited_count: number | null }>(
       `insert into user_settings (user_id) values ('${USER}')
@@ -221,4 +255,55 @@ describe('the constraints the local store mirrors', () => {
     )
     expect(settings.rows[0].opening_unedited_count).toBeNull()
   })
+})
+
+
+describe('docs/migrations/0002_phase_events_client_id.sql', () => {
+  /** schema.sql as it stood before the client_id column existed, so the
+   *  migration can be applied to the thing it is actually written for: a
+   *  database that already ran migration 0001 without it. */
+  const SCHEMA_0001 = (() => {
+    const start = SCHEMA.indexOf('  -- Client-generated idempotency key.')
+    const end = SCHEMA.indexOf('  unique (user_id, client_id)')
+    const withoutColumn =
+      SCHEMA.slice(0, start) + SCHEMA.slice(end + '  unique (user_id, client_id)'.length)
+    // The column left a trailing comma on the line above it.
+    return withoutColumn.replace(
+      'duration_seconds integer check (duration_seconds >= 0),',
+      'duration_seconds integer check (duration_seconds >= 0)',
+    )
+  })()
+  it('is written against a schema that really lacks the column', () => {
+    // Guards the regex above: if it silently stopped matching, the migration
+    // test below would be applying 0002 to a database that already has the
+    // column and passing for the wrong reason.
+    expect(SCHEMA).toContain('client_id')
+    expect(SCHEMA_0001).not.toContain('client_id')
+  })
+
+  it('adds the column and the constraint to a database that ran 0001', async () => {
+    const old = new PGlite()
+    try {
+      await old.exec(SUPABASE_STUB)
+      await old.exec(`insert into auth.users (id) values ('${USER}')`)
+      await old.exec(SCHEMA_0001)
+
+      await old.exec(MIGRATION_0002)
+
+      const campaign = await old.query<{ id: string }>(
+        `insert into campaigns (user_id, name) values ('${USER}', 'T') returning id`,
+      )
+      const video = await old.query<{ id: string }>(
+        `insert into videos (user_id, campaign_id) values ('${USER}', '${campaign.rows[0].id}') returning id`,
+      )
+      const key = '33333333-3333-4333-8333-333333333333'
+      const insert = `insert into phase_events (user_id, video_id, to_phase, client_id)
+                      values ('${USER}', '${video.rows[0].id}', 'filmed', '${key}')`
+
+      await old.exec(insert)
+      await expect(old.exec(insert)).rejects.toThrow()
+    } finally {
+      await old.close()
+    }
+  }, 120_000)
 })

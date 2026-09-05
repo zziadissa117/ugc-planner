@@ -272,6 +272,28 @@ export interface DataAdapter {
   /** Replaces a local row with the server's version, without enqueuing the
    *  change - the server already has it, and echoing it back would loop. */
   applyRemoteRow(table: TableName, row: unknown): Promise<void>
+  /** Rewrites every row from the local user id to a real account id, once.
+   *
+   *  Local rows are minted with an id from localStorage, because there is no
+   *  auth.uid() before sign-in. On the first sign-in every row has to be
+   *  reassigned to the real account or RLS refuses all of them and the first
+   *  sync silently pushes nothing - the worst possible failure, because it
+   *  looks exactly like success.
+   *
+   *  Atomic, and a no-op when the rows already belong to that account, so
+   *  running it twice cannot split the data between two owners.
+   *
+   *  Pending outbox entries are rewritten too. They were queued under the old
+   *  id and would be refused on arrival otherwise. */
+  claimRowsForUser(userId: string): Promise<ClaimResult>
+}
+
+export interface ClaimResult {
+  /** False when the rows already belonged to this account. */
+  claimed: boolean
+  rowsClaimed: number
+  pendingWritesRewritten: number
+  previousUserId: string
 }
 
 /** A write waiting to go to the server. */

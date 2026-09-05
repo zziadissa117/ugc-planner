@@ -31,7 +31,15 @@ There is no project to connect to. Build against the local adapter.
   store: same table names, same column names, same enums, same constraints
   enforced in code where IndexedDB cannot enforce them.
 - All persistence goes through a `DataAdapter` interface. Ship `LocalAdapter`
-  now. `SupabaseAdapter` gets written later against the same interface.
+  now.
+- **Superseded:** a `SupabaseAdapter` implementing the same interface was
+  planned here and is no longer wanted. Sync pushes *rows*; `DataAdapter` is
+  an interface of *intents* (`advanceVideoPhase`, `confirmCampaignField`), and
+  implementing those against Postgres would put the phase chain, the rate
+  snapshot rule and the provenance rules on the server as a second copy free
+  to drift from `src/data`. The remote side is `SyncTarget` in `src/sync`,
+  which is row-level on purpose. Online-only mode is out of scope. See
+  `docs/SYNC.md`.
 - No component imports Dexie or `supabase-js` directly. Ever.
 
 ## Non-negotiables

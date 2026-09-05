@@ -248,12 +248,13 @@ export interface PhaseEvent {
   session: SessionType | null
   occurred_at: string
   duration_seconds: number | null
+  client_id: string
 }
 
 /** `phase_events` as supplied by a caller: user_id comes from the session, and
  *  columns the database defaults are optional. */
-export type NewPhaseEvent = Omit<PhaseEvent, 'user_id' | 'id' | 'occurred_at'> &
-  Partial<Pick<PhaseEvent, 'id' | 'occurred_at'>>
+export type NewPhaseEvent = Omit<PhaseEvent, 'user_id' | 'id' | 'occurred_at' | 'client_id'> &
+  Partial<Pick<PhaseEvent, 'id' | 'occurred_at' | 'client_id'>>
 
 /** Mirrors `bonus_tiers`. */
 export interface BonusTier {
@@ -370,6 +371,9 @@ export const SQL_TABLE_CONSTRAINTS: Readonly<Record<string, readonly string[]>> 
   ],
   video_posts: [
     "unique (video_id, platform)",
+  ],
+  phase_events: [
+    "unique (user_id, client_id)",
   ],
   bonus_tiers: [
     "unique (campaign_id, threshold_views)",

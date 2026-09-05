@@ -95,6 +95,27 @@ export class LocalDatabase extends Dexie {
       user_settings: 'user_id',
       _outbox: '++id, queued_at, table_name',
     })
+
+    // v2 adds phase_events.client_id - the key that makes pushing an event
+    // idempotent. `&client_id` is the SQL's `unique (user_id, client_id)`;
+    // there is only ever one user in a local store, so the user_id half of it
+    // is implied.
+    this.version(2)
+      .stores({
+        phase_events:
+          '++id, &client_id, video_id, [video_id+occurred_at], to_phase, occurred_at',
+      })
+      .upgrade(async (tx) => {
+        // Events written before this version have no key. They are minted one
+        // each rather than left null, so that history recorded before the
+        // upgrade can still be pushed exactly once.
+        await tx
+          .table('phase_events')
+          .toCollection()
+          .modify((event) => {
+            if (!event.client_id) event.client_id = crypto.randomUUID()
+          })
+      })
   }
 }
 

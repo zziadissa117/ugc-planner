@@ -47,9 +47,18 @@ export class SupabaseSyncTarget implements SyncTarget {
     // phase_events is insert-only and its id is a server sequence, so the
     // local id must not be sent - the server assigns its own.
     if (write.table_name === 'phase_events') {
+      // The local id is a client-side sequence and means nothing here, so the
+      // server assigns its own. client_id is what makes this safe to retry.
       const { id: _localId, ...event } = row
       const { error } = await this.client.from('phase_events').insert(event)
       if (!error) return { status: 'applied' }
+
+      if (error.code === '23505') {
+        // The unique constraint on (user_id, client_id) caught a retry of a
+        // push that had already landed. Nothing is wrong: the event is on the
+        // server exactly once, which is the whole point of the key.
+        return { status: 'applied' }
+      }
       return this.classify(error)
     }
 

@@ -30,6 +30,43 @@ All of the above is covered by tests that need no network.
 supabase-js API and have never reached a server. Treat them as a first draft
 that compiles, not as working code.
 
+## Done since: idempotent history, and claiming rows
+
+Both of these were blockers and are now built and tested. They needed a
+decision and a real store, not a provisioned project.
+
+### phase_events are now idempotent to push
+
+`phase_events.client_id` is minted on the client before the row lands, with
+`unique (user_id, client_id)` behind it. A retry of a push that already
+landed breaks that constraint, and `SupabaseSyncTarget` reads the `23505` as
+"already applied" - so the event exists on the server exactly once.
+
+Shipped as `docs/migrations/0002_phase_events_client_id.sql` as well as in
+`schema.sql`, because a project provisioned from the current schema already
+has the column and must skip the migration. Both paths are covered: PGlite
+applies 0002 to a database built from a schema with the column stripped out,
+and a guard test asserts that stripping really happened, so the migration
+test cannot pass for the wrong reason.
+
+### Local rows are claimed on first sign-in
+
+`claimLocalRows` (`src/sync/claim.ts`) reassigns every row from the
+localStorage id to the account id, in one transaction, and rewrites the
+outbox entries queued under the old id along with them. It refuses a
+non-uuid account id, and it is a no-op the second time, so it cannot split
+the data between two owners.
+
+Tested against a real LocalAdapter with a fake that only answers "who is
+signed in?" - the same approach as the schema tests, standing in for the one
+unavailable piece rather than mocking away the substance. The end-to-end case
+drains the outbox through a target that refuses anything not owned by the
+signed-in account, the way RLS does, and asserts nothing is refused. That is
+the failure worth catching: a refused push looks from the outside exactly
+like a successful one with nothing to send.
+
+Still unverified against real RLS, which is blocker 2.
+
 ## The blockers, in the order they need clearing
 
 ### 1. Provision the project and set two environment variables
@@ -60,41 +97,7 @@ exercised, because there is no authenticated role to exercise them as.
 another, and confirm the second cannot see it. Nothing so far proves RLS
 actually isolates users.
 
-### 3. Decide how `phase_events` rows are de-duplicated - needs a schema change
-
-`phase_events.id` is a `bigserial`. Locally that is a client-side sequence; on
-the server it is a different sequence. So the local id is meaningless remotely,
-and `SupabaseSyncTarget.push` strips it and lets the server assign one.
-
-That makes pushing an event **not idempotent**. If a push succeeds but the
-response is lost, the retry inserts the event a second time. Duplicated
-`phase_events` corrupt MEASURED timings, which are derived from that log.
-
-The fix is a client-generated key, and it is a change to the authoritative
-schema, so it is not being made unilaterally:
-
-```sql
-alter table phase_events
-  add column client_id uuid not null default gen_random_uuid(),
-  add constraint phase_events_client_id_unique unique (user_id, client_id);
-```
-
-The insert then carries `client_id`, and a retry hits the unique constraint and
-is treated as already-applied. **This needs your approval before phase 9 can
-finish.**
-
-### 4. Claim local rows on first sign-in
-
-Local rows are minted with a local user id from `localStorage`, because there
-is no `auth.uid()` before sign-in. On the first sign-in, every row's `user_id`
-has to be rewritten to the real account id, exactly once, or RLS will refuse
-all of them and the first sync will silently push nothing.
-
-Not implemented. It needs a real account to test against, and getting it wrong
-means orphaning the only copy of his data. It should run inside
-`runTransaction` and should refuse to run twice.
-
-### 5. Deploy the parser Edge Function
+### 3. Deploy the parser Edge Function
 
 `EdgeFunctionParser` is a stub. The contract it has to hold up is written down
 in `src/parser/edgeFunction.ts`: request structured JSON against a strict
@@ -106,7 +109,7 @@ the uploaded text server-side before returning.
 tested. The Edge Function should run the same logic, not a second version of
 it.
 
-### 6. Decide whether a full `SupabaseAdapter` is wanted
+### 4. A full `SupabaseAdapter` - decided: not wanted
 
 `CLAUDE.md` says `SupabaseAdapter` gets written against the same `DataAdapter`
 interface. Sync did not need it, and building it was deliberately not done.
@@ -117,6 +120,6 @@ Implementing those remotely would put the phase chain, the rate snapshot rule
 and the provenance rules on the server as a second copy, free to drift from the
 one in `src/data`. `SyncTarget` is row-level on purpose.
 
-A full `SupabaseAdapter` is still worth having if you ever want an online-only
-mode - a browser with no local data reading straight from Postgres. It is not
-needed for sync. **Tell me which you want.**
+Decided: not building it. `SyncTarget` stays row-level, and online-only mode
+is out of scope. If that changes, the interface is already there to
+implement against.

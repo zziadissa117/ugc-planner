@@ -246,7 +246,21 @@ create table phase_events (
   session      session_type,
   occurred_at  timestamptz not null default now(),
   -- Wall-clock seconds spent in the previous phase, when measurable.
-  duration_seconds integer check (duration_seconds >= 0)
+  duration_seconds integer check (duration_seconds >= 0),
+
+  -- Client-generated idempotency key.
+  --
+  -- `id` is a server sequence, so it means nothing until the row reaches the
+  -- server: a push carries no id and lets the server assign one. That makes a
+  -- push non-idempotent on its own - if it succeeds but the response is lost,
+  -- the retry inserts the same event a second time, and duplicated events
+  -- corrupt the MEASURED timings this log is the only source of.
+  --
+  -- The client mints this before the write lands locally, so a retry hits the
+  -- unique constraint below and is treated as already applied.
+  client_id    uuid not null default gen_random_uuid(),
+
+  unique (user_id, client_id)
 );
 
 create index on phase_events (video_id, occurred_at);

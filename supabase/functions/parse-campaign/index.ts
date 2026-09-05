@@ -7,6 +7,7 @@
 // can still be found verbatim in the document it claims to come from. This
 // function writes nothing to the database; it parses and returns.
 
+import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { verifyQuotes } from '../_shared/verify.ts'
 import { NEVER_PARSED_FIELDS, type ParseResult } from '../_shared/parserTypes.ts'
@@ -14,7 +15,7 @@ import { NEVER_PARSED_FIELDS, type ParseResult } from '../_shared/parserTypes.ts
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!
 const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY')!
-const MODEL = Deno.env.get('PARSE_CAMPAIGN_MODEL') ?? 'claude-sonnet-5'
+const MODEL = Deno.env.get('PARSE_CAMPAIGN_MODEL') ?? 'claude-haiku-4-5-20251001'
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -126,7 +127,8 @@ async function callModel(briefText: string | null, contractText: string | null):
     },
     body: JSON.stringify({
       model: MODEL,
-      max_tokens: 4096,
+      // The response is a fixed JSON shape and never needs more.
+      max_tokens: 4000,
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: userContent }],
       tools: [

@@ -120,23 +120,38 @@ Then two things run immediately, both already written:
 One stray account from probing is left in `auth.users`
 (`ugc-rls-1788622981837-hdca4j@ugcplanner.app`, unconfirmed, owns no rows) -
 delete it whenever convenient.
-### 3. Deploy the parser Edge Function - contract ready
+### 3. Deploy the parser Edge Function - deployed, one secret outstanding
 
-`EdgeFunctionParser` is a stub. The contract it has to hold up is written down
-in `src/parser/edgeFunction.ts`: request structured JSON against a strict
-schema, instruct the model to return null for anything absent and never to
-infer, require a `source_quote` on every field, and verify each quote against
-the uploaded text server-side before returning.
+`supabase/functions/parse-campaign` is written and deployed (function id
+`d5c80cae-0390-43c2-a9b7-e390ae8d2f05`, version 1, status ACTIVE). It holds up
+the contract in `docs/EDGE_FUNCTION.md`: requires a valid session, calls the
+Anthropic Messages API (`claude-haiku-4-5-20251001`, forced tool call against a
+strict JSON schema) with the three prompt rules stated plainly, and runs
+`verifyQuotes` - vendored into `supabase/functions/_shared/verify.ts`, guarded
+by `src/parser/edgeFunctionVerify.driftGuard.test.ts` so the copy cannot
+silently disagree with `src/parser/verify.ts` - before returning anything.
+`NEVER_PARSED_FIELDS` are stripped from the model's response before the quote
+check runs.
 
-The full contract is written up in `docs/EDGE_FUNCTION.md`: the request and
-response shapes, the three prompt instructions that carry the weight, the
-contract anchors to parse with high confidence, the fields never to attempt,
-and the post-response verification.
+**Outstanding:** the function reads `ANTHROPIC_API_KEY` from its environment
+and there is no MCP tool that can set a Supabase project secret, nor should a
+model API key pass through an agent's tool calls or shell history. Set it by
+hand:
 
-`verifyQuotes` in `src/parser/verify.ts` is that check, already written and
-tested. The function must run the same logic, not a second version of it - two
-implementations of "is this quote real?" will drift, and the day they disagree
-is the day a fabricated rate is written as `documented`.
+```
+supabase secrets set ANTHROPIC_API_KEY=sk-ant-... --project-ref uykuoibqdxmpbbrsmyad
+```
+
+or Dashboard → Edge Functions → parse-campaign → Secrets. `SUPABASE_URL` and
+`SUPABASE_ANON_KEY` need no action - Supabase injects both into every
+function automatically.
+
+Once the secret is set, smoke-test with a real signed-in session before
+flipping the client over - `src/parser/edgeFunction.ts` gates
+`EdgeFunctionParser.isAvailable()` on `VITE_PARSE_CAMPAIGN_DEPLOYED=true` in
+`.env`, deliberately separate from "the client can reach a Supabase project",
+so a live-but-untested function cannot silently start serving real drop-box
+parses.
 
 ### 4. A full `SupabaseAdapter` - decided: not wanted
 

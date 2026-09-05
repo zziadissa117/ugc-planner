@@ -1,0 +1,11 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# createBrowserRouter (src/main.tsx) needs every path to resolve to index.html
+# client-side - without this, a hard refresh or a shared link on any route but
+# "/" 404s at the CDN before React Router ever sees it.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

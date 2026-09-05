@@ -15,6 +15,13 @@ dist-ssr
 # vite-plugin-pwa dev-mode service worker output
 dev-dist
 
+# Playwright output
+test-results
+playwright-report
+blob-report
+playwright/.cache
+.netlify
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -12,7 +12,9 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     // *.live.test.ts talk to the real Supabase project. They are excluded
     // here so the default suite stays offline, fast and deterministic - run
-    // them deliberately with `npm run test:live`.
-    exclude: ['**/node_modules/**', '**/dist/**', '**/*.live.test.ts'],
+    // them deliberately with `npm run test:live`. e2e/ is Playwright's own
+    // suite (*.spec.ts, against @playwright/test, not vitest) and is excluded
+    // for the same reason - run it with `npm run test:e2e`.
+    exclude: ['**/node_modules/**', '**/dist/**', '**/*.live.test.ts', 'e2e/**'],
   },
 })

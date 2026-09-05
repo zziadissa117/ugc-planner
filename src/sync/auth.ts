@@ -41,6 +41,11 @@ export function getSupabaseClient(): SupabaseClient | null {
       // each of them every week.
       persistSession: true,
       autoRefreshToken: true,
+      // The magic link comes back with the session in the URL. This is the
+      // supabase-js default, but stated explicitly because sign-in silently
+      // does nothing without it - the link would land on the app and leave
+      // the user still signed out, with nothing to explain why.
+      detectSessionInUrl: true,
     },
   })
   return cached
@@ -64,12 +69,23 @@ export async function getAuthState(): Promise<AuthState> {
 }
 
 /** Magic-link sign-in: no password to remember, and nothing to type on a phone
- *  beyond an email address. */
+ *  beyond an email address.
+ *
+ *  emailRedirectTo is the origin the sign-in was started from, so the link
+ *  comes back to the app he is actually using - the deployed site from the
+ *  deployed site, localhost from a dev server. Without it, Supabase falls back
+ *  to the project's Site URL, which defaults to localhost and sends a link
+ *  that dead-ends on a phone. The URL must also be allow-listed under
+ *  Authentication -> URL Configuration, or Supabase ignores it and falls back
+ *  to Site URL anyway - see docs/DEPLOY.md. */
 export async function signIn(email: string): Promise<void> {
   const client = getSupabaseClient()
   if (!client) throw new Error('Supabase is not configured yet.')
 
-  const { error } = await client.auth.signInWithOtp({ email })
+  const { error } = await client.auth.signInWithOtp({
+    email,
+    options: { emailRedirectTo: window.location.origin },
+  })
   if (error) throw new Error(error.message)
 }
 

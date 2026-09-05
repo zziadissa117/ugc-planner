@@ -1,10 +1,9 @@
 // The sync target over Supabase.
 //
-// NOT VERIFIED END TO END. There is no project to point it at, so the query
-// construction below is written against the supabase-js API and covered by
-// tests using a recording double - which proves the calls it makes, not that
-// the server accepts them. See docs/SYNC.md for exactly what unblocking looks
-// like.
+// Verified end to end against the real project: src/sync/rls.live.test.ts and
+// src/sync/claim.live.test.ts drive this class over real HTTP - real accounts,
+// real RLS, a real drain - not just a recording double that proves the calls
+// it makes. See docs/SYNC.md.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 

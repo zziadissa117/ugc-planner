@@ -24,11 +24,16 @@ investigation.
 
 All of the above is covered by tests that need no network.
 
-## What is written but unverified
+## What is verified against the real project
 
-`src/sync/supabaseTarget.ts` and `src/sync/auth.ts` are written against the
-supabase-js API and have never reached a server. Treat them as a first draft
-that compiles, not as working code.
+`src/sync/supabaseTarget.ts` and `src/sync/auth.ts` are no longer a first
+draft that only compiles - `src/sync/rls.live.test.ts` and
+`src/sync/claim.live.test.ts` exercise them over real HTTP against project
+`uykuoibqdxmpbbrsmyad`: two real accounts, RLS isolation and the
+`phase_events` INSERT/SELECT-only policies proven through PostgREST, and a
+full local-store-to-claimed-account-to-drained-outbox run with zero
+rejections. Run with `npm run test:live` (needs Confirm Email off - see
+below).
 
 ## Done since: idempotent history, and claiming rows
 
@@ -57,15 +62,16 @@ outbox entries queued under the old id along with them. It refuses a
 non-uuid account id, and it is a no-op the second time, so it cannot split
 the data between two owners.
 
-Tested against a real LocalAdapter with a fake that only answers "who is
-signed in?" - the same approach as the schema tests, standing in for the one
-unavailable piece rather than mocking away the substance. The end-to-end case
-drains the outbox through a target that refuses anything not owned by the
-signed-in account, the way RLS does, and asserts nothing is refused. That is
-the failure worth catching: a refused push looks from the outside exactly
-like a successful one with nothing to send.
-
-Still unverified against real RLS, which is blocker 2.
+Tested two ways. `claim.test.ts` uses a real LocalAdapter with a fake that
+only answers "who is signed in?" - the same approach as the schema tests,
+standing in for the one unavailable piece rather than mocking away the
+substance - and drains through a target that refuses anything not owned by
+the signed-in account, asserting nothing is refused. `claim.live.test.ts`
+does the same thing against a real account and the real `SupabaseSyncTarget`:
+signs up for real, claims, drains, and then re-reads the rows over HTTP to
+confirm they landed under the account rather than trusting the local outbox's
+own report. Both pass. That is the failure worth catching: a refused push
+looks from the outside exactly like a successful one with nothing to send.
 
 ## The blockers, in the order they need clearing
 
@@ -77,7 +83,7 @@ committed template. The publishable key is the client-side one and is
 independently rotatable - not the legacy anon JWT, and never the service role
 key.
 
-### 2. Apply the schema and verify RLS - DONE, with one part outstanding
+### 2. Apply the schema and verify RLS - DONE
 
 `schema.sql` applied, matching commit f8810ee. Migration 0002 correctly
 skipped: `phase_events` carries exactly one unique constraint,
@@ -92,66 +98,65 @@ row. It is self-validating: A inserts and asserts it can see its own row
 before B looks, so B’s zero counts cannot be an empty table passing for
 isolation. Re-run it after any policy change.
 
-**Outstanding:** the same assertions over HTTP, through two signed-in
-supabase-js sessions. That covers the client wiring rather than the policies,
-and it is blocked - see below.
+Now proven both ways: `docs/rls-check.sql` at the policy level, and
+`src/sync/rls.live.test.ts` over HTTP through two real signed-in supabase-js
+sessions - B never sees A's rows, and UPDATE/DELETE on `phase_events` fails
+through PostgREST for either account. `claimLocalRows` is proven the same way
+in `src/sync/claim.live.test.ts` - see above.
 
-## Blocked on one project setting
+Confirm Email had to be turned off (Authentication → Providers → Email) for
+`signUp` to return a session rather than requiring a confirmation email the
+built-in SMTP is rate-limited to about one an hour. Done. Every `test:live`
+run mints one or two throwaway `<prefix>-<timestamp>@ugcplanner.app`
+accounts that the tests can't delete themselves - no admin key available to
+them - though each cleans up every row it owns before exiting. Several such
+accounts (owning nothing) are sitting in `auth.users` from the runs during
+this work; delete them from Authentication → Users whenever convenient, same
+as the original stray probe account.
 
-Email confirmation is ON, so `signUp` returns a user but no session, and the
-built-in SMTP is rate-limited to roughly one message an hour. Writing
-`auth.users` rows directly is refused by this environment, which is the right
-call and was not worked around.
+### 3. Deploy the parser Edge Function - DONE
 
-To unblock, either:
-
-- turn **Authentication → Providers → Email → Confirm email** off (normal for
-  a dev project, and the quickest path), or
-- create two confirmed accounts by hand and share the credentials.
-
-Then two things run immediately, both already written:
-
-1. The two-account client test, asserting B never sees A’s rows over HTTP and
-   that UPDATE/DELETE on `phase_events` fails through PostgREST.
-2. `claimLocalRows` against a real first sign-in, confirming that local rows
-   minted under the localStorage id are all reassigned and that the first
-   drain pushes them without a single RLS rejection.
-
-One stray account from probing is left in `auth.users`
-(`ugc-rls-1788622981837-hdca4j@ugcplanner.app`, unconfirmed, owns no rows) -
-delete it whenever convenient.
-### 3. Deploy the parser Edge Function - deployed, one secret outstanding
-
-`supabase/functions/parse-campaign` is written and deployed (function id
-`d5c80cae-0390-43c2-a9b7-e390ae8d2f05`, version 1, status ACTIVE). It holds up
-the contract in `docs/EDGE_FUNCTION.md`: requires a valid session, calls the
-Anthropic Messages API (`claude-haiku-4-5-20251001`, forced tool call against a
-strict JSON schema) with the three prompt rules stated plainly, and runs
-`verifyQuotes` - vendored into `supabase/functions/_shared/verify.ts`, guarded
-by `src/parser/edgeFunctionVerify.driftGuard.test.ts` so the copy cannot
+`supabase/functions/parse-campaign` is written, deployed, and smoke-tested
+against a real request (function id `d5c80cae-0390-43c2-a9b7-e390ae8d2f05`,
+version 3, status ACTIVE - versions 1-2 were replaced; see the note below).
+It holds up the contract in `docs/EDGE_FUNCTION.md`: requires a valid
+session, calls the Anthropic Messages API (`claude-haiku-4-5-20251001`,
+forced tool call against a strict JSON schema, capped at 4000 output tokens)
+with the three prompt rules stated plainly, and runs `verifyQuotes` -
+vendored into `supabase/functions/_shared/verify.ts`, guarded by
+`src/parser/edgeFunctionVerify.driftGuard.test.ts` so the copy cannot
 silently disagree with `src/parser/verify.ts` - before returning anything.
-`NEVER_PARSED_FIELDS` are stripped from the model's response before the quote
-check runs.
+`NEVER_PARSED_FIELDS` are stripped from the model's response, and two things
+the tool schema cannot actually enforce are handled explicitly:
+`ParsedField.value` is coerced to a string (a live call showed the model
+handing back a bare JSON number for a dollar amount, which every downstream
+consumer expects as `string | null`), and a bonus tier whose numbers are not
+integers is dropped with a warning rather than coerced, per
+`docs/EDGE_FUNCTION.md`'s "reject rather than round" instruction.
 
-**Outstanding:** the function reads `ANTHROPIC_API_KEY` from its environment
-and there is no MCP tool that can set a Supabase project secret, nor should a
-model API key pass through an agent's tool calls or shell history. Set it by
-hand:
+`ANTHROPIC_API_KEY` is set as a project secret (confirmed working - a real
+signed-in call returns a real parsed result). `SUPABASE_URL` and
+`SUPABASE_ANON_KEY` needed no action; Supabase injects both into every
+function automatically. `src/parser/edgeFunction.live.test.ts` covers the
+whole round trip - auth, model, quote verification - against a real templated
+contract, plus that a call missing a bearer token is refused.
 
-```
-supabase secrets set ANTHROPIC_API_KEY=sk-ant-... --project-ref uykuoibqdxmpbbrsmyad
-```
+`src/parser/edgeFunction.ts` gates `EdgeFunctionParser.isAvailable()` on
+`VITE_PARSE_CAMPAIGN_DEPLOYED=true` in `.env`, deliberately separate from "the
+client can reach a Supabase project" - flip it now that the function is
+verified working.
 
-or Dashboard → Edge Functions → parse-campaign → Secrets. `SUPABASE_URL` and
-`SUPABASE_ANON_KEY` need no action - Supabase injects both into every
-function automatically.
-
-Once the secret is set, smoke-test with a real signed-in session before
-flipping the client over - `src/parser/edgeFunction.ts` gates
-`EdgeFunctionParser.isAvailable()` on `VITE_PARSE_CAMPAIGN_DEPLOYED=true` in
-`.env`, deliberately separate from "the client can reach a Supabase project",
-so a live-but-untested function cannot silently start serving real drop-box
-parses.
+**A deploy anomaly worth knowing about:** between the first `deploy_edge_function`
+call (version 1, working but with the value-type bug above) and a second call
+that only changed `index.ts`, `get_edge_function` showed a version 2 with
+code that had never been submitted - a different auth check, a different
+prompting approach, a `deno.json` this session never wrote. The second deploy
+call had errored before completing, so that content did not come from this
+session's tool calls. The cause was not root-caused; what's confirmed is that
+redeploying explicitly (with `deno.json` included and `import_map_path` set)
+produced version 3 matching the submitted files exactly, verified by reading
+it back before testing further. If a future deploy ever produces a diff from
+what was submitted, read it back with `get_edge_function` before trusting it.
 
 ### 4. A full `SupabaseAdapter` - decided: not wanted
 

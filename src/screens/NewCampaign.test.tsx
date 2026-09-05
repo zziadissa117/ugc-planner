@@ -3,7 +3,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { IDBFactory } from 'fake-indexeddb'
 import { MemoryRouter } from 'react-router-dom'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { DataAdapter } from '../data'
 import { DataContext } from '../data/context'
@@ -65,9 +65,22 @@ describe('the drop box', () => {
     expect(screen.getAllByRole('button', { name: 'Choose a file' })).toHaveLength(2)
   })
 
-  it('says the server parser is not deployed and what to do instead', async () => {
-    renderDropBox()
-    expect(screen.getByText(/server parser is not deployed yet/i)).toBeInTheDocument()
+  describe('the server parser availability message', () => {
+    afterEach(() => {
+      vi.unstubAllEnvs()
+    })
+
+    it('says it is not deployed and what to do instead, when the flag is off', async () => {
+      vi.stubEnv('VITE_PARSE_CAMPAIGN_DEPLOYED', 'false')
+      renderDropBox()
+      expect(screen.getByText(/server parser is not deployed yet/i)).toBeInTheDocument()
+    })
+
+    it('says it is available once the deploy flag is on and the client is configured', async () => {
+      vi.stubEnv('VITE_PARSE_CAMPAIGN_DEPLOYED', 'true')
+      renderDropBox()
+      expect(screen.getByText(/server parser is available/i)).toBeInTheDocument()
+    })
   })
 
   it('reports bad JSON without crashing', async () => {

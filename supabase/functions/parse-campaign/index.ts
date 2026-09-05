@@ -164,6 +164,45 @@ function dropNeverParsedFields(result: ParseResult): ParseResult {
   return { ...result, fields }
 }
 
+/** The tool schema asks for strings, but a tool call is a hint, not an
+ *  enforced type - a model asked for "3500" will sometimes hand back the JSON
+ *  number 3500 instead. Every consumer of ParsedField.value (verifyQuotes,
+ *  the review screen, applyParseResult) is written against `string | null`,
+ *  so this coerces before anything downstream sees it, rather than trusting
+ *  the schema to have been followed. */
+function coerceFieldValuesToStrings(result: ParseResult): ParseResult {
+  const fields: ParseResult['fields'] = {}
+  for (const [key, field] of Object.entries(result.fields)) {
+    fields[key] = {
+      ...field,
+      value: field.value === null || field.value === undefined ? null : String(field.value),
+    }
+  }
+  return { ...result, fields }
+}
+
+/** Money is integer cents (docs/EDGE_FUNCTION.md): "reject the model's output
+ *  rather than rounding it yourself if it comes back as dollars." So unlike
+ *  ParsedField.value above, a bonus tier with a non-integer payout or
+ *  threshold is dropped, not coerced - coercing a float could silently accept
+ *  a dollar amount mistaken for cents. */
+function dropMalformedBonusTiers(result: ParseResult): ParseResult {
+  const warnings = [...result.warnings]
+  const bonus_tiers = result.bonus_tiers.filter((tier) => {
+    const valid =
+      Number.isInteger(tier.threshold_views) &&
+      Number.isInteger(tier.payout_cents) &&
+      (tier.view_window_days === null || Number.isInteger(tier.view_window_days))
+    if (!valid) {
+      warnings.push(
+        `A bonus tier ("${tier.label}") was dropped: its numbers were not the integer cents/views the schema requires.`,
+      )
+    }
+    return valid
+  })
+  return { ...result, bonus_tiers, warnings }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: CORS_HEADERS })
@@ -206,7 +245,7 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: `Parse failed: ${(err as Error).message}` }, 502)
   }
 
-  parsed = dropNeverParsedFields(parsed)
+  parsed = dropMalformedBonusTiers(coerceFieldValuesToStrings(dropNeverParsedFields(parsed)))
   const { result } = verifyQuotes(parsed, { briefText, contractText })
 
   return jsonResponse(result)

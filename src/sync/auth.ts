@@ -1,7 +1,10 @@
 // Auth, and the client the sync target needs.
 //
-// NOT VERIFIED. There is no Supabase project, so no call below has ever
-// reached a server. The shape is what matters now: everything that needs
+// The project is live and createClient/getAuthState are exercised for real by
+// the live sync tests (see docs/SYNC.md), but through their own client
+// instances signed up with a password - signInWithOtp itself, the magic-link
+// path this app actually uses, has not yet been driven against a real inbox.
+// The shape is still what matters most here: everything that needs
 // credentials is behind one function, so the point where the app becomes
 // online is a single place rather than scattered through the screens.
 

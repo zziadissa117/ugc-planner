@@ -21,6 +21,53 @@ export const COLUMN_FIELDS = {
  *  parse as money rather than as a bare number. */
 export const MONEY_FIELDS: readonly string[] = ['pay_per_video_cents']
 
+/** The account this campaign actually posts from - which platform, which @,
+ *  which login. No document ever states a handle or a password
+ *  (NEVER_PARSED_FIELDS in src/parser/types.ts), so these only ever arrive by
+ *  hand, and they are shown together at the top of the brief because a
+ *  campaign nobody can log into to post is not a working campaign no matter
+ *  what its rate is. `platforms` is the one exception - the brief is asked
+ *  for it and sometimes states it - but it lives in this group because it
+ *  answers the same question: where does this post. */
+export const ACCOUNT_FIELD_KEYS = [
+  'platforms',
+  'handle_tiktok',
+  'handle_instagram',
+  'account_email',
+  'account_password',
+] as const
+
+export const PASSWORD_FIELD_KEYS: readonly string[] = ['account_password']
+
+const HANDLE_FIELD_KEYS: readonly string[] = ['handle_tiktok', 'handle_instagram']
+
+/** True once at least one platform handle is saved - not blank, and not just
+ *  parsed and sitting unreviewed. A handle nobody has looked at is not yet a
+ *  handle he can actually post under. */
+export function hasAccountHandle(fields: readonly CampaignField[]): boolean {
+  return fields.some(
+    (f) => HANDLE_FIELD_KEYS.includes(f.field_key) && f.field_value !== null && f.field_value.trim() !== '',
+  )
+}
+
+/** A stand-in row for a field that has never been written, so an empty
+ *  account field can go through the same edit component as a real one rather
+ *  than needing a second code path for "does not exist yet". */
+export function virtualField(campaignId: string, fieldKey: string): CampaignField {
+  return {
+    id: `virtual-${fieldKey}`,
+    user_id: '',
+    campaign_id: campaignId,
+    field_key: fieldKey,
+    field_value: null,
+    source: 'missing',
+    source_quote: null,
+    source_document_id: null,
+    confirmed_at: null,
+    updated_at: '',
+  }
+}
+
 /** Dollars in, integer cents out - or null if it is not a plain amount.
  *
  *  Deliberately string arithmetic. `35.10 * 100` is 3510.0000000000005 in

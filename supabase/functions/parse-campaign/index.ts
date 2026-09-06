@@ -104,7 +104,7 @@ Contracts are templated (SideShift). Parse these with high confidence when prese
 
 From the brief, attempt only: platforms, video length and aspect ratio, approval route, disclosure requirements, hashtag tokens. Nothing else.
 
-Never attempt, under any circumstance, even if the text seems to mention them: handles (TikTok/Instagram), setup type, real per-stage minutes (film/edit/post), daily post quota. No document ever contains these; if you think you see one, it is a coincidence, not this campaign's value - return null.
+Never attempt, under any circumstance, even if the text seems to mention them: handles (TikTok/Instagram), account email or password, setup type, real per-stage minutes (film/edit/post), daily post quota. No document ever contains these; if you think you see one, it is a coincidence, not this campaign's value - return null.
 
 Money is integer cents. payout_cents of $50.00 is 5000. Never a float, never a string with a currency symbol.
 

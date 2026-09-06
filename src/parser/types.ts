@@ -87,6 +87,8 @@ export class ParseError extends Error {
 export const NEVER_PARSED_FIELDS = [
   'handle_tiktok',
   'handle_instagram',
+  'account_email',
+  'account_password',
   'setup type',
   'real film / edit / post minutes',
   'daily post quota',

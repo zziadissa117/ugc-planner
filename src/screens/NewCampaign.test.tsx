@@ -167,6 +167,13 @@ describe('the review screen', () => {
     await screen.findByRole('heading', { name: 'Review' })
   }
 
+  /** No document ever states a handle - typing one in is what the "no
+   *  campaigns without a @" rule actually gates on. */
+  async function fillHandle(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByLabelText('TikTok @'))
+    await user.paste('@creator')
+  }
+
   it('renders a parsed field amber and unreviewed until it is tapped', async () => {
     const user = userEvent.setup()
     await reachReview(user)
@@ -241,6 +248,7 @@ describe('the review screen', () => {
     await reachReview(user)
 
     await user.click(within(screen.getByRole('list', { name: 'Parsed fields' })).getByRole('button'))
+    await fillHandle(user)
     await user.click(screen.getByRole('button', { name: 'Save campaign' }))
 
     // The campaign row appears before its fields do, so waiting on the row
@@ -263,5 +271,74 @@ describe('the review screen', () => {
     // The raw contract text is kept, so the quote can be checked again later.
     const documents = await adapter.listCampaignDocuments(campaign.id)
     expect(documents.find((d) => d.kind === 'contract')?.raw_text).toBe(CONTRACT)
+  })
+})
+
+describe('no campaigns without a @', () => {
+  async function reachReview(user: ReturnType<typeof userEvent.setup>) {
+    renderDropBox()
+    await paste(user, 'Parsed JSON', JSON.stringify({ campaign: { name: 'No handle yet' } }))
+    await user.click(screen.getByRole('button', { name: 'Review it' }))
+    await screen.findByRole('heading', { name: 'Review' })
+  }
+
+  it('refuses to save with no TikTok or Instagram handle', async () => {
+    const user = userEvent.setup()
+    await reachReview(user)
+
+    expect(screen.getByRole('button', { name: 'Save campaign' })).toBeDisabled()
+    expect(screen.getByText(/add a tiktok or instagram @ above/i)).toBeInTheDocument()
+  })
+
+  it('enables saving once either handle is filled in', async () => {
+    const user = userEvent.setup()
+    await reachReview(user)
+
+    await user.click(screen.getByLabelText('Instagram @'))
+    await user.paste('@creator')
+
+    expect(screen.getByRole('button', { name: 'Save campaign' })).not.toBeDisabled()
+  })
+
+  it('saves the handle, email and password as user entered, with no quote', async () => {
+    const user = userEvent.setup()
+    await reachReview(user)
+
+    await user.click(screen.getByLabelText('TikTok @'))
+    await user.paste('@creator')
+    await user.click(screen.getByLabelText('Email'))
+    await user.paste('creator@example.com')
+    await user.click(screen.getByLabelText('Password'))
+    await user.paste('hunter2')
+    await user.click(screen.getByRole('button', { name: 'Save campaign' }))
+
+    await waitFor(async () => {
+      const [saved] = await adapter.listCampaigns()
+      expect(saved).toBeDefined()
+    })
+
+    const [campaign] = await adapter.listCampaigns()
+    const fields = await adapter.listCampaignFields(campaign.id)
+
+    const handle = fields.find((f) => f.field_key === 'handle_tiktok')
+    expect(handle?.field_value).toBe('@creator')
+    expect(handle?.source).toBe('user_entered')
+    expect(handle?.source_quote).toBeNull()
+
+    expect(fields.find((f) => f.field_key === 'account_email')?.field_value).toBe(
+      'creator@example.com',
+    )
+    expect(fields.find((f) => f.field_key === 'account_password')?.field_value).toBe('hunter2')
+  })
+
+  it('keeps the password hidden on the review screen until Show is tapped', async () => {
+    const user = userEvent.setup()
+    await reachReview(user)
+
+    const input = screen.getByLabelText('Password')
+    expect(input).toHaveAttribute('type', 'password')
+
+    await user.click(screen.getByRole('button', { name: 'Show' }))
+    expect(input).toHaveAttribute('type', 'text')
   })
 })

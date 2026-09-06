@@ -184,3 +184,71 @@ describe('fixing what the parser missed', () => {
     expect(details).not.toHaveAttribute('open')
   })
 })
+
+describe('the account box', () => {
+  it('does not warn when the seed already carries a handle', async () => {
+    // Inflow's seed sets handle_tiktok and handle_instagram (user_entered).
+    await renderBrief()
+    expect(screen.queryByText(/no @ handle saved yet/i)).toBeNull()
+  })
+
+  it('warns when no platform handle is saved at all', async () => {
+    // A blank campaign with none of the seed's account fields.
+    const campaign = await adapter.createCampaign({
+      name: 'No handle yet',
+      company: null,
+      default_setup: 'face',
+      approval_mode: 'none',
+      pay_per_video_cents: null,
+      cycle_size: null,
+    })
+    render(
+      <DataContext.Provider value={adapter}>
+        <MemoryRouter initialEntries={[`/campaigns/${campaign.id}`]}>
+          <Routes>
+            <Route path="/campaigns/:campaignId" element={<Campaign />} />
+          </Routes>
+        </MemoryRouter>
+      </DataContext.Provider>,
+    )
+    await screen.findByRole('heading', { name: 'No handle yet' })
+    expect(screen.getByText(/no @ handle saved yet/i)).toBeInTheDocument()
+  })
+
+  it('masks the password behind Show/Hide and never shows it by default', async () => {
+    const user = userEvent.setup()
+    await renderBrief()
+
+    const row = screen.getByText('Password').closest('div')!.parentElement!
+    await user.click(within(row).getByRole('button', { name: 'Edit' }))
+
+    const input = screen.getByLabelText('Password')
+    expect(input).toHaveAttribute('type', 'password')
+
+    await user.type(input, 'hunter2')
+    await user.click(within(row).getByRole('button', { name: 'Show' }))
+    expect(input).toHaveAttribute('type', 'text')
+
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    // The edit form closes only once the save (and the reload after it) has
+    // actually landed, so waiting for it gone is waiting for the write too.
+    await waitFor(() => expect(screen.queryByLabelText('Password')).toBeNull())
+
+    const fields = await adapter.listCampaignFields(INFLOW_CAMPAIGN_ID)
+    expect(fields.find((f) => f.field_key === 'account_password')?.field_value).toBe('hunter2')
+
+    // Back to the resting view: hidden again, not the raw password.
+    expect(screen.queryByText('hunter2')).toBeNull()
+    expect(screen.getByText((text) => text.includes('••••••••'))).toBeInTheDocument()
+  })
+
+  it('keeps account fields out of the everything-else lists below', async () => {
+    await renderBrief()
+
+    // handle_tiktok/handle_instagram live in the Account box only - listing
+    // them again under Saved would be the same fact told twice.
+    expect(screen.queryByText('handle tiktok')).toBeNull()
+    expect(screen.queryByText('handle instagram')).toBeNull()
+  })
+})

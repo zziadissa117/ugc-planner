@@ -10,10 +10,13 @@ import type {
   CampaignRule,
 } from '../data'
 import {
+  ACCOUNT_FIELD_KEYS,
   centsToDollarsInput,
   confirmFieldValue,
+  hasAccountHandle,
   parseCount,
   saveFieldValue,
+  virtualField,
 } from '../data/campaignFields'
 import { useData } from '../data/useData'
 
@@ -30,6 +33,17 @@ interface Loaded {
  *  "pay per video cents: 3500, unreviewed" in another is the same fact told
  *  twice in two voices. */
 const PAY_FIELD_KEYS = ['pay_per_video_cents', 'cycle_size']
+
+/** Display names for the account block. Not fieldLabel()'s mechanical
+ *  underscore-replace - these five are a fixed, known set, so the wording is
+ *  chosen rather than derived. */
+const ACCOUNT_LABELS: Record<string, string> = {
+  platforms: 'Platform',
+  handle_tiktok: 'TikTok @',
+  handle_instagram: 'Instagram @',
+  account_email: 'Email',
+  account_password: 'Password',
+}
 
 export function Campaign() {
   const { campaignId } = useParams()
@@ -108,7 +122,7 @@ export function Campaign() {
 
   const byKey = new Map(fields.map((f) => [f.field_key, f]))
   const rest = [...fields]
-    .filter((f) => !PAY_FIELD_KEYS.includes(f.field_key))
+    .filter((f) => !PAY_FIELD_KEYS.includes(f.field_key) && !ACCOUNT_FIELD_KEYS.includes(f.field_key as never))
     .sort((a, b) => a.field_key.localeCompare(b.field_key))
 
   const needsReview = rest.filter((f) => f.source === 'parsed_unreviewed')
@@ -123,6 +137,8 @@ export function Campaign() {
         <h1 className="text-2xl font-semibold text-text">{campaign.name}</h1>
         <p className="text-state-later">{campaign.company ?? 'company not saved yet'}</p>
       </header>
+
+      <AccountBox fields={fields} campaignId={campaign.id} onSave={saveField} onConfirm={confirmField} />
 
       {campaign.brief_is_incomplete ? (
         <p className="rounded-lg border border-state-waiting/40 bg-state-waiting/10 px-4 py-3 text-state-waiting">
@@ -325,6 +341,55 @@ export function Campaign() {
         </details>
       ) : null}
     </section>
+  )
+}
+
+/** What account this campaign actually posts from, first and prominent -
+ *  which platform, which @, which login. No document ever states a handle or
+ *  a password (NEVER_PARSED_FIELDS), so every row here is his to fill in, and
+ *  a campaign with no handle saved at all is flagged in the open rather than
+ *  waiting to be noticed at post time, when the pipeline is what stalls. */
+function AccountBox({
+  fields,
+  campaignId,
+  onSave,
+  onConfirm,
+}: {
+  fields: CampaignField[]
+  campaignId: string
+  onSave: (fieldKey: string, value: string | null) => Promise<void>
+  onConfirm: (fieldKey: string) => Promise<void>
+}) {
+  const byKey = new Map(fields.map((f) => [f.field_key, f]))
+  const needsHandle = !hasAccountHandle(fields)
+
+  return (
+    <div className="rounded-lg border border-edge bg-surface p-4">
+      <h2 className="text-lg font-semibold text-text">Account</h2>
+
+      {needsHandle ? (
+        <p className="mt-1 text-sm font-semibold text-state-blocked">
+          No @ handle saved yet - required before this campaign can post.
+        </p>
+      ) : null}
+
+      <div className="mt-2 flex flex-col divide-y divide-edge">
+        {ACCOUNT_FIELD_KEYS.map((fieldKey) => (
+          <EditableField
+            key={fieldKey}
+            field={byKey.get(fieldKey) ?? virtualField(campaignId, fieldKey)}
+            label={ACCOUNT_LABELS[fieldKey]}
+            mask={fieldKey === 'account_password'}
+            onSave={(value) => onSave(fieldKey, value)}
+            onConfirm={
+              byKey.get(fieldKey)?.source === 'parsed_unreviewed'
+                ? () => onConfirm(fieldKey)
+                : undefined
+            }
+          />
+        ))}
+      </div>
+    </div>
   )
 }
 

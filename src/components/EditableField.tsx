@@ -17,19 +17,30 @@ export function EditableField({
   field,
   onSave,
   onConfirm,
+  label,
+  mask,
 }: {
   field: CampaignField
   onSave: (value: string | null) => Promise<void>
   onConfirm?: () => Promise<void>
+  /** Overrides fieldLabel() for a field whose display name this component
+   *  already knows on purpose - "Password" rather than "account password". */
+  label?: string
+  /** A password: hidden by dots until he explicitly asks to see it, both at
+   *  rest and while editing. The length shown is fixed, not the real length -
+   *  a password's length is itself information. */
+  mask?: boolean
 }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [revealed, setRevealed] = useState(false)
 
   const isMoney = MONEY_FIELDS.includes(field.field_key)
   const unreviewed = field.source === 'parsed_unreviewed'
   const absent = field.source === 'missing' || field.field_value === null
+  const displayLabel = label ?? fieldLabel(field.field_key)
 
   function startEditing() {
     const current = field.field_value
@@ -58,6 +69,7 @@ export function EditableField({
     try {
       await onSave(value)
       setEditing(false)
+      setRevealed(false)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught))
     } finally {
@@ -84,17 +96,30 @@ export function EditableField({
           htmlFor={`edit-${field.field_key}`}
           className="text-xs font-semibold uppercase tracking-wide text-state-later"
         >
-          {fieldLabel(field.field_key)}
+          {displayLabel}
           {isMoney ? ' (dollars)' : ''}
         </label>
-        <input
-          id={`edit-${field.field_key}`}
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          inputMode={isMoney ? 'decimal' : 'text'}
-          autoFocus
-          className="mt-2 min-h-tap w-full rounded-lg border border-edge bg-surface-raised px-3 text-text"
-        />
+        <div className="mt-2 flex gap-2">
+          <input
+            id={`edit-${field.field_key}`}
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            type={mask && !revealed ? 'password' : 'text'}
+            autoComplete={mask ? 'new-password' : 'off'}
+            inputMode={isMoney ? 'decimal' : 'text'}
+            autoFocus
+            className="min-h-tap w-full rounded-lg border border-edge bg-surface-raised px-3 text-text"
+          />
+          {mask ? (
+            <button
+              type="button"
+              onClick={() => setRevealed((current) => !current)}
+              className="min-h-tap shrink-0 rounded-lg border border-edge px-3 text-sm font-semibold text-state-later active:bg-surface-raised"
+            >
+              {revealed ? 'Hide' : 'Show'}
+            </button>
+          ) : null}
+        </div>
         {error ? <p className="mt-2 text-sm text-state-blocked">{error}</p> : null}
         <div className="mt-3 flex gap-2">
           <button
@@ -107,7 +132,10 @@ export function EditableField({
           </button>
           <button
             type="button"
-            onClick={() => setEditing(false)}
+            onClick={() => {
+              setEditing(false)
+              setRevealed(false)
+            }}
             disabled={busy}
             className="min-h-tap flex-1 rounded-lg border border-edge bg-surface px-4 font-semibold text-state-later active:bg-surface-raised"
           >
@@ -118,12 +146,25 @@ export function EditableField({
     )
   }
 
+  const shown = mask && !absent && !revealed ? '••••••••' : displayValue(field, isMoney)
+
   return (
     <div className="flex items-start justify-between gap-3 py-1">
       <div className="min-w-0 flex-1">
-        <p className="text-sm text-state-later">{fieldLabel(field.field_key)}</p>
-        <p className={unreviewed ? 'text-state-waiting' : absent ? 'text-state-later' : 'text-text'}>
-          {absent ? 'not saved yet' : displayValue(field, isMoney)}
+        <p className="text-sm text-state-later">{displayLabel}</p>
+        <p
+          className={`${mask ? 'font-mono' : ''} ${unreviewed ? 'text-state-waiting' : absent ? 'text-state-later' : 'text-text'}`}
+        >
+          {absent ? 'not saved yet' : shown}
+          {mask && !absent ? (
+            <button
+              type="button"
+              onClick={() => setRevealed((current) => !current)}
+              className="ml-2 text-xs font-semibold uppercase tracking-wide text-state-later"
+            >
+              {revealed ? 'Hide' : 'Show'}
+            </button>
+          ) : null}
         </p>
         {unreviewed && field.source_quote ? (
           <p className="mt-1 text-xs text-state-later">"{field.source_quote}"</p>

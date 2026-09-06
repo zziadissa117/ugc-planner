@@ -96,9 +96,10 @@ approval route, disclosure requirements, and hashtag tokens. Nothing else.
 
 ### Never attempt these at all
 
-Handles, setup type, real per-stage minutes, and the daily quota. **No document
-ever contains them.** They are in `NEVER_PARSED_FIELDS` in
-`src/parser/types.ts`, and the review screen already says in one plain line
+Handles, the account email or password, setup type, real per-stage minutes,
+and the daily quota. **No document ever contains them.** They are in
+`NEVER_PARSED_FIELDS` in `src/parser/types.ts`, and the review screen already
+says in one plain line
 that they were not attempted, so that a blank reads as the app working rather
 than as a bug. If the model returns them, drop them.
 

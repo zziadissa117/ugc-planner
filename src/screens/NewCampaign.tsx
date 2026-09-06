@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import { fieldLabel } from '../components/fieldLabel'
+import { ACCOUNT_FIELD_KEYS, saveFieldValue } from '../data/campaignFields'
 import { useData } from '../data/useData'
 import {
   NEVER_PARSED_FIELDS,
@@ -12,11 +14,27 @@ import {
   type ParseResult,
 } from '../parser'
 import { EdgeFunctionParser } from '../parser/edgeFunction'
-import { fieldLabel } from '../components/fieldLabel'
 
 interface Upload {
   text: string
   filename: string | null
+}
+
+/** No document ever states a handle, an email or a password
+ *  (NEVER_PARSED_FIELDS) - this is always typed by hand, on this screen,
+ *  before a campaign can be saved at all. */
+type AccountDraft = Record<(typeof ACCOUNT_FIELD_KEYS)[number], string>
+
+const BLANK_ACCOUNT: AccountDraft = {
+  platforms: '',
+  handle_tiktok: '',
+  handle_instagram: '',
+  account_email: '',
+  account_password: '',
+}
+
+function hasHandle(account: AccountDraft): boolean {
+  return account.handle_tiktok.trim() !== '' || account.handle_instagram.trim() !== ''
 }
 
 export function NewCampaign() {
@@ -33,6 +51,7 @@ export function NewCampaign() {
   const [review, setReview] = useState<ParseResult | null>(null)
   const [rejected, setRejected] = useState<string[]>([])
   const [confirmed, setConfirmed] = useState<Set<string>>(new Set())
+  const [account, setAccount] = useState<AccountDraft>(BLANK_ACCOUNT)
 
   const briefText = brief.text.trim() === '' ? null : brief.text
   const contractText = contract.text.trim() === '' ? null : contract.text
@@ -82,6 +101,12 @@ export function NewCampaign() {
       setReview(verified.result)
       setRejected(verified.rejected)
       setConfirmed(new Set())
+      // 'platforms' is the one account field a document sometimes states
+      // (docs/EDGE_FUNCTION.md); the rest never arrive parsed and start blank.
+      setAccount({
+        ...BLANK_ACCOUNT,
+        platforms: verified.result.fields.platforms?.value ?? '',
+      })
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught))
     } finally {
@@ -90,7 +115,7 @@ export function NewCampaign() {
   }, [briefText, contractText, edgeParser, json, useServer])
 
   const save = useCallback(async () => {
-    if (!review) return
+    if (!review || !hasHandle(account)) return
     setBusy(true)
     try {
       const campaign = await applyParseResult(data, {
@@ -101,13 +126,22 @@ export function NewCampaign() {
         contractText,
         contractFilename: contract.filename,
       })
+
+      // The account block is typed here, not parsed, so it goes straight in
+      // as user_entered rather than through the confirm-a-quote path the rest
+      // of the fields use - there is no quote to confirm.
+      for (const key of ACCOUNT_FIELD_KEYS) {
+        const value = account[key].trim()
+        if (value !== '') await saveFieldValue(data, campaign.id, key, value)
+      }
+
       void navigate(`/campaigns/${campaign.id}`)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught))
     } finally {
       setBusy(false)
     }
-  }, [brief.filename, briefText, confirmed, contract.filename, contractText, data, navigate, review])
+  }, [account, brief.filename, briefText, confirmed, contract.filename, contractText, data, navigate, review])
 
   if (review) {
     return (
@@ -127,6 +161,8 @@ export function NewCampaign() {
         onSave={() => void save()}
         busy={busy}
         error={error}
+        account={account}
+        onAccountChange={setAccount}
       />
     )
   }
@@ -294,6 +330,8 @@ function Review({
   onSave,
   busy,
   error,
+  account,
+  onAccountChange,
 }: {
   result: ParseResult
   rejected: readonly string[]
@@ -303,6 +341,8 @@ function Review({
   onSave: () => void
   busy: boolean
   error: string | null
+  account: AccountDraft
+  onAccountChange: (next: AccountDraft) => void
 }) {
   const entries = Object.entries(result.fields).sort(([a], [b]) => a.localeCompare(b))
   const found = entries.filter(([, field]) => field.value !== null)
@@ -314,6 +354,8 @@ function Review({
         <h1 className="text-2xl font-semibold text-text">Review</h1>
         <p className="text-state-later">{result.campaign.name}</p>
       </header>
+
+      <AccountEntry account={account} onChange={onAccountChange} />
 
       {result.brief_is_incomplete ? (
         <p className="rounded-lg border border-state-waiting/40 bg-state-waiting/10 px-4 py-3 text-state-waiting">
@@ -416,12 +458,113 @@ function Review({
         <button
           type="button"
           onClick={onSave}
-          disabled={busy}
+          disabled={busy || !hasHandle(account)}
           className="min-h-tap flex-1 rounded-lg border border-state-now bg-surface-raised px-4 font-semibold text-state-now active:bg-surface disabled:opacity-60"
         >
           Save campaign
         </button>
       </div>
+      {!hasHandle(account) ? (
+        <p className="text-right text-sm text-state-blocked">
+          Add a TikTok or Instagram @ above before saving.
+        </p>
+      ) : null}
     </section>
+  )
+}
+
+/** The account this campaign posts from, typed by hand before it can be
+ *  saved at all - no document ever states a handle, an email or a password
+ *  (NEVER_PARSED_FIELDS), so there is nothing to parse here and nothing to
+ *  confirm against a quote. At least one @ is required: a campaign with
+ *  nothing to log into and post from is not a working campaign yet. */
+function AccountEntry({
+  account,
+  onChange,
+}: {
+  account: AccountDraft
+  onChange: (next: AccountDraft) => void
+}) {
+  const [showPassword, setShowPassword] = useState(false)
+  const set = (key: keyof AccountDraft) => (value: string) => onChange({ ...account, [key]: value })
+
+  return (
+    <div className="rounded-lg border border-edge bg-surface p-4">
+      <h2 className="text-lg font-semibold text-text">Account</h2>
+      <p className="mt-1 text-sm text-state-later">
+        No document ever states a handle, an email or a password - type them in. At least one @ is
+        required before this campaign can be saved.
+      </p>
+
+      <div className="mt-3 flex flex-col gap-3">
+        <AccountInput label="Platform" value={account.platforms} onChange={set('platforms')} />
+        <AccountInput
+          label="TikTok @"
+          value={account.handle_tiktok}
+          onChange={set('handle_tiktok')}
+        />
+        <AccountInput
+          label="Instagram @"
+          value={account.handle_instagram}
+          onChange={set('handle_instagram')}
+        />
+        <AccountInput
+          label="Email"
+          type="email"
+          value={account.account_email}
+          onChange={set('account_email')}
+        />
+        <div>
+          <label htmlFor="new-account-password" className="text-sm text-state-later">
+            Password
+          </label>
+          <div className="mt-1 flex gap-2">
+            <input
+              id="new-account-password"
+              value={account.account_password}
+              onChange={(event) => set('account_password')(event.target.value)}
+              type={showPassword ? 'text' : 'password'}
+              autoComplete="new-password"
+              className="min-h-tap w-full rounded-lg border border-edge bg-surface-raised px-3 text-text"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((current) => !current)}
+              className="min-h-tap shrink-0 rounded-lg border border-edge px-3 text-sm font-semibold text-state-later active:bg-surface-raised"
+            >
+              {showPassword ? 'Hide' : 'Show'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function AccountInput({
+  label,
+  value,
+  onChange,
+  type = 'text',
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  type?: string
+}) {
+  const id = `new-account-${label}`
+  return (
+    <div>
+      <label htmlFor={id} className="text-sm text-state-later">
+        {label}
+      </label>
+      <input
+        id={id}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        type={type}
+        className="mt-1 min-h-tap w-full rounded-lg border border-edge bg-surface-raised px-3 text-text"
+      />
+    </div>
   )
 }

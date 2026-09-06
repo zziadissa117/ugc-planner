@@ -252,3 +252,65 @@ describe('the account box', () => {
     expect(screen.queryByText('handle instagram')).toBeNull()
   })
 })
+
+// The two editors that did not exist. Without a setup the fitting algorithm
+// has no honest cost for a video and drops it silently, so a campaign added by
+// hand could never produce a session list at all. And editing_style is in
+// NEVER_PARSED_FIELDS, so the parser will not write it - yet the brief page
+// could only edit field rows that already existed, which made the EDIT
+// screen's "add it on the brief page" an instruction nobody could follow.
+describe('how you make it', () => {
+  it('sets the default setup, which is what makes a campaign plannable', async () => {
+    const user = userEvent.setup()
+    await renderBrief()
+
+    await user.click(screen.getByRole('button', { name: 'screen' }))
+
+    await waitFor(async () => {
+      const campaign = await adapter.getCampaign(INFLOW_CAMPAIGN_ID)
+      expect(campaign?.default_setup).toBe('screen')
+    })
+  })
+
+  it('says plainly when no setup is set, because nothing will schedule', async () => {
+    const campaign = await adapter.createCampaign({
+      name: 'No setup yet',
+      company: null,
+      default_setup: null,
+      approval_mode: 'none',
+      pay_per_video_cents: null,
+      cycle_size: null,
+    })
+    render(
+      <DataContext.Provider value={adapter}>
+        <MemoryRouter initialEntries={[`/campaigns/${campaign.id}`]}>
+          <Routes>
+            <Route path="/campaigns/:campaignId" element={<Campaign />} />
+          </Routes>
+        </MemoryRouter>
+      </DataContext.Provider>,
+    )
+    await screen.findByRole('heading', { name: 'No setup yet' })
+
+    expect(screen.getByText(/cannot be planned into a session/i)).toBeInTheDocument()
+  })
+
+  it('lets the editing style be written by hand, as his own words', async () => {
+    const user = userEvent.setup()
+    await renderBrief()
+
+    const row = screen.getByText('Editing style').closest('div')!.parentElement!
+    await user.click(within(row).getByRole('button', { name: 'Edit' }))
+
+    await user.type(screen.getByLabelText('Editing style'), 'Hard cuts, captions bottom third.')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(async () => {
+      const fields = await adapter.listCampaignFields(INFLOW_CAMPAIGN_ID)
+      const saved = fields.find((f) => f.field_key === 'editing_style')
+      expect(saved?.field_value).toBe('Hard cuts, captions bottom third.')
+      // No document states an editing style, so it can only ever be his.
+      expect(saved?.source).toBe('user_entered')
+    })
+  })
+})

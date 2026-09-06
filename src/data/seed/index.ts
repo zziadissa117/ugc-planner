@@ -1,9 +1,13 @@
-// Loads the seed campaign, once.
+// Loads the seed campaign, once, and then never again.
 //
-// Idempotent by fixed id: running it twice adds nothing. It runs at startup,
-// so a full reset brings the campaign back - which is what the acceptance
-// check describes, since the ledger is then empty except for the user-entered
-// opening balance the seed carries.
+// It used to check only whether the campaign existed, and ran at every start,
+// so the campaign came back whenever it was missing - which meant deleting it
+// did nothing and it could not be got rid of. It is his campaign, not the
+// app's: after the first run the marker below stops it being rewritten under
+// him, whatever he does to it.
+//
+// Still idempotent by fixed id, so a device that seeded before the marker
+// existed does not get a second copy.
 
 import type { DataAdapter } from '../DataAdapter'
 import {
@@ -18,11 +22,55 @@ import {
 
 export { INFLOW_CAMPAIGN_ID } from './inflow'
 
-/** Creates the Inflow campaign if it is not already there. Returns true if it
- *  wrote anything. */
+/** Set once the seed has run on this device. Client-side state: whether a
+ *  campaign was ever offered is not a fact about the account, and syncing it
+ *  would let one device's deletion re-seed another. */
+const SEEDED_KEY = 'ugc-planner.seeded'
+
+function alreadySeeded(): boolean {
+  try {
+    return localStorage.getItem(SEEDED_KEY) !== null
+  } catch {
+    // Private mode, or storage blocked. Fall back to the id check below, which
+    // is the behaviour this had before the marker existed.
+    return false
+  }
+}
+
+function markSeeded(): void {
+  try {
+    localStorage.setItem(SEEDED_KEY, new Date().toISOString())
+  } catch {
+    /* nothing to do - the id check still stops a duplicate */
+  }
+}
+
+/** Forgets that the seed has run, so the next start offers it again.
+ *
+ *  For the reset button: wiping the store without clearing this would leave a
+ *  device with no campaigns and no way to get the starting one back. Deleting
+ *  a campaign by hand deliberately does not call this - that is him removing
+ *  it, not the store being emptied. */
+export function forgetSeeded(): void {
+  try {
+    localStorage.removeItem(SEEDED_KEY)
+  } catch {
+    /* nothing stored, nothing to forget */
+  }
+}
+
+/** Creates the Inflow campaign the first time, and never again. Returns true
+ *  if it wrote anything. */
 export async function ensureSeeded(adapter: DataAdapter): Promise<boolean> {
+  // He has seen it once. If it is gone now, he removed it.
+  if (alreadySeeded()) return false
+
   const existing = await adapter.getCampaign(INFLOW_CAMPAIGN_ID)
-  if (existing) return false
+  if (existing) {
+    // Seeded before the marker existed. Record it so this is the last time.
+    markSeeded()
+    return false
+  }
 
   await adapter.createCampaign(INFLOW_CAMPAIGN)
 
@@ -74,5 +122,6 @@ export async function ensureSeeded(adapter: DataAdapter): Promise<boolean> {
     })
   }
 
+  markSeeded()
   return true
 }

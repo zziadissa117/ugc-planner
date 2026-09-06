@@ -2,12 +2,14 @@ import { useCallback, useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 
 import { EditableField } from '../components/EditableField'
+import { SETUP_TYPE_VALUES } from '../data'
 import type {
   BonusTier,
   Campaign as CampaignRow,
   CampaignAngle,
   CampaignField,
   CampaignRule,
+  SetupType,
 } from '../data'
 import {
   ACCOUNT_FIELD_KEYS,
@@ -162,6 +164,25 @@ export function Campaign() {
           Confirm what is right, edit what is not.
         </p>
       ) : null}
+
+      <div>
+        <h2 className="text-lg font-semibold text-text">How you make it</h2>
+        <div className="mt-2 flex flex-col divide-y divide-edge">
+          {/* The setup drives every time estimate, and without it the planner
+              has no honest cost for a video and silently drops it - which is
+              why a campaign added by hand could never produce a session list.
+              No document states a setup, so it is his to pick. */}
+          <SetupPicker
+            value={campaign.default_setup}
+            onSave={(next) => saveColumn({ default_setup: next })}
+          />
+          <EditableField
+            field={byKey.get('editing_style') ?? virtualField(campaign.id, 'editing_style')}
+            label="Editing style"
+            onSave={(value) => saveField('editing_style', value)}
+          />
+        </div>
+      </div>
 
       <div>
         <h2 className="text-lg font-semibold text-text">Pay</h2>
@@ -441,6 +462,61 @@ function LoginBox({
           }
         />
       ))}
+    </div>
+  )
+}
+
+/** The filming setup this campaign defaults to.
+ *
+ *  Four buttons rather than a text field: it is an enum in the schema, and a
+ *  typo here does not read as a typo - it reads as a campaign the planner
+ *  quietly refuses to schedule, because stageMinutes returns null for a setup
+ *  it does not recognise and the fitter drops anything it cannot cost. */
+function SetupPicker({
+  value,
+  onSave,
+}: {
+  value: SetupType | null
+  onSave: (next: SetupType) => Promise<void>
+}) {
+  const [busy, setBusy] = useState<SetupType | null>(null)
+
+  async function choose(setup: SetupType) {
+    setBusy(setup)
+    try {
+      await onSave(setup)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <div className="py-2">
+      <p className="text-sm text-state-later">default setup</p>
+      {value === null ? (
+        <p className="mt-1 text-sm font-semibold text-state-blocked">
+          Not set - this campaign cannot be planned into a session until it is.
+        </p>
+      ) : null}
+      <div className="mt-2 flex flex-wrap gap-2">
+        {SETUP_TYPE_VALUES.map((setup) => (
+          <button
+            key={setup}
+            type="button"
+            disabled={busy !== null}
+            onClick={() => void choose(setup)}
+            aria-pressed={value === setup}
+            className={[
+              'min-h-tap rounded-lg border px-4 font-semibold active:bg-surface-raised disabled:opacity-60',
+              value === setup
+                ? 'border-state-now bg-surface-raised text-state-now'
+                : 'border-edge bg-surface text-state-later',
+            ].join(' ')}
+          >
+            {setup}
+          </button>
+        ))}
+      </div>
     </div>
   )
 }

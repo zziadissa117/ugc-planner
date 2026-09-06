@@ -10,7 +10,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { LocalDatabase } from '../local/db'
 import { LocalAdapter } from '../local/LocalAdapter'
 import { INFLOW_ANGLES_UNVERIFIED, INFLOW_ANGLES_VERIFIED, INFLOW_DOCUMENTS } from './inflow'
-import { INFLOW_CAMPAIGN_ID, ensureSeeded } from './index'
+import { INFLOW_CAMPAIGN_ID, ensureSeeded, forgetSeeded } from './index'
 
 const USER = '11111111-1111-4111-8111-111111111111'
 
@@ -184,5 +184,32 @@ describe('the never-do list', () => {
     // "Escape" applies to fees, freezes and waiting, never to taxes - the two
     // halves of that rule must not be separated.
     expect(taxRule?.body).toContain('never to taxes')
+  })
+})
+
+// The seed used to run at every start and only checked whether the campaign
+// existed, so deleting it did nothing - it came straight back. It is his
+// campaign, not the app's.
+describe('seeding once', () => {
+  it('does not bring the campaign back after it has been deleted', async () => {
+    // beforeEach has already seeded, so the marker is set.
+    // Stand in for a delete: the row is gone from the store.
+    await adapter.reset('everything')
+    expect(await adapter.getCampaign(INFLOW_CAMPAIGN_ID)).toBeNull()
+
+    // A second start writes nothing. Before the marker this returned true and
+    // rebuilt the whole campaign underneath him.
+    expect(await ensureSeeded(adapter)).toBe(false)
+    expect(await adapter.getCampaign(INFLOW_CAMPAIGN_ID)).toBeNull()
+  })
+
+  it('offers it again once the reset button has forgotten it', async () => {
+    await ensureSeeded(adapter)
+    await adapter.reset('everything')
+
+    forgetSeeded()
+
+    expect(await ensureSeeded(adapter)).toBe(true)
+    expect(await adapter.getCampaign(INFLOW_CAMPAIGN_ID)).not.toBeNull()
   })
 })

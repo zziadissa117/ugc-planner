@@ -27,16 +27,32 @@ import {
   stageMinutes,
 } from '../session'
 import { useSession } from '../session/useSession'
+import { Console } from './Console'
 
 /** FILM and EDIT are worked one campaign at a time now: he picks which
  *  campaign before anything is packed, sees its do/don't list at a glance,
  *  and only that campaign's work fills the window. WARM-UP never touches the
  *  video pipeline at all - it is a timer against an account, not a session
  *  full of videos - so it gets its own stages entirely. */
+/** Presets for the goal. He batches roughly seven in a filming session, and
+ *  edits fewer at a time because editing is the slower stage. */
+const GOAL_PRESETS = [3, 5, 7, 10] as const
+
+const DEFAULT_GOALS: Record<'film' | 'edit', number> = { film: 7, edit: 5 }
+
 type Stage =
   | { kind: 'chooser' }
   | { kind: 'pick_campaign'; type: 'film' | 'edit'; minutes: number }
   | { kind: 'briefing'; type: 'film' | 'edit'; minutes: number; campaign: Campaign }
+  | {
+      kind: 'console'
+      type: 'film' | 'edit'
+      minutes: number
+      campaign: Campaign
+      goal: number
+      workSessionId: string
+      startedAt: number
+    }
   | { kind: 'warmup_pick'; minutes: number }
   | { kind: 'warmup_timer'; minutes: number; campaign: Campaign }
 
@@ -140,6 +156,31 @@ export function Now() {
    *  scores and builds supply purely from the campaigns it is handed, so
    *  handing it exactly one is the entire restriction - nothing in the
    *  algorithm itself changes. */
+  /** Opens a sitting: a campaign, a goal and a window, recorded so the evening
+   *  can be looked back at and so every phase_event it produces says which
+   *  session it belonged to. */
+  const beginConsole = useCallback(
+    async (type: 'film' | 'edit', minutes: number, campaign: Campaign, goal: number) => {
+      const session = await data.startWorkSession({
+        campaign_id: campaign.id,
+        kind: type,
+        goal_videos: goal,
+        planned_minutes: minutes,
+        ended_at: null,
+      })
+      setStage({
+        kind: 'console',
+        type,
+        minutes,
+        campaign,
+        goal,
+        workSessionId: session.id,
+        startedAt: Date.parse(session.started_at),
+      })
+    },
+    [data],
+  )
+
   const startSession = useCallback(
     async (type: SessionType, windowMinutes: number, onlyCampaign?: Campaign) => {
       setPlanning(true)
@@ -259,9 +300,25 @@ export function Now() {
           key={stage.campaign.id}
           campaign={stage.campaign}
           sessionType={stage.type}
-          onStart={() => void startSession(stage.type, stage.minutes, stage.campaign)}
+          onStart={(goal) => void beginConsole(stage.type, stage.minutes, stage.campaign, goal)}
+          onAutoPlan={() => void startSession(stage.type, stage.minutes, stage.campaign)}
           onBack={() => setStage({ kind: 'pick_campaign', type: stage.type, minutes: stage.minutes })}
           planning={planning}
+        />
+      ) : stage.kind === 'console' ? (
+        <Console
+          key={stage.workSessionId}
+          campaign={stage.campaign}
+          sessionType={stage.type}
+          goal={stage.goal}
+          plannedMinutes={stage.minutes}
+          workSessionId={stage.workSessionId}
+          startedAt={stage.startedAt}
+          onFinish={() => {
+            void data.endWorkSession(stage.workSessionId)
+            void reload()
+            setStage({ kind: 'chooser' })
+          }}
         />
       ) : stage.kind === 'warmup_pick' ? (
         <WarmupPicker
@@ -594,18 +651,22 @@ function Briefing({
   campaign,
   sessionType,
   onStart,
+  onAutoPlan,
   onBack,
   planning,
 }: {
   campaign: Campaign
   sessionType: 'film' | 'edit'
-  onStart: () => void
+  onStart: (goal: number) => void
+  onAutoPlan: () => void
   onBack: () => void
   planning: boolean
 }) {
   const data = useData()
   const [rules, setRules] = useState<CampaignRule[] | null>(null)
   const [editingStyle, setEditingStyle] = useState<CampaignField | null>(null)
+  const [goal, setGoal] = useState(DEFAULT_GOALS[sessionType])
+  const [typedGoal, setTypedGoal] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -661,13 +722,63 @@ function Briefing({
         <p className="text-state-later">No rules saved for this campaign yet.</p>
       )}
 
+      {/* How many tonight. The spec said never to ask this - the algorithm was
+          meant to fill the window so there was one less thing to decide - but
+          he asked for it directly: a goal to work against and count off. */}
+      <div>
+        <h3 className="text-sm font-semibold uppercase tracking-wide text-state-later">
+          How many {sessionType === 'film' ? 'to film' : 'to edit'}?
+        </h3>
+        <div className="mt-2 grid grid-cols-4 gap-3">
+          {GOAL_PRESETS.map((preset) => (
+            <button
+              key={preset}
+              type="button"
+              onClick={() => {
+                setGoal(preset)
+                setTypedGoal('')
+              }}
+              aria-pressed={goal === preset && typedGoal === ''}
+              className={[
+                'min-h-tap rounded-lg border font-semibold active:bg-surface-raised',
+                goal === preset && typedGoal === ''
+                  ? 'border-state-now bg-surface-raised text-state-now'
+                  : 'border-edge bg-surface text-text',
+              ].join(' ')}
+            >
+              {preset}
+            </button>
+          ))}
+        </div>
+        <input
+          type="number"
+          inputMode="numeric"
+          min={1}
+          value={typedGoal}
+          onChange={(event) => setTypedGoal(event.target.value)}
+          aria-label="or type a number"
+          placeholder="or type a number"
+          className="mt-3 min-h-tap w-full rounded-lg border border-edge bg-surface px-4 text-text placeholder:text-state-later"
+        />
+      </div>
+
       <button
         type="button"
-        onClick={onStart}
-        disabled={planning}
+        onClick={() => onStart(typedGoal.trim() === '' ? goal : Number(typedGoal))}
+        disabled={planning || (typedGoal.trim() !== '' && Number(typedGoal) <= 0)}
         className="min-h-tap rounded-lg border border-state-now bg-surface-raised px-4 text-lg font-semibold tracking-wide text-state-now active:bg-surface disabled:opacity-60"
       >
         {START_LABEL[sessionType]}
+      </button>
+
+      {/* The old behaviour, kept as the option he asked for it to be. */}
+      <button
+        type="button"
+        onClick={onAutoPlan}
+        disabled={planning}
+        className="min-h-tap rounded-lg border border-edge bg-surface px-4 font-semibold text-state-later active:bg-surface-raised disabled:opacity-60"
+      >
+        Or plan it for me
       </button>
 
       <button

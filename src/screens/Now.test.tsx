@@ -69,7 +69,8 @@ async function openFilmSession(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole('button', { name: 'FILM' }))
   await user.click(screen.getByRole('button', { name: '60' }))
   await user.click(await screen.findByRole('button', { name: /Inflow/ }))
-  await user.click(await screen.findByRole('button', { name: 'Start filming' }))
+  // The console is the default path now; the planner is the option beside it.
+  await user.click(await screen.findByRole('button', { name: 'Or plan it for me' }))
 }
 
 async function startFilmSession(user: ReturnType<typeof userEvent.setup>) {
@@ -211,8 +212,42 @@ describe('choosing a campaign for FILM and EDIT', () => {
     expect(await screen.findByText('Never say the brand name twice.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Start filming' })).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Start filming' }))
+    // Both routes out of the briefing: a goal to count off, or the planner.
+    await user.click(screen.getByRole('button', { name: 'Or plan it for me' }))
     expect(await screen.findByRole('list', { name: 'Tonight' })).toBeInTheDocument()
+  })
+
+  it('opens the console against a goal, and counts a filmed video off it', async () => {
+    const user = userEvent.setup()
+    renderScreen(<Now />)
+    await screen.findByText(/of 1 posted/)
+    await user.click(screen.getByRole('button', { name: 'FILM' }))
+    await user.click(screen.getByRole('button', { name: '60' }))
+    await user.click(await screen.findByRole('button', { name: /Inflow/ }))
+
+    // Seven is the default: he batches roughly seven in a filming session.
+    await user.click(await screen.findByRole('button', { name: 'Start filming' }))
+    expect(await screen.findByText('0')).toBeInTheDocument()
+    expect(screen.getByText('of 7')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Filmed one' }))
+
+    // Counted off the append-only log, not from a number held in the screen.
+    await waitFor(() => expect(screen.getByText('1')).toBeInTheDocument())
+  })
+
+  it('lets him set his own goal rather than taking the preset', async () => {
+    const user = userEvent.setup()
+    renderScreen(<Now />)
+    await screen.findByText(/of 1 posted/)
+    await user.click(screen.getByRole('button', { name: 'FILM' }))
+    await user.click(screen.getByRole('button', { name: '60' }))
+    await user.click(await screen.findByRole('button', { name: /Inflow/ }))
+
+    await user.type(await screen.findByLabelText('or type a number'), '4')
+    await user.click(screen.getByRole('button', { name: 'Start filming' }))
+
+    expect(await screen.findByText('of 4')).toBeInTheDocument()
   })
 
   it('shows the editing style he typed himself in an EDIT briefing', async () => {

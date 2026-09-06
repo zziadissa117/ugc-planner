@@ -83,6 +83,12 @@ export interface AdvanceOptions {
   /** Wall-clock seconds spent in the phase being left, where the UI measured
    *  it. Omitted rather than estimated when it was not actually measured. */
   durationSeconds?: number
+  /** Which sitting this move happened in. `session` above records the kind of
+   *  session; this records which one, so an evening's count and its real
+   *  durations are both answerable from the log rather than from a counter
+   *  held somewhere that can drift. Absent for moves made outside a session,
+   *  like a tap on the tick-off list. */
+  workSessionId?: string
 }
 
 /** How far a reset goes. Both sit behind a two-tap confirmation in the UI. */

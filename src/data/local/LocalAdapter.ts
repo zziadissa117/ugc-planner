@@ -685,7 +685,7 @@ export class LocalAdapter implements DataAdapter {
       from_phase: video.phase,
       to_phase: target,
       session: options?.session ?? null,
-      work_session_id: null,
+      work_session_id: options?.workSessionId ?? null,
       occurred_at: timestamp,
       duration_seconds: options?.durationSeconds ?? null,
       // Minted here, before the row lands, so the same key travels with every

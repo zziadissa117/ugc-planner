@@ -9,7 +9,7 @@
 //
 // Nothing outside src/data imports this file.
 
-import Dexie, { type EntityTable } from 'dexie'
+import Dexie, { type EntityTable, type Transaction } from 'dexie'
 
 import type {
   BonusClaim,
@@ -155,29 +155,140 @@ export class LocalDatabase extends Dexie {
         user_settings: 'user_id',
         _outbox: '++id, queued_at, table_name',
       })
+      // Wrapped so a failure cannot take the store with it. A throw inside a
+      // Dexie upgrade aborts the version change and the database never opens
+      // again on this device - his data would be intact and unreachable, which
+      // is worse than starting with no derived accounts. Deriving them is a
+      // convenience; the accounts editor can do the same job by hand.
       .upgrade(async (tx) => {
-        const campaigns = await tx.table('campaigns').toArray()
-        const fields = await tx.table('campaign_fields').toArray()
-        const accounts = tx.table('campaign_accounts')
-        for (const campaign of campaigns) {
-          if (await accounts.where('campaign_id').equals(campaign.id).count()) continue
-          const byKey = new Map(
-            fields.filter((field) => field.campaign_id === campaign.id).map((field) => [field.field_key, field.field_value]),
-          )
-          const listed = String(byKey.get('platforms') ?? '').split(',').map((item) => item.trim()).filter(Boolean)
-          const handled = ['tiktok', 'instagram']
-            .filter((platform) => Boolean(byKey.get(`handle_${platform}`)))
-            .map((platform) => platform === 'tiktok' ? 'TikTok' : 'Instagram')
-          const platforms = [...new Set([...listed, ...handled])]
-          await Promise.all(platforms.map((platform, sort_order) => accounts.add({
-            id: crypto.randomUUID(), user_id: campaign.user_id, campaign_id: campaign.id,
-            platform, handle: byKey.get(`handle_${platform.toLowerCase()}`) ?? null,
-            posts_per_day: campaign.daily_post_quota ?? 0, status: 'ready', is_active: true, sort_order,
-            created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
-          })))
+        try {
+          await deriveAccountsAndTimestamps(tx)
+        } catch (error) {
+          console.error('v4 upgrade could not derive accounts; continuing.', error)
         }
       })
   }
+}
+
+async function deriveAccountsAndTimestamps(tx: Transaction): Promise<void> {
+  const stamp = new Date().toISOString()
+
+  // Six tables gained updated_at, and it is `not null` in the SQL and
+  // required by the validators. Rows written before this version have
+  // none, so without this backfill an export taken today would fail its
+  // own import - the backup path breaking exactly when it is needed.
+  for (const table of TIMESTAMPED_IN_V4) {
+    await tx
+      .table(table)
+      .toCollection()
+      .modify((row: { updated_at?: string }) => {
+        if (!row.updated_at) row.updated_at = stamp
+      })
+  }
+
+  // Accounts are derived only from values he entered himself: the
+  // platforms he listed, the handles he typed, and the quota he set.
+  // Nothing is invented - a platform with no handle gets a null handle
+  // rather than a guessed one - and every row is editable on the brief
+  // page, so a wrong derivation is a correction rather than a silent
+  // wrong plan.
+  const campaigns = await tx.table('campaigns').toArray()
+  const fields = await tx.table('campaign_fields').toArray()
+  const videos = await tx.table('videos').toArray()
+  const warmups = await tx.table('warmup_events').toArray()
+  const accounts = tx.table('campaign_accounts')
+
+  for (const campaign of campaigns) {
+    if (await accounts.where('campaign_id').equals(campaign.id).count()) continue
+
+    const byKey = new Map<string, string | null>(
+      fields
+        .filter((field) => field.campaign_id === campaign.id)
+        .map((field) => [field.field_key, field.field_value]),
+    )
+
+    // Warm-up status is carried forward rather than assumed. Marking
+    // everything 'ready' would empty the warm-up screen and treat a
+    // brand-new account as safe to post brand content from.
+    const hasPosted =
+      (campaign.opening_post_count ?? 0) > 0 ||
+      videos.some((v) => v.campaign_id === campaign.id && v.phase === 'posted')
+    const warmupCount = warmups.filter((w) => w.campaign_id === campaign.id).length
+    const status = hasPosted || warmupCount >= 2 ? 'ready' : warmupCount === 1 ? 'warming' : 'new'
+
+    const platforms = derivePlatforms(byKey)
+    let sortOrder = 0
+    for (const platform of platforms) {
+      await accounts.add({
+        id: crypto.randomUUID(),
+        user_id: campaign.user_id,
+        campaign_id: campaign.id,
+        platform,
+        handle: byKey.get(`handle_${normalisePlatform(platform)}`) ?? null,
+        // His own number, copied per account - never divided or summed.
+        posts_per_day: campaign.daily_post_quota ?? 0,
+        status,
+        is_active: true,
+        sort_order: sortOrder++,
+        created_at: stamp,
+        updated_at: stamp,
+      })
+    }
+  }
+}
+
+/** The tables that gained `updated_at` in v4. Existing rows carry none, and
+ *  the column is `not null` in the SQL and required by the validators. */
+const TIMESTAMPED_IN_V4 = [
+  'campaign_angles',
+  'campaign_rules',
+  'video_posts',
+  'bonus_tiers',
+  'bonus_claims',
+  'time_estimates',
+] as const
+
+/** `TikTok` -> `tiktok`, so a platform label finds its `handle_*` field however
+ *  it was capitalised or spaced. */
+function normalisePlatform(platform: string): string {
+  return platform.toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
+/** The platforms a campaign posts to, read off what he actually entered.
+ *
+ *  The `platforms` field is free text he or the parser wrote - "TikTok,
+ *  Instagram", "TikTok + Instagram", "tiktok/instagram" have all to work - so
+ *  it is split on every separator those use. A handle field implies its
+ *  platform even when the list omits it. Deduped case-insensitively, because
+ *  "tiktok" listed and "TikTok" implied are one account, not two. */
+function derivePlatforms(byKey: ReadonlyMap<string, string | null>): string[] {
+  const listed = String(byKey.get('platforms') ?? '')
+    .split(/[,+/&]|\band\b/i)
+    .map((item) => item.trim())
+    .filter(Boolean)
+
+  // A handle is proof of an account whatever the platforms field says.
+  const implied = [...byKey.entries()]
+    .filter(([key, value]) => key.startsWith('handle_') && value !== null && value.trim() !== '')
+    .map(([key]) => key.slice('handle_'.length))
+
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const raw of [...listed, ...implied]) {
+    const key = normalisePlatform(raw)
+    if (key === '' || seen.has(key)) continue
+    seen.add(key)
+    out.push(KNOWN_PLATFORMS[key] ?? raw)
+  }
+  return out
+}
+
+/** Display spellings for the platforms that appear in his campaigns. Anything
+ *  else is kept exactly as he typed it rather than being corrected. */
+const KNOWN_PLATFORMS: Readonly<Record<string, string>> = {
+  tiktok: 'TikTok',
+  instagram: 'Instagram',
+  youtube: 'YouTube',
 }
 
 /** The tables that mirror schema.sql, in dependency order. `_outbox` is

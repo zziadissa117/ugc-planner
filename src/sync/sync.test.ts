@@ -77,7 +77,11 @@ describe('the outbox', () => {
     await adapter.advanceVideoPhase(video.id, { session: 'film' })
 
     const tables = (await adapter.listPendingWrites()).map((w) => w.table_name)
-    expect(tables).toEqual(['campaigns', 'videos', 'videos'])
+    // Each video write is followed by the phase_event that explains it, in that
+    // order: video_id is a foreign key, so an event pushed ahead of its video
+    // would be refused. This test asserted no history at all until the events
+    // were enqueued - it passed while the append-only log never left the device.
+    expect(tables).toEqual(['campaigns', 'videos', 'phase_events', 'videos', 'phase_events'])
   })
 })
 

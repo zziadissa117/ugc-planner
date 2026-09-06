@@ -510,19 +510,31 @@ export class LocalAdapter implements DataAdapter {
         await this.requireRow(tx, 'campaigns', row.campaign_id)
         await tx.table('videos').add(row)
         // The video entering the pipeline is itself history.
-        await tx.table('phase_events').add({
+        const opening = {
           user_id: this.userId,
           video_id: row.id,
           from_phase: null,
           to_phase: row.phase,
           session: null,
+          work_session_id: null,
           occurred_at: row.created_at,
           duration_seconds: null,
           // Minted here, before the row lands, so the same key travels with
           // every retry of the push that eventually carries it.
           client_id: newId(),
-        })
+        }
+        const openingId = await tx.table('phase_events').add(opening)
+        // The row first, then the history that explains it. phase_events.video_id
+        // is a foreign key, so an event pushed ahead of its video is rejected.
         this.enqueue(tx, 'videos', row.id, 'insert', row)
+        // History is enqueued like any other write. Without this the log stays
+        // on the device: phase_events would only ever reach the server via the
+        // one-off sweep in claimRowsForUser, so every move made after sign-in
+        // would be lost to the server, and MEASURED timings with it.
+        this.enqueue(tx, 'phase_events', String(openingId), 'insert', {
+          ...opening,
+          id: openingId as number,
+        })
       })
     return row
   }
@@ -676,8 +688,13 @@ export class LocalAdapter implements DataAdapter {
       // retry of the push that eventually carries it.
       client_id: newId(),
     }
-    await tx.table('phase_events').add(event)
+    const eventId = await tx.table('phase_events').add(event)
+    // Same order as createVideo: the row, then the history that explains it.
     this.enqueue(tx, 'videos', id, 'update', row)
+    this.enqueue(tx, 'phase_events', String(eventId), 'insert', {
+      ...event,
+      id: eventId as number,
+    })
     return row
   }
 

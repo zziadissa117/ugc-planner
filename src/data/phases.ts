@@ -7,29 +7,26 @@
 
 import type { ApprovalMode, VideoKind, VideoPhase } from './schema'
 
-const CHAINS: Record<ApprovalMode, readonly VideoPhase[]> = {
-  none: ['to_film', 'filmed', 'edited', 'posted'],
-  video: ['to_film', 'filmed', 'edited', 'submitted', 'approved', 'posted'],
-  script_and_video: [
-    'awaiting_script_approval',
-    'to_film',
-    'filmed',
-    'edited',
-    'submitted',
-    'approved',
-    'posted',
-  ],
-  // The brand writes the script, so the wait is for the brief rather than for
-  // approval of his own. It still submits, but posts straight after.
-  brand_scripted: ['awaiting_brief', 'to_film', 'filmed', 'edited', 'submitted', 'posted'],
-}
+/** The chain. One, for every campaign and every kind of video.
+ *
+ *  It used to branch on approval_mode, and the approval-gated branches ran
+ *  `filmed -> edited -> submitted -> approved -> posted`. Nothing in the app
+ *  ever targeted `submitted` or `approved`: no screen listed them, no tap
+ *  moved them. Videos walked as far as `edited` and stopped there for good -
+ *  which is why POST sessions were always empty, runway was always 0 and the
+ *  ledger never moved. A brand's approval happens in SideShift and WhatsApp,
+ *  and the app was never told about it, so it has no business modelling it as
+ *  a phase a video sits in.
+ *
+ *  `approval_mode` is still on the campaign and still says what the contract
+ *  requires. It just no longer decides the chain. */
+export const CHAIN: readonly VideoPhase[] = ['to_film', 'filmed', 'edited', 'posted']
 
-/** Warm-up never submits and never gets approved: nobody is reviewing content
- *  that does not mention the brand. */
-const WARM_UP_CHAIN: readonly VideoPhase[] = ['to_film', 'filmed', 'edited', 'posted']
-
-export function chainFor(approvalMode: ApprovalMode, kind: VideoKind): readonly VideoPhase[] {
-  return kind === 'warm_up' ? WARM_UP_CHAIN : CHAINS[approvalMode]
+/** Kept taking both arguments so every caller reads the same, and so the
+ *  campaign's approval route stays visible at the call site. Neither changes
+ *  the answer any more. */
+export function chainFor(_approvalMode: ApprovalMode, _kind: VideoKind): readonly VideoPhase[] {
+  return CHAIN
 }
 
 /** The phase after this one, or null at the end of the chain. */
@@ -62,7 +59,10 @@ export function previousPhase(
 export const SESSION_TARGET_PHASE = {
   film: 'to_film',
   edit: 'filmed',
-  post: 'approved',
+  // Edited and waiting to go out. This was 'approved', a phase most campaigns
+  // never had and nothing ever moved a video into, so a POST session could
+  // only ever find an empty list.
+  post: 'edited',
   // A warm-up session films new warm-up content.
   warm_up: 'to_film',
 } as const satisfies Record<string, VideoPhase>

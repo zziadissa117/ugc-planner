@@ -26,10 +26,23 @@ export function TickOff() {
   const today = localToday()
 
   const reload = useCallback(async () => {
-    const [nextCampaigns, nextVideos] = await Promise.all([
+    // Owed today, plus stock that is ready to go out.
+    //
+    // This listed only `owed_for_date === today`, but supply built ahead of
+    // demand is created with `owed_for_date: null` on purpose - so everything
+    // a FILM session produced could never be ticked off here, however finished
+    // it was. Supply genuinely is not owed for a particular day; the list was
+    // too narrow, not the write.
+    const [nextCampaigns, owedToday, ready] = await Promise.all([
       data.listCampaigns(),
       data.listVideos({ owedForDate: today }),
+      data.listVideos({ phases: ['edited'] }),
     ])
+
+    const byId = new Map(owedToday.map((v) => [v.id, v]))
+    for (const video of ready) if (!byId.has(video.id)) byId.set(video.id, video)
+
+    const nextVideos = [...byId.values()]
     setCampaigns(nextCampaigns)
     setVideos(nextVideos)
     return { nextCampaigns, nextVideos }

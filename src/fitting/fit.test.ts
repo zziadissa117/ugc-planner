@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { Campaign, SessionType, TimeEstimate, Video } from '../data'
 import { DEFAULT_TIME_ESTIMATES } from '../data'
-import { approvedAtFromEvents, fitSession, supplyKind, type FitInput } from './fit'
+import { readyAtFromEvents, fitSession, supplyKind, type FitInput } from './fit'
 
 const TODAY = '2026-09-04'
 const USER = 'u'
@@ -96,22 +96,6 @@ describe('step 1 - scoring', () => {
     })
 
     expect(existingIds(plan)[0]).toBe(owed.id)
-  })
-
-  it('front-loads approval-gated work over ungated work of the same pay', () => {
-    const gated = campaign({ approval_mode: 'video' })
-    const ungated = campaign({ approval_mode: 'none' })
-    const a = video(ungated.id, { kind: 'no_quota' })
-    const b = video(gated.id, { kind: 'no_quota' })
-
-    const plan = fit({
-      session: 'film',
-      windowMinutes: 12,
-      videos: [a, b],
-      campaigns: [ungated, gated],
-    })
-
-    expect(existingIds(plan)[0]).toBe(b.id)
   })
 
   it('contributes no bonus upside until the user has typed a probability', () => {
@@ -292,10 +276,10 @@ describe('step 4 - timed by this stage only', () => {
 })
 
 describe('step 5 - a POST session prioritises what is at risk', () => {
-  it('puts older approved stock first', () => {
+  it('puts older ready stock first', () => {
     const c = campaign({ approval_mode: 'video' })
-    const fresh = video(c.id, { phase: 'approved', kind: 'no_quota' })
-    const stale = video(c.id, { phase: 'approved', kind: 'no_quota' })
+    const fresh = video(c.id, { phase: 'edited', kind: 'no_quota' })
+    const stale = video(c.id, { phase: 'edited', kind: 'no_quota' })
 
     const plan = fit({
       session: 'post',
@@ -303,7 +287,7 @@ describe('step 5 - a POST session prioritises what is at risk', () => {
       videos: [fresh, stale],
       campaigns: [c],
       now: new Date('2026-09-04T20:00:00.000Z'),
-      approvedAt: new Map([
+      readyAt: new Map([
         [fresh.id, '2026-09-04T08:00:00.000Z'],
         [stale.id, '2026-08-28T08:00:00.000Z'],
       ]),
@@ -312,12 +296,13 @@ describe('step 5 - a POST session prioritises what is at risk', () => {
     expect(existingIds(plan)).toEqual([stale.id])
   })
 
-  it('reads approval age off the append-only log', () => {
-    const map = approvedAtFromEvents([
-      { id: 1, client_id: `k1`, user_id: USER, video_id: 'v1', from_phase: 'submitted', to_phase: 'approved', session: null, work_session_id: null, occurred_at: '2026-09-01T00:00:00.000Z', duration_seconds: null },
-      // Sent back, then approved again - the second arrival is what counts.
-      { id: 2, client_id: `k2`, user_id: USER, video_id: 'v1', from_phase: 'approved', to_phase: 'edited', session: null, work_session_id: null, occurred_at: '2026-09-02T00:00:00.000Z', duration_seconds: null },
-      { id: 3, client_id: `k3`, user_id: USER, video_id: 'v1', from_phase: 'submitted', to_phase: 'approved', session: null, work_session_id: null, occurred_at: '2026-09-03T00:00:00.000Z', duration_seconds: null },
+  it('reads how long stock has been ready off the append-only log', () => {
+    const map = readyAtFromEvents([
+      { id: 1, client_id: `k1`, user_id: USER, video_id: 'v1', from_phase: 'filmed', to_phase: 'edited', session: null, work_session_id: null, occurred_at: '2026-09-01T00:00:00.000Z', duration_seconds: null },
+      // Pulled back for a re-edit, then finished again - the second arrival
+      // is what counts, not the first.
+      { id: 2, client_id: `k2`, user_id: USER, video_id: 'v1', from_phase: 'edited', to_phase: 'filmed', session: null, work_session_id: null, occurred_at: '2026-09-02T00:00:00.000Z', duration_seconds: null },
+      { id: 3, client_id: `k3`, user_id: USER, video_id: 'v1', from_phase: 'filmed', to_phase: 'edited', session: null, work_session_id: null, occurred_at: '2026-09-03T00:00:00.000Z', duration_seconds: null },
     ])
     expect(map.get('v1')).toBe('2026-09-03T00:00:00.000Z')
   })

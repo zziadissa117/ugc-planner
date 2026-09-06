@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { localToday } from './index'
 import { LocalDatabase } from './local/db'
 import { LocalAdapter } from './local/LocalAdapter'
+import { SESSION_TARGET_PHASE } from './phases'
 import { INFLOW_CAMPAIGN_ID, ensureSeeded } from './seed'
 import { ensureTodaysQuota, shouldNudgeToEdit, summariseToday } from './today'
 
@@ -65,21 +66,21 @@ describe('runway', () => {
     expect((await summary()).runwayDays).toBe(0)
   })
 
-  it('rises when a video reaches approved', async () => {
+  it('rises when a video is edited and ready to go out', async () => {
     await ensureTodaysQuota(adapter)
     const [video] = await adapter.listVideos()
 
-    for (const _ of ['filmed', 'edited', 'submitted', 'approved']) {
+    for (const _ of ['filmed', 'edited']) {
       await adapter.advanceVideoPhase(video.id)
     }
-    expect((await adapter.getVideo(video.id))?.phase).toBe('approved')
+    expect((await adapter.getVideo(video.id))?.phase).toBe('edited')
     expect((await summary()).runwayDays).toBe(1)
   })
 
   it('drops by one per post', async () => {
     await ensureTodaysQuota(adapter)
     const [video] = await adapter.listVideos()
-    for (const _ of ['filmed', 'edited', 'submitted', 'approved']) {
+    for (const _ of ['filmed', 'edited']) {
       await adapter.advanceVideoPhase(video.id)
     }
     expect((await summary()).runwayDays).toBe(1)
@@ -105,7 +106,7 @@ describe('the edit nudge', () => {
       shouldNudgeToEdit({
         posted: 0,
         owed: 1,
-        approvedCount: 2,
+        postReadyCount: 2,
         runwayDays: 2,
         editBacklog: 4,
       }),
@@ -114,13 +115,13 @@ describe('the edit nudge', () => {
 
   it('stays quiet when the backlog is empty', () => {
     expect(
-      shouldNudgeToEdit({ posted: 0, owed: 1, approvedCount: 0, runwayDays: 0, editBacklog: 0 }),
+      shouldNudgeToEdit({ posted: 0, owed: 1, postReadyCount: 0, runwayDays: 0, editBacklog: 0 }),
     ).toBe(false)
   })
 
   it('stays quiet with plenty of runway', () => {
     expect(
-      shouldNudgeToEdit({ posted: 0, owed: 1, approvedCount: 9, runwayDays: 9, editBacklog: 4 }),
+      shouldNudgeToEdit({ posted: 0, owed: 1, postReadyCount: 9, runwayDays: 9, editBacklog: 4 }),
     ).toBe(false)
   })
 })
@@ -159,5 +160,37 @@ describe('marking posted from the tick-off list', () => {
     await ensureTodaysQuota(adapter)
     const [video] = await adapter.listVideos()
     await expect(adapter.undoLastPhaseMove(video.id)).rejects.toThrow()
+  })
+})
+
+// The dead end that made the app feel useless: a video walked as far as
+// `edited` and stopped, because POST sessions looked for `approved` - a phase
+// most campaigns never had and nothing could move a video into. So POST was
+// always empty, runway was always 0, and the ledger never moved.
+describe('a video can actually reach the end', () => {
+  it('leaves an edited video where a POST session will find it', async () => {
+    await ensureTodaysQuota(adapter)
+    const [video] = await adapter.listVideos()
+
+    await adapter.advanceVideoPhase(video.id, { session: 'film' })
+    await adapter.advanceVideoPhase(video.id, { session: 'edit' })
+
+    const waiting = await adapter.listVideos({ phases: [SESSION_TARGET_PHASE.post] })
+    expect(waiting.map((v) => v.id)).toContain(video.id)
+  })
+
+  it('gets from filming to posted, and pays for it', async () => {
+    await ensureTodaysQuota(adapter)
+    const [video] = await adapter.listVideos()
+
+    for (const session of ['film', 'edit', 'post'] as const) {
+      await adapter.advanceVideoPhase(video.id, { session })
+    }
+
+    const posted = await adapter.getVideo(video.id)
+    expect(posted?.phase).toBe('posted')
+    // The rate is snapshotted on posting, which is what makes Money move at
+    // all - it stayed at $0.00 for as long as nothing could be posted.
+    expect(posted?.rate_snapshot_cents).toBe(3500)
   })
 })

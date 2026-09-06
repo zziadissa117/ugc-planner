@@ -69,22 +69,22 @@ export interface FitInput {
   setupSwitchMinutes: number
   /** Today, as YYYY-MM-DD, for deciding what the quota owes. */
   today: string
-  /** When each video reached `approved`, derived from phase_events. Only used
+  /** When each video became ready to post, derived from phase_events. Only used
    *  in a POST session, to surface stock that is going stale. */
-  approvedAt?: ReadonlyMap<string, string>
+  readyAt?: ReadonlyMap<string, string>
   bonusTiers?: readonly BonusTier[]
   bonusClaims?: readonly BonusClaim[]
   now?: Date
 }
 
-/** When each video reached `approved`, read off the append-only log. */
-export function approvedAtFromEvents(events: readonly PhaseEvent[]): Map<string, string> {
+/** When each video became ready to post, read off the append-only log. */
+export function readyAtFromEvents(events: readonly PhaseEvent[]): Map<string, string> {
   const out = new Map<string, string>()
   for (const event of [...events].sort((a, b) => a.id - b.id)) {
     // The most recent arrival at `approved` is the one that counts: a video
     // sent back and re-approved has not been sitting there the whole time.
-    if (event.to_phase === 'approved') out.set(event.video_id, event.occurred_at)
-    else if (event.from_phase === 'approved') out.delete(event.video_id)
+    if (event.to_phase === 'edited') out.set(event.video_id, event.occurred_at)
+    else if (event.from_phase === 'edited') out.delete(event.video_id)
   }
   return out
 }
@@ -119,12 +119,6 @@ function scoreVideo(video: Video, campaign: Campaign, minutes: number, input: Fi
     score += w.owedToday
   }
 
-  // Approval-gated work front-loads: it cannot be posted until someone else
-  // has looked at it, so the earlier it is submitted the sooner it clears.
-  if (campaign.approval_mode !== 'none' && video.kind !== 'warm_up') {
-    score += w.approvalGated
-  }
-
   const pay = dollars(campaign.pay_per_video_cents)
   score += pay * w.payPerVideoPerDollar
   if (minutes > 0) score += (pay / minutes) * w.payPerMinutePerDollar
@@ -136,13 +130,13 @@ function scoreVideo(video: Video, campaign: Campaign, minutes: number, input: Fi
   // In a POST session, approved stock that has been waiting is what is most at
   // risk: it was cleared to go out and is earning nothing while it sits.
   if (input.session === 'post') {
-    const approved = input.approvedAt?.get(video.id)
-    if (approved) {
+    const ready = input.readyAt?.get(video.id)
+    if (ready) {
       const days = Math.max(
         0,
-        Math.floor(((input.now ?? new Date()).getTime() - Date.parse(approved)) / 86_400_000),
+        Math.floor(((input.now ?? new Date()).getTime() - Date.parse(ready)) / 86_400_000),
       )
-      score += days * w.approvedAgingPerDay
+      score += days * w.readyAgingPerDay
     }
   }
 

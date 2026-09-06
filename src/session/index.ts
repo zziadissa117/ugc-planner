@@ -23,8 +23,10 @@ export const SESSION_MINUTES = [30, 60, 90, 120] as const
 export const SESSION_PHASE: Record<SessionType, VideoPhase> = {
   film: 'to_film',
   edit: 'filmed',
-  // POST works the approved stock: videos cleared and waiting to go out.
-  post: 'approved',
+  // POST works the edited stock: videos finished and waiting to go out. This
+  // was 'approved' - see SESSION_TARGET_PHASE in src/data/phases.ts for why a
+  // POST session could never find anything.
+  post: 'edited',
   warm_up: 'to_film',
 }
 

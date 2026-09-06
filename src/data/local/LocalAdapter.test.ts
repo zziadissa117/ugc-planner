@@ -85,14 +85,22 @@ describe('a fresh store', () => {
 })
 
 describe('the phase chain', () => {
-  it('takes an approval-gated video through submit and approve before posting', async () => {
-    const campaign = await makeCampaign({ approval_mode: 'video' })
-    const video = await makeVideo(campaign.id)
+  it('films, edits and posts, whatever the campaign approval route says', async () => {
+    // This used to walk 'video' campaigns through submitted and approved. The
+    // app is never told when a brand approves anything - that happens in
+    // SideShift and WhatsApp - so those phases were places a video went to
+    // stop. Approval route no longer changes the chain.
+    for (const approval_mode of ['none', 'video', 'script_and_video', 'brand_scripted'] as const) {
+      const campaign = await makeCampaign({ approval_mode })
+      const video = await makeVideo(campaign.id)
 
-    const seen = [video.phase]
-    for (let i = 0; i < 5; i++) seen.push((await adapter.advanceVideoPhase(video.id)).phase)
+      const seen = [video.phase]
+      for (let i = 0; i < 3; i++) seen.push((await adapter.advanceVideoPhase(video.id)).phase)
 
-    expect(seen).toEqual(['to_film', 'filmed', 'edited', 'submitted', 'approved', 'posted'])
+      expect(seen).toEqual(['to_film', 'filmed', 'edited', 'posted'])
+      expect(seen).not.toContain('submitted')
+      expect(seen).not.toContain('approved')
+    }
   })
 
   it('never submits a warm-up video', async () => {

@@ -16,7 +16,7 @@ import type {
 import { WARMUP_SESSIONS_REQUIRED, localToday, needsWarmup, warmupCompletions } from '../data'
 import { ensureTodaysQuota, shouldNudgeToEdit, summariseToday } from '../data/today'
 import { useData } from '../data/useData'
-import { approvedAtFromEvents, fitSession } from '../fitting/fit'
+import { readyAtFromEvents, fitSession } from '../fitting/fit'
 import { materialiseSupply } from '../fitting/supply'
 import {
   SESSION_MINUTES,
@@ -152,7 +152,7 @@ export function Now() {
         estimates,
         setupSwitchMinutes: switchMinutes,
         today: localToday(),
-        approvedAt: approvedAtFromEvents(events),
+        readyAt: readyAtFromEvents(events),
         bonusTiers: tiers,
         bonusClaims: claims,
       })

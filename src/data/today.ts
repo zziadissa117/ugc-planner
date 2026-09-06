@@ -59,9 +59,11 @@ export interface TodaySummary {
   posted: number
   /** Posts owed today, summed across active campaigns. */
   owed: number
-  /** Videos sitting in `approved`, unposted - supply already banked. */
-  approvedCount: number
-  /** Days of posting banked: approved stock divided by the daily obligation.
+  /** Videos edited and unposted - supply already banked, ready to go out.
+   *  This counted `approved` until that phase was removed; nothing could ever
+   *  reach it, so runway was permanently 0. */
+  postReadyCount: number
+  /** Days of posting banked: ready stock divided by the daily obligation.
    *  Null when nothing is owed daily, because "days of posts" means nothing
    *  without a per-day figure to divide by. */
   runwayDays: number | null
@@ -83,14 +85,14 @@ export function summariseToday(
     (v) => v.phase === 'posted' && v.posted_at !== null && v.posted_at.slice(0, 10) === date,
   ).length
 
-  const approvedCount = videos.filter((v) => v.phase === 'approved').length
+  const postReadyCount = videos.filter((v) => v.phase === 'edited').length
   const editBacklog = videos.filter((v) => v.phase === 'filmed').length
 
   return {
     posted,
     owed,
-    approvedCount,
-    runwayDays: owed > 0 ? Math.floor(approvedCount / owed) : null,
+    postReadyCount,
+    runwayDays: owed > 0 ? Math.floor(postReadyCount / owed) : null,
     editBacklog,
   }
 }

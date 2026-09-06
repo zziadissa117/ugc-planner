@@ -20,10 +20,11 @@ export const FITTING_WEIGHTS = {
    *  value smaller lets that video take tonight's obligated slot. */
   owedToday: 1000,
 
-  /** Approval-gated work, which has to wait on someone else before it can be
-   *  posted. It front-loads because the lead time is real: a video submitted
-   *  tonight can be approved by tomorrow, one submitted tomorrow cannot. */
-  approvalGated: 300,
+  // approvalGated lived here: extra points for work that had to wait on a
+  // brand before it could go out. It was removed with the submitted/approved
+  // phases - the app is never told when a brand approves anything, so it
+  // cannot know a video is waiting, and scoring it as though it did was
+  // guessing dressed as priority.
 
   /** Points per dollar of the campaign's pay per video. $35 -> 175 points. */
   payPerVideoPerDollar: 5,
@@ -53,7 +54,7 @@ export const FITTING_WEIGHTS = {
   /** Points per day an approved video has been sitting unposted, in a POST
    *  session. Approved stock going stale is the thing most at risk: it was
    *  cleared to post and is earning nothing while it waits. */
-  approvedAgingPerDay: 25,
+  readyAgingPerDay: 25,
 
   /** New supply generated to fill leftover FILM time. Ranks below anything
    *  already owed or already in the pipeline, because stock is worth making

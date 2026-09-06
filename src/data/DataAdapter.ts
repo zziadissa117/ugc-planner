@@ -26,6 +26,7 @@ import type {
   CampaignRule,
   NewBonusTier,
   NewCampaign,
+  NewCampaignAccount,
   NewCampaignAngle,
   NewCampaignDocument,
   NewCampaignHook,
@@ -225,6 +226,14 @@ export interface DataAdapter {
   /** One piece of content on two platforms is one video and two rows here -
    *  still a single deliverable. */
   addVideoPost(post: NewVideoPost): Promise<VideoPost>
+
+  /** Untick: this video did not go out on that account after all. Deleted
+   *  rather than flagged - video_posts records where a video actually is, and
+   *  a row saying "not here" is not a record of anything. The phase_event
+   *  history of the posting itself is untouched and stays append-only: what is
+   *  removed is the claim about where the video currently sits, never the log
+   *  of what happened. */
+  removeVideoPost(videoId: string, accountId: string): Promise<void>
   listVideoPosts(videoId: string): Promise<VideoPost[]>
   setViewCount(videoPostId: string, viewCount: number): Promise<VideoPost>
 
@@ -242,6 +251,23 @@ export interface DataAdapter {
   /** One completed warm-up session for this campaign's account, for the
    *  minutes the session actually ran. */
   recordWarmupEvent(campaignId: string, minutes: number): Promise<WarmupEvent>
+
+  // --- Accounts ----------------------------------------------------------
+  //
+  // Where a campaign actually posts. One video is cross-posted to every one of
+  // them and is still one deliverable, which is contractual for Inflow. These
+  // replace the handle_tiktok / handle_instagram fields: a handle was never a
+  // claim about a document - no brief states one - and a single per-campaign
+  // quota could not say "1 on TikTok, 1 on Instagram" or "2 on YouTube, 2 on
+  // Instagram".
+
+  listCampaignAccounts(campaignId?: string): Promise<CampaignAccount[]>
+  addCampaignAccount(account: NewCampaignAccount): Promise<CampaignAccount>
+  updateCampaignAccount(
+    id: string,
+    patch: Partial<Omit<CampaignAccount, 'id' | 'user_id' | 'campaign_id'>>,
+  ): Promise<CampaignAccount>
+  deleteCampaignAccount(id: string): Promise<void>
 
   // --- Work sessions -----------------------------------------------------
   //
@@ -373,8 +399,10 @@ export interface PendingWrite {
   id: number
   table_name: TableName
   row_id: string
-  op: 'insert' | 'update'
-  /** The row as it stood after the write. */
+  op: 'insert' | 'update' | 'delete'
+  /** The row as it stood after the write. For a delete, as it stood before -
+   *  the server is told which row to remove, and the payload is kept so a
+   *  stuck entry can say what it was going to drop. */
   payload: unknown
   queued_at: string
   attempts: number

@@ -46,7 +46,7 @@ export interface OutboxEntry {
   /** Primary key of the affected row. Composite for user_settings, which is
    *  keyed by user_id. */
   row_id: string
-  op: 'insert' | 'update'
+  op: 'insert' | 'update' | 'delete'
   /** The row as it stood after the write. Sync sends this, not a diff, because
    *  a diff against a server state we have not seen is not a thing we can
    *  compute offline. */

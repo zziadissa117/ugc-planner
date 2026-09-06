@@ -10,7 +10,7 @@
 
 import type { DataAdapter } from './DataAdapter'
 import { localToday } from './index'
-import type { Campaign, Video } from './schema'
+import type { Campaign, CampaignAccount, Video } from './schema'
 
 /** Creates the video rows owed for `date` that do not exist yet, one per unit
  *  of each active campaign's daily quota.
@@ -21,18 +21,46 @@ import type { Campaign, Video } from './schema'
  *  flight.
  *
  *  Returns how many rows it created. */
+/** Videos a campaign owes per day: the MAX of posts_per_day across the
+ *  accounts that are ready to post, never the sum.
+ *
+ *  One video is cross-posted to every account and is still one deliverable -
+ *  contractual for Inflow, and what he described for Vertus ("2 on yt 2 on ig"
+ *  is two videos, each going to both). Summing would double the work.
+ *
+ *  Only `ready` accounts count. A campaign still warming up raises no daily
+ *  obligation: it belongs on the warm-up screen, not in the day's quota.
+ *
+ *  Falls back to campaigns.daily_post_quota while a campaign has no accounts
+ *  yet, so a device that has not run the v4 derivation still owes what it did
+ *  before. That column is otherwise no longer read. */
+export function dailyVideoDemand(
+  campaign: Campaign,
+  accounts: readonly CampaignAccount[],
+): number {
+  const mine = accounts.filter(
+    (account) => account.campaign_id === campaign.id && account.is_active,
+  )
+  if (mine.length === 0) return campaign.daily_post_quota
+
+  const ready = mine.filter((account) => account.status === 'ready')
+  return ready.reduce((most, account) => Math.max(most, account.posts_per_day), 0)
+}
+
 export async function ensureTodaysQuota(
   adapter: DataAdapter,
   date: string = localToday(),
 ): Promise<number> {
   const campaigns = await adapter.listCampaigns()
+  const accounts = await adapter.listCampaignAccounts()
   let created = 0
 
   for (const campaign of campaigns) {
-    if (campaign.daily_post_quota <= 0) continue
+    const demand = dailyVideoDemand(campaign, accounts)
+    if (demand <= 0) continue
 
     const existing = await adapter.listVideos({ campaignId: campaign.id, owedForDate: date })
-    const missing = campaign.daily_post_quota - existing.length
+    const missing = demand - existing.length
 
     for (let i = 0; i < missing; i++) {
       await adapter.createVideo({
@@ -75,8 +103,9 @@ export function summariseToday(
   campaigns: readonly Campaign[],
   videos: readonly Video[],
   date: string = localToday(),
+  accounts: readonly CampaignAccount[] = [],
 ): TodaySummary {
-  const owed = campaigns.reduce((sum, c) => sum + c.daily_post_quota, 0)
+  const owed = campaigns.reduce((sum, c) => sum + dailyVideoDemand(c, accounts), 0)
 
   // Counted by when the post actually happened, not by the day it was owed
   // for: posting today clears today's obligation even if the row was raised

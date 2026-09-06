@@ -13,6 +13,7 @@ import { NotFound } from './screens/NotFound'
 import { Now } from './screens/Now'
 import { Settings } from './screens/Settings'
 import { Shoot } from './screens/Shoot'
+import { Posting } from './screens/Posting'
 import { TickOff } from './screens/TickOff'
 import { SessionProvider } from './session/SessionProvider'
 import { AuthProvider } from './sync'
@@ -26,6 +27,7 @@ const router = createBrowserRouter([
       // Reachable without choosing a session type or a window: ticking off what
       // is already done must never require planning anything first.
       { path: 'tick-off', element: <TickOff /> },
+      { path: 'post', element: <Posting /> },
       { path: 'shoot', element: <Shoot /> },
       { path: 'campaigns', element: <Campaigns /> },
       { path: 'campaigns/new', element: <NewCampaign /> },

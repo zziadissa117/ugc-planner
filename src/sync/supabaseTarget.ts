@@ -43,6 +43,13 @@ export class SupabaseSyncTarget implements SyncTarget {
 
     const row = write.payload as Record<string, unknown>
 
+    // A delete names a row; there is nothing to upsert. Already gone counts as
+    // applied - the point of the push was that the server not have it.
+    if (write.op === 'delete') {
+      const { error } = await this.client.from(write.table_name).delete().eq('id', write.row_id)
+      return error ? this.classify(error) : { status: 'applied' }
+    }
+
     // phase_events and warmup_events are insert-only and their id is a server
     // sequence, so the local id must not be sent - the server assigns its own.
     if (write.table_name === 'phase_events' || write.table_name === 'warmup_events') {

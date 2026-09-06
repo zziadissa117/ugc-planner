@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 
+import { AccountsEditor } from '../components/AccountsEditor'
 import { EditableField } from '../components/EditableField'
 import { SETUP_TYPE_VALUES } from '../data'
 import type {
@@ -149,6 +150,8 @@ export function Campaign() {
           />
         </div>
       </header>
+
+      <AccountsEditor data={data} campaignId={campaign.id} onChanged={() => void refresh()} />
 
       <LoginBox fields={fields} campaignId={campaign.id} onSave={saveField} onConfirm={confirmField} />
 

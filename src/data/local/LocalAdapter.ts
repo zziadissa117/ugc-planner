@@ -27,6 +27,7 @@ import type {
   BonusClaim,
   BonusTier,
   Campaign,
+  CampaignAccount,
   CampaignAngle,
   CampaignDocument,
   CampaignField,
@@ -34,6 +35,7 @@ import type {
   CampaignRule,
   NewBonusTier,
   NewCampaign,
+  NewCampaignAccount,
   NewCampaignAngle,
   NewCampaignDocument,
   NewCampaignHook,
@@ -729,6 +731,23 @@ export class LocalAdapter implements DataAdapter {
     return row
   }
 
+  async removeVideoPost(videoId: string, accountId: string): Promise<void> {
+    await this.tx([this.db.video_posts, this.db._outbox], async (tx) => {
+      const rows = (await tx
+        .table('video_posts')
+        .where('video_id')
+        .equals(videoId)
+        .toArray()) as VideoPost[]
+
+      for (const row of rows.filter((r) => r.account_id === accountId)) {
+        await tx.table('video_posts').delete(row.id)
+        // The payload is the row as it stood, so a stuck entry can say what it
+        // was going to remove rather than only naming an id.
+        this.enqueue(tx, 'video_posts', row.id, 'delete', row)
+      }
+    })
+  }
+
   async listVideoPosts(videoId: string): Promise<VideoPost[]> {
     return this.db.video_posts.where('video_id').equals(videoId).toArray()
   }
@@ -798,6 +817,74 @@ export class LocalAdapter implements DataAdapter {
       this.enqueue(tx, 'warmup_events', String(saved.id), 'insert', saved)
       return saved
     })
+  }
+
+  // --- Accounts ----------------------------------------------------------
+
+  async listCampaignAccounts(campaignId?: string): Promise<CampaignAccount[]> {
+    const rows = campaignId
+      ? await this.db.campaign_accounts.where('campaign_id').equals(campaignId).toArray()
+      : await this.db.campaign_accounts.toArray()
+    return rows
+      .filter((row) => row.is_active)
+      .sort((a, b) => a.sort_order - b.sort_order || a.platform.localeCompare(b.platform))
+  }
+
+  async addCampaignAccount(account: NewCampaignAccount): Promise<CampaignAccount> {
+    const timestamp = now()
+    const row: CampaignAccount = {
+      id: account.id ?? newId(),
+      user_id: this.userId,
+      campaign_id: account.campaign_id,
+      platform: account.platform,
+      handle: account.handle,
+      posts_per_day: account.posts_per_day ?? 0,
+      // New until he says otherwise: an account nobody has warmed up is not
+      // one to post brand content from.
+      status: account.status ?? 'new',
+      is_active: account.is_active ?? true,
+      sort_order: account.sort_order ?? 0,
+      created_at: account.created_at ?? timestamp,
+      updated_at: account.updated_at ?? timestamp,
+    }
+    assertRow('campaign_accounts', row)
+
+    await this.tx([this.db.campaign_accounts, this.db.campaigns, this.db._outbox], async (tx) => {
+      await this.requireRow(tx, 'campaigns', row.campaign_id)
+      // The SQL's unique (campaign_id, platform). Dexie enforces it too, but
+      // the message it throws is not one anybody could act on.
+      const clash = await tx
+        .table('campaign_accounts')
+        .where('[campaign_id+platform]')
+        .equals([row.campaign_id, row.platform])
+        .first()
+      if (clash) throw new DataError(`This campaign already has a ${row.platform} account.`)
+
+      await tx.table('campaign_accounts').add(row)
+      this.enqueue(tx, 'campaign_accounts', row.id, 'insert', row)
+    })
+    return row
+  }
+
+  async updateCampaignAccount(
+    id: string,
+    patch: Partial<Omit<CampaignAccount, 'id' | 'user_id' | 'campaign_id'>>,
+  ): Promise<CampaignAccount> {
+    return this.tx([this.db.campaign_accounts, this.db._outbox], async (tx) => {
+      const existing = (await this.requireRow(tx, 'campaign_accounts', id)) as CampaignAccount
+      const row: CampaignAccount = { ...existing, ...patch, updated_at: now() }
+      assertRow('campaign_accounts', row)
+      await tx.table('campaign_accounts').put(row)
+      this.enqueue(tx, 'campaign_accounts', row.id, 'update', row)
+      return row
+    })
+  }
+
+  /** Soft delete. The row stays so that video_posts pointing at it still say
+   *  which account they went out from - a hard delete would leave a posted
+   *  video unable to answer where it was posted. */
+  async deleteCampaignAccount(id: string): Promise<void> {
+    await this.updateCampaignAccount(id, { is_active: false })
   }
 
   // --- Work sessions -----------------------------------------------------

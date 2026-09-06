@@ -24,6 +24,15 @@ import type {
 } from '../data'
 import { SESSION_TARGET_PHASE } from '../data/phases'
 import { useData } from '../data/useData'
+import {
+  DEFAULT_HOOK_MODEL,
+  buildContext,
+  generateHooks,
+  hookGenerationAvailable,
+  lastFamilyUsed,
+  leaningFamily,
+  saveGeneratedHooks,
+} from '../hooks/generateHooks'
 import { formatMinutes } from '../session'
 
 /** Fields that describe the campaign in a couple of lines, in the order he
@@ -61,6 +70,9 @@ export function Console({
   const [events, setEvents] = useState<PhaseEvent[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [generating, setGenerating] = useState(false)
+  const [warnings, setWarnings] = useState<string[]>([])
+  const [lastFamily, setLastFamily] = useState<string | null>(null)
 
   const targetPhase = SESSION_TARGET_PHASE[sessionType]
 
@@ -77,6 +89,7 @@ export function Console({
     setAngles(nextAngles)
     setHooks(nextHooks)
     setEvents(nextEvents)
+    setLastFamily(await lastFamilyUsed(data, campaign.id, nextAngles))
   }, [campaign.id, data])
 
   useEffect(() => {
@@ -129,6 +142,37 @@ export function Console({
     }
   }, [campaign.default_setup, campaign.id, data, reload, sessionType, targetPhase, workSessionId])
 
+  const generate = useCallback(async () => {
+    setGenerating(true)
+    setError(null)
+    setWarnings([])
+    try {
+      const [fieldRows, ruleRows, angleRows] = await Promise.all([
+        data.listCampaignFields(campaign.id),
+        data.listCampaignRules(campaign.id),
+        data.listCampaignAngles(campaign.id),
+      ])
+      const context = buildContext({
+        campaign,
+        fields: fieldRows,
+        rules: ruleRows,
+        angles: angleRows,
+        lastFamily,
+        // Enough for the evening he planned, with a couple spare so a hook he
+        // does not like is not the end of the list.
+        count: Math.max(3, goal + 2),
+      })
+      const result = await generateHooks(context)
+      await saveGeneratedHooks(data, campaign.id, result, DEFAULT_HOOK_MODEL)
+      setWarnings(result.warnings)
+      await reload()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught))
+    } finally {
+      setGenerating(false)
+    }
+  }, [campaign, data, goal, lastFamily, reload])
+
   const toggleHook = useCallback(
     async (hook: CampaignHook) => {
       await data.setHookUsed(hook.id, hook.used_at === null)
@@ -167,7 +211,34 @@ export function Console({
         </Section>
       ) : (
         <Section title="Hooks">
+          {lastFamily !== null && leaningFamily(angles, lastFamily) !== null ? (
+            <p className="mb-2 text-xs uppercase tracking-wide text-state-later">
+              Last one was {lastFamily} - lean {leaningFamily(angles, lastFamily)} next
+            </p>
+          ) : null}
+
           <Hooks hooks={hooks} anglesById={anglesById} onToggle={toggleHook} />
+
+          {hookGenerationAvailable() ? (
+            <button
+              type="button"
+              onClick={() => void generate()}
+              disabled={generating}
+              className="mt-3 min-h-tap w-full rounded-lg border border-edge bg-surface px-4 font-semibold text-text active:bg-surface-raised disabled:text-state-later"
+            >
+              {generating ? 'Writing hooks...' : 'Write me some hooks'}
+            </button>
+          ) : null}
+
+          {warnings.length > 0 ? (
+            <ul className="mt-2 flex flex-col gap-1">
+              {warnings.map((warning) => (
+                <li key={warning} className="text-xs text-state-waiting">
+                  {warning}
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </Section>
       )}
 

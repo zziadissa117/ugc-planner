@@ -312,9 +312,16 @@ describe('no campaigns without a @', () => {
     await user.paste('hunter2')
     await user.click(screen.getByRole('button', { name: 'Save campaign' }))
 
+    // Wait for the LAST thing the save writes, not the first. The campaign row
+    // lands before the account fields, so waiting on the campaign let the
+    // assertions below race a half-written save - which is what made this test
+    // flaky. account_password is the final key in ACCOUNT_FIELD_KEYS, so its
+    // arrival means the whole sequence is done.
     await waitFor(async () => {
       const [saved] = await adapter.listCampaigns()
       expect(saved).toBeDefined()
+      const written = await adapter.listCampaignFields(saved.id)
+      expect(written.find((f) => f.field_key === 'account_password')?.field_value).toBe('hunter2')
     })
 
     const [campaign] = await adapter.listCampaigns()

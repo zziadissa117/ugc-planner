@@ -359,3 +359,84 @@ describe('hooks', () => {
     ).toBeInTheDocument()
   })
 })
+
+describe('angles', () => {
+  it('shows the gap plainly when a campaign has none, instead of an empty section', async () => {
+    const campaign = await adapter.createCampaign({
+      name: 'No angles yet',
+      company: null,
+      default_setup: 'face',
+      approval_mode: 'none',
+      pay_per_video_cents: null,
+      cycle_size: null,
+    })
+    render(
+      <DataContext.Provider value={adapter}>
+        <MemoryRouter initialEntries={[`/campaigns/${campaign.id}`]}>
+          <Routes>
+            <Route path="/campaigns/:campaignId" element={<Campaign />} />
+          </Routes>
+        </MemoryRouter>
+      </DataContext.Provider>,
+    )
+    await screen.findByRole('heading', { name: 'No angles yet' })
+
+    expect(screen.getByText(/no angles saved yet/i)).toBeInTheDocument()
+    expect(screen.getByLabelText('Angle label')).toBeInTheDocument()
+  })
+
+  it('lets an angle be added by hand, verified by default', async () => {
+    const user = userEvent.setup()
+    const campaign = await adapter.createCampaign({
+      name: 'No angles yet',
+      company: null,
+      default_setup: 'face',
+      approval_mode: 'none',
+      pay_per_video_cents: null,
+      cycle_size: null,
+    })
+    render(
+      <DataContext.Provider value={adapter}>
+        <MemoryRouter initialEntries={[`/campaigns/${campaign.id}`]}>
+          <Routes>
+            <Route path="/campaigns/:campaignId" element={<Campaign />} />
+          </Routes>
+        </MemoryRouter>
+      </DataContext.Provider>,
+    )
+    await screen.findByRole('heading', { name: 'No angles yet' })
+
+    await user.type(screen.getByLabelText('Angle label'), 'A. Frozen funds')
+    await user.type(screen.getByLabelText('Family'), 'fear')
+    await user.click(screen.getByRole('button', { name: 'Add angle' }))
+
+    await waitFor(async () => {
+      const angles = await adapter.listCampaignAngles(campaign.id)
+      expect(angles).toHaveLength(1)
+      expect(angles[0].label).toBe('A. Frozen funds')
+      expect(angles[0].family).toBe('fear')
+      // Typed in from the real brief - the same standing as a confirmed field.
+      expect(angles[0].is_verified).toBe(true)
+    })
+  })
+
+  it('can be marked not-from-the-brief when it is background context', async () => {
+    const user = userEvent.setup()
+    await renderBrief()
+
+    const before = await adapter.listCampaignAngles(INFLOW_CAMPAIGN_ID)
+
+    // A label distinct from anything the seed already carries, so this test
+    // cannot pass against a pre-existing row.
+    await user.type(screen.getByLabelText('Angle label'), 'Brand new skill-file angle')
+    await user.click(screen.getByLabelText(/really in the brief/i))
+    await user.click(screen.getByRole('button', { name: 'Add angle' }))
+
+    await waitFor(async () => {
+      const angles = await adapter.listCampaignAngles(INFLOW_CAMPAIGN_ID)
+      expect(angles).toHaveLength(before.length + 1)
+      const added = angles.find((a) => a.label === 'Brand new skill-file angle')
+      expect(added?.is_verified).toBe(false)
+    })
+  })
+})

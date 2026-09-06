@@ -236,8 +236,7 @@ export function Campaign() {
         </div>
       ) : null}
 
-      {angles.length > 0 ? (
-        <div>
+      <div>
           <h2 className="text-lg font-semibold text-text">Angles</h2>
           <p className="mt-1 text-sm text-state-later">One angle per video. Never mix storylines.</p>
 
@@ -245,14 +244,20 @@ export function Campaign() {
               two separate filters on is_verified and are never concatenated:
               the disagreement between the sources is information, and a merged
               list would destroy it. */}
-          <h3
-            id="angles-from-brief"
-            className="mt-4 text-sm font-semibold uppercase tracking-wide text-state-later"
-          >
-            From the brief
-          </h3>
-          <ul aria-labelledby="angles-from-brief" className="mt-2 flex flex-col gap-3">
-            {verifiedAngles.map((angle) => (
+          {verifiedAngles.length === 0 ? (
+            <p className="mt-3 text-sm font-semibold text-state-blocked">
+              No angles saved yet - hook generation has nothing to rotate against.
+            </p>
+          ) : (
+            <>
+              <h3
+                id="angles-from-brief"
+                className="mt-4 text-sm font-semibold uppercase tracking-wide text-state-later"
+              >
+                From the brief
+              </h3>
+              <ul aria-labelledby="angles-from-brief" className="mt-2 flex flex-col gap-3">
+                {verifiedAngles.map((angle) => (
               <li key={angle.id}>
                 <p className="font-semibold text-text">
                   {angle.label}
@@ -262,12 +267,14 @@ export function Campaign() {
                     </span>
                   )}
                 </p>
-                {angle.body === null ? null : (
-                  <p className="text-sm text-state-later">{angle.body}</p>
-                )}
-              </li>
-            ))}
-          </ul>
+                    {angle.body === null ? null : (
+                      <p className="text-sm text-state-later">{angle.body}</p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
 
           {unverifiedAngles.length > 0 ? (
             <>
@@ -294,8 +301,9 @@ export function Campaign() {
               </ul>
             </>
           ) : null}
+
+          <AngleEditor campaignId={campaign.id} onAdded={() => void refresh()} />
         </div>
-      ) : null}
 
       {rules.length > 0 ? (
         <details className="rounded-lg border border-edge">
@@ -468,6 +476,92 @@ function LoginBox({
           }
         />
       ))}
+    </div>
+  )
+}
+
+/** Adds an angle by hand.
+ *
+ *  The parser never extracts angles - it was never asked to, and doing so
+ *  reliably would mean judging which paragraphs of a brief are "an angle"
+ *  rather than reading a fact off it, which is a different kind of claim than
+ *  the parser makes anywhere else. So a campaign the parser created has none
+ *  until he adds them here, and hook generation has nothing to rotate against
+ *  until then.
+ *
+ *  is_verified defaults to true: an angle typed in here is one he read off
+ *  the real brief, the same standing as a parsed field he confirmed - not a
+ *  skill-file guess. He can mark it false if it genuinely is not from the
+ *  brief. */
+function AngleEditor({ campaignId, onAdded }: { campaignId: string; onAdded: () => void }) {
+  const data = useData()
+  const [label, setLabel] = useState("")
+  const [body, setBody] = useState("")
+  const [family, setFamily] = useState("")
+  const [fromBrief, setFromBrief] = useState(true)
+  const [busy, setBusy] = useState(false)
+
+  async function add() {
+    if (label.trim() === "") return
+    setBusy(true)
+    try {
+      await data.addCampaignAngle({
+        campaign_id: campaignId,
+        label: label.trim(),
+        body: body.trim() === "" ? null : body.trim(),
+        family: family.trim() === "" ? null : family.trim(),
+        is_verified: fromBrief,
+        sort_order: 0,
+      })
+      setLabel("")
+      setBody("")
+      setFamily("")
+      onAdded()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="mt-3 rounded-lg border border-edge bg-surface p-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-state-later">Add an angle</p>
+      <input
+        value={label}
+        onChange={(event) => setLabel(event.target.value)}
+        aria-label="Angle label"
+        placeholder="Label, e.g. A. Frozen funds"
+        className="mt-2 min-h-tap w-full rounded-lg border border-edge bg-surface-raised px-3 text-text placeholder:text-state-later"
+      />
+      <textarea
+        value={body}
+        onChange={(event) => setBody(event.target.value)}
+        aria-label="Angle description"
+        placeholder="What the angle is, in a sentence (optional)."
+        className="mt-2 h-16 w-full resize-y rounded-lg border border-edge bg-surface-raised p-3 text-text placeholder:text-state-later"
+      />
+      <input
+        value={family}
+        onChange={(event) => setFamily(event.target.value)}
+        aria-label="Family"
+        placeholder="Family, e.g. fear or greed (optional)"
+        className="mt-2 min-h-tap w-full rounded-lg border border-edge bg-surface-raised px-3 text-text placeholder:text-state-later"
+      />
+      <label className="mt-2 flex items-center gap-2 text-sm text-state-later">
+        <input
+          type="checkbox"
+          checked={fromBrief}
+          onChange={(event) => setFromBrief(event.target.checked)}
+        />
+        This is really in the brief, not just background context
+      </label>
+      <button
+        type="button"
+        onClick={() => void add()}
+        disabled={busy || label.trim() === ""}
+        className="mt-2 min-h-tap w-full rounded-lg border border-edge bg-surface px-4 font-semibold text-text active:bg-surface-raised disabled:text-state-later"
+      >
+        Add angle
+      </button>
     </div>
   )
 }

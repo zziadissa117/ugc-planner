@@ -39,6 +39,7 @@ test.describe('offline (Phase 10 acceptance check)', () => {
 
     const screens: Array<[string, string | RegExp]> = [
       ['/tick-off', 'Tick them off'],
+      ['/post', 'Post'],
       ['/campaigns', 'Briefs'],
       ['/campaigns/new', 'New campaign'],
       ['/money', 'Money'],

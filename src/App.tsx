@@ -5,9 +5,14 @@ import { ensureSeeded } from './data/seed'
 import { useData } from './data/useData'
 
 /** The tabs worth a permanent slot. SHOOT and the tick-off list are reached
- *  from NOW, because both only make sense once he has said what he is doing. */
+ *  from NOW, because both only make sense once he has said what he is doing.
+ *
+ *  POST is permanent even though it is a kind of session: what is owed today
+ *  is the one thing he checks without having decided to work first, and it is
+ *  the daily habit the rest of the app feeds. */
 const TABS = [
   { to: '/', label: 'NOW', end: true },
+  { to: '/post', label: 'POST', end: false },
   { to: '/campaigns', label: 'BRIEFS', end: false },
   { to: '/money', label: 'MONEY', end: false },
   { to: '/settings', label: 'SETUP', end: false },

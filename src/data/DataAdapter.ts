@@ -250,7 +250,10 @@ export interface DataAdapter {
 
   /** One completed warm-up session for this campaign's account, for the
    *  minutes the session actually ran. */
-  recordWarmupEvent(campaignId: string, minutes: number): Promise<WarmupEvent>
+  /** Records one completed warm-up session against an account, and promotes
+   *  the account once it has enough of them. The campaign is resolved from the
+   *  account rather than passed, so the two can never disagree. */
+  recordWarmupEvent(accountId: string, minutes: number): Promise<WarmupEvent>
 
   // --- Accounts ----------------------------------------------------------
   //

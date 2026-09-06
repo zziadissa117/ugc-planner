@@ -23,6 +23,7 @@ import type {
 import { ConstraintError, assertRow } from '../constraints'
 import { DEFAULT_SETUP_SWITCH_MINUTES, DEFAULT_TIME_ESTIMATES } from '../defaults'
 import { nextPhase, previousPhase } from '../phases'
+import { statusAfterWarmup, warmupCompletions } from '../warmup'
 import type {
   BonusClaim,
   BonusTier,
@@ -795,28 +796,48 @@ export class LocalAdapter implements DataAdapter {
     return rows.sort((a, b) => a.id - b.id)
   }
 
-  async recordWarmupEvent(campaignId: string, minutes: number): Promise<WarmupEvent> {
-    return this.tx([this.db.warmup_events, this.db.campaigns, this.db._outbox], async (tx) => {
-      await this.requireRow(tx, 'campaigns', campaignId)
+  async recordWarmupEvent(accountId: string, minutes: number): Promise<WarmupEvent> {
+    return this.tx(
+      [this.db.warmup_events, this.db.campaign_accounts, this.db.campaigns, this.db._outbox],
+      async (tx) => {
+        const account = (await this.requireRow(
+          tx,
+          'campaign_accounts',
+          accountId,
+        )) as CampaignAccount
 
-      // No `id` field: Dexie's ++id only auto-assigns when the key is absent,
-      // not when it is present at any value - same as the phase_event insert
-      // in createVideo above.
-      const draft = {
-        user_id: this.userId,
-        campaign_id: campaignId,
-        account_id: null,
-        minutes,
-        occurred_at: now(),
-        // Client-minted so a retried push lands exactly once - see
-        // phase_events.client_id for why.
-        client_id: newId(),
-      }
-      const id = await tx.table('warmup_events').add(draft)
-      const saved: WarmupEvent = { ...draft, id: id as number }
-      this.enqueue(tx, 'warmup_events', String(saved.id), 'insert', saved)
-      return saved
-    })
+        // No `id` field: Dexie's ++id only auto-assigns when the key is absent,
+        // not when it is present at any value - same as the phase_event insert
+        // in createVideo above.
+        const draft = {
+          user_id: this.userId,
+          // Resolved from the account so the two can never disagree.
+          campaign_id: account.campaign_id,
+          account_id: account.id,
+          minutes,
+          occurred_at: now(),
+          // Client-minted so a retried push lands exactly once - see
+          // phase_events.client_id for why.
+          client_id: newId(),
+        }
+        const id = await tx.table('warmup_events').add(draft)
+        const saved: WarmupEvent = { ...draft, id: id as number }
+        this.enqueue(tx, 'warmup_events', String(saved.id), 'insert', saved)
+
+        // Promote once he has done enough of them. Counted from the log rather
+        // than incremented, so the status and its evidence cannot drift.
+        const events = (await tx.table('warmup_events').toArray()) as WarmupEvent[]
+        const status = statusAfterWarmup(account, warmupCompletions(account.id, events))
+        if (status !== account.status) {
+          const updated: CampaignAccount = { ...account, status, updated_at: now() }
+          assertRow('campaign_accounts', updated)
+          await tx.table('campaign_accounts').put(updated)
+          this.enqueue(tx, 'campaign_accounts', updated.id, 'update', updated)
+        }
+
+        return saved
+      },
+    )
   }
 
   // --- Accounts ----------------------------------------------------------

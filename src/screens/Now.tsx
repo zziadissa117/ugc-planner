@@ -6,6 +6,7 @@ import type {
   BonusClaim,
   BonusTier,
   Campaign,
+  CampaignAccount,
   CampaignField,
   CampaignRule,
   SessionType,
@@ -54,7 +55,7 @@ type Stage =
       startedAt: number
     }
   | { kind: 'warmup_pick'; minutes: number }
-  | { kind: 'warmup_timer'; minutes: number; campaign: Campaign }
+  | { kind: 'warmup_timer'; minutes: number; account: CampaignAccount; campaign: Campaign | null }
 
 const START_LABEL: Record<'film' | 'edit', string> = {
   film: 'Start filming',
@@ -82,10 +83,19 @@ export function Now() {
   const [tiers, setTiers] = useState<BonusTier[]>([])
   const [claims, setClaims] = useState<BonusClaim[]>([])
   const [warmupEvents, setWarmupEvents] = useState<WarmupEvent[]>([])
+  const [accounts, setAccounts] = useState<CampaignAccount[]>([])
   const [stage, setStage] = useState<Stage>({ kind: 'chooser' })
 
   const reload = useCallback(async () => {
-    const [nextCampaigns, nextVideos, nextEstimates, settings, nextClaims, nextWarmupEvents] =
+    const [
+      nextCampaigns,
+      nextVideos,
+      nextEstimates,
+      settings,
+      nextClaims,
+      nextWarmupEvents,
+      nextAccounts,
+    ] =
       await Promise.all([
         data.listCampaigns(),
         data.listVideos(),
@@ -93,6 +103,7 @@ export function Now() {
         data.getUserSettings(),
         data.listBonusClaims(),
         data.listWarmupEvents(),
+        data.listCampaignAccounts(),
       ])
     const nextTiers = (
       await Promise.all(nextCampaigns.map((c) => data.listBonusTiers(c.id)))
@@ -105,6 +116,7 @@ export function Now() {
     setClaims(nextClaims)
     setTiers(nextTiers)
     setWarmupEvents(nextWarmupEvents)
+    setAccounts(nextAccounts)
     return { nextCampaigns, nextVideos, nextEstimates, settings, nextTiers, nextClaims }
   }, [data])
 
@@ -134,17 +146,22 @@ export function Now() {
     [campaigns, videos],
   )
 
-  // A campaign that has never actually posted - not even a carried-over
-  // opening count - has no live account yet, so FILM and EDIT never offer it
-  // and WARM-UP is the only thing that can move it forward.
+  // A campaign is workable once at least one of its accounts is ready to post
+  // from. A campaign with no accounts at all is still offered: it may predate
+  // the accounts editor, and hiding his own campaign with no way to see why
+  // would be worse than letting him film for it.
   const readyCampaigns = useMemo(
-    () => campaigns.filter((c) => !needsWarmup(c, videos, warmupEvents)),
-    [campaigns, videos, warmupEvents],
+    () =>
+      campaigns.filter((campaign) => {
+        const mine = accounts.filter((a) => a.campaign_id === campaign.id)
+        return mine.length === 0 || mine.some((a) => !needsWarmup(a))
+      }),
+    [accounts, campaigns],
   )
-  const warmupCampaigns = useMemo(
-    () => campaigns.filter((c) => needsWarmup(c, videos, warmupEvents)),
-    [campaigns, videos, warmupEvents],
-  )
+
+  // Exactly what he asked to see here: the accounts set new or warming up, and
+  // not the ones already warmed.
+  const warmupAccounts = useMemo(() => accounts.filter(needsWarmup), [accounts])
 
   /** Runs the fitting algorithm for the chosen session and window, creates any
    *  supply it decided to make, and freezes the resulting order.
@@ -234,8 +251,8 @@ export function Now() {
   )
 
   const recordWarmup = useCallback(
-    async (campaignId: string, minutes: number) => {
-      await data.recordWarmupEvent(campaignId, minutes)
+    async (accountId: string, minutes: number) => {
+      await data.recordWarmupEvent(accountId, minutes)
       await reload()
     },
     [data, reload],
@@ -322,18 +339,27 @@ export function Now() {
         />
       ) : stage.kind === 'warmup_pick' ? (
         <WarmupPicker
-          campaigns={warmupCampaigns}
+          accounts={warmupAccounts}
+          campaigns={campaigns}
           warmupEvents={warmupEvents}
-          onPick={(campaign) => setStage({ kind: 'warmup_timer', minutes: stage.minutes, campaign })}
+          onPick={(account) =>
+            setStage({
+              kind: 'warmup_timer',
+              minutes: stage.minutes,
+              account,
+              campaign: campaigns.find((c) => c.id === account.campaign_id) ?? null,
+            })
+          }
           onBack={() => setStage({ kind: 'chooser' })}
         />
       ) : (
         <WarmupTimer
-          key={stage.campaign.id}
+          key={stage.account.id}
+          account={stage.account}
           campaign={stage.campaign}
           minutes={stage.minutes}
           onDone={async () => {
-            await recordWarmup(stage.campaign.id, stage.minutes)
+            await recordWarmup(stage.account.id, stage.minutes)
             setStage({ kind: 'warmup_pick', minutes: stage.minutes })
           }}
           onBack={() => setStage({ kind: 'warmup_pick', minutes: stage.minutes })}
@@ -796,39 +822,48 @@ function Briefing({
  *  cleared two warm-up sessions are offered - once a campaign leaves this
  *  list it is ready, and FILM/EDIT pick it up from there. */
 function WarmupPicker({
+  accounts,
   campaigns,
   warmupEvents,
   onPick,
   onBack,
 }: {
+  accounts: CampaignAccount[]
   campaigns: Campaign[]
   warmupEvents: WarmupEvent[]
-  onPick: (campaign: Campaign) => void
+  onPick: (account: CampaignAccount) => void
   onBack: () => void
 }) {
+  const nameById = new Map(campaigns.map((campaign) => [campaign.id, campaign.name]))
+
   return (
     <div className="flex flex-col gap-4">
       <h2 className="text-sm font-semibold uppercase tracking-wide text-state-later">
         Which account needs warming up?
       </h2>
 
-      {campaigns.length === 0 ? (
+      {accounts.length === 0 ? (
         <p className="text-state-later">
           Nothing needs warming up. Every account is ready to post.
         </p>
       ) : (
         <ul className="flex flex-col gap-3">
-          {campaigns.map((campaign) => {
-            const done = warmupCompletions(campaign.id, warmupEvents)
+          {accounts.map((account) => {
+            const done = warmupCompletions(account.id, warmupEvents)
             return (
-              <li key={campaign.id}>
+              <li key={account.id}>
                 <button
                   type="button"
-                  onClick={() => onPick(campaign)}
-                  className="flex min-h-tap w-full items-center justify-between rounded-lg border border-edge bg-surface px-4 font-semibold text-text active:bg-surface-raised"
+                  onClick={() => onPick(account)}
+                  className="flex min-h-tap w-full items-center justify-between gap-3 rounded-lg border border-edge bg-surface px-4 text-left font-semibold text-text active:bg-surface-raised"
                 >
-                  <span>{campaign.name}</span>
-                  <span className="text-sm tabular-nums text-state-waiting">
+                  <span>
+                    {account.platform}
+                    <span className="ml-2 text-sm font-normal text-state-later">
+                      {account.handle ?? 'no handle saved'} - {nameById.get(account.campaign_id) ?? 'unknown campaign'}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-sm tabular-nums text-state-waiting">
                     {done} of {WARMUP_SESSIONS_REQUIRED} done
                   </span>
                 </button>
@@ -853,30 +888,20 @@ function WarmupPicker({
  *  here touches the video pipeline - warming up is using the account itself,
  *  not filming anything - so there is no script and nothing to skip. */
 function WarmupTimer({
+  account,
   campaign,
   minutes,
   onDone,
   onBack,
 }: {
-  campaign: Campaign
+  account: CampaignAccount
+  campaign: Campaign | null
   minutes: number
   onDone: () => Promise<void>
   onBack: () => void
 }) {
-  const data = useData()
-  const [fields, setFields] = useState<CampaignField[] | null>(null)
   const [secondsLeft, setSecondsLeft] = useState(minutes * 60)
   const [busy, setBusy] = useState(false)
-
-  useEffect(() => {
-    let cancelled = false
-    void data.listCampaignFields(campaign.id).then((next) => {
-      if (!cancelled) setFields(next)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [campaign.id, data])
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -884,11 +909,6 @@ function WarmupTimer({
     }, 1000)
     return () => window.clearInterval(timer)
   }, [])
-
-  const byKey = new Map((fields ?? []).map((f) => [f.field_key, f]))
-  const platforms = byKey.get('platforms')?.field_value
-  const handleTiktok = byKey.get('handle_tiktok')?.field_value
-  const handleInstagram = byKey.get('handle_instagram')?.field_value
 
   const mm = String(Math.floor(secondsLeft / 60)).padStart(2, '0')
   const ss = String(secondsLeft % 60).padStart(2, '0')
@@ -904,23 +924,13 @@ function WarmupTimer({
 
   return (
     <div className="flex flex-col gap-5">
-      <h2 className="text-lg font-semibold text-text">{campaign.name}</h2>
-
-      <div className="flex flex-wrap gap-2">
-        <span className="rounded-full border border-edge bg-surface-raised px-3 py-1.5 text-sm text-text">
-          {platforms ?? 'platform not saved yet'}
-        </span>
-        {handleTiktok ? (
-          <span className="rounded-full border border-edge bg-surface-raised px-3 py-1.5 text-sm text-text">
-            TikTok {handleTiktok}
-          </span>
-        ) : null}
-        {handleInstagram ? (
-          <span className="rounded-full border border-edge bg-surface-raised px-3 py-1.5 text-sm text-text">
-            Instagram {handleInstagram}
-          </span>
-        ) : null}
-      </div>
+      {/* Which account, and on which platform - the one thing he has to get
+          right before touching his phone. */}
+      <h2 className="text-lg font-semibold text-text">
+        {account.platform}
+        <span className="ml-2 text-state-later">{account.handle ?? 'no handle saved'}</span>
+      </h2>
+      <p className="-mt-3 text-sm text-state-later">{campaign?.name ?? 'unknown campaign'}</p>
 
       <p className="text-center text-6xl font-semibold tabular-nums text-text" aria-live="polite">
         {mm}:{ss}

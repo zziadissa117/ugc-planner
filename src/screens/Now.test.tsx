@@ -270,14 +270,22 @@ describe('choosing a campaign for FILM and EDIT', () => {
     expect(await screen.findByText('Fast cuts, no music, captions burned in.')).toBeInTheDocument()
   })
 
-  it('does not offer a campaign whose account has never posted and is still warming up', async () => {
-    await adapter.createCampaign({
+  it('does not offer a campaign whose only account is still warming up', async () => {
+    const fresh = await adapter.createCampaign({
       name: 'Brand new campaign',
       company: null,
       default_setup: 'face',
       approval_mode: 'none',
       pay_per_video_cents: 1000,
       cycle_size: null,
+    })
+    // A campaign is workable once one of its accounts is ready. This one's
+    // is not, so FILM must not offer it - warm it up first.
+    await adapter.addCampaignAccount({
+      campaign_id: fresh.id,
+      platform: 'TikTok',
+      handle: '@brandnew',
+      posts_per_day: 1,
     })
 
     const user = userEvent.setup()
@@ -292,8 +300,8 @@ describe('choosing a campaign for FILM and EDIT', () => {
 })
 
 describe('warming up an account', () => {
-  it('shows the account and a countdown, and records a completed session', async () => {
-    const fresh = await adapter.createCampaign({
+  async function freshAccount(platform = 'TikTok', handle = '@brandnew') {
+    const campaign = await adapter.createCampaign({
       name: 'Brand new campaign',
       company: null,
       default_setup: 'face',
@@ -301,13 +309,24 @@ describe('warming up an account', () => {
       pay_per_video_cents: 1000,
       cycle_size: null,
     })
-    await adapter.setCampaignField({
-      campaign_id: fresh.id,
-      field_key: 'handle_tiktok',
-      field_value: '@brandnew',
-      source: 'user_entered',
-      source_quote: null,
-      source_document_id: null,
+    const account = await adapter.addCampaignAccount({
+      campaign_id: campaign.id,
+      platform,
+      handle,
+      posts_per_day: 1,
+    })
+    return { campaign, account }
+  }
+
+  it('lists the account to warm up, not the campaign', async () => {
+    // His words: "warmup the accounts set as NEW or WARMING UP i will see
+    // there". Two accounts on one campaign warm up separately.
+    const { campaign } = await freshAccount()
+    await adapter.addCampaignAccount({
+      campaign_id: campaign.id,
+      platform: 'Instagram',
+      handle: '@brandnew.ig',
+      posts_per_day: 1,
     })
 
     const user = userEvent.setup()
@@ -315,31 +334,41 @@ describe('warming up an account', () => {
     await screen.findByText(/of 1 posted/)
     await user.click(screen.getByRole('button', { name: 'WARM-UP' }))
     await user.click(screen.getByRole('button', { name: '30' }))
-    await user.click(await screen.findByRole('button', { name: /Brand new campaign/ }))
 
-    expect(await screen.findByText('TikTok @brandnew')).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /TikTok/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Instagram/ })).toBeInTheDocument()
+  })
+
+  it('shows the account and a countdown, and records a completed session', async () => {
+    const { account } = await freshAccount()
+
+    const user = userEvent.setup()
+    renderScreen(<Now />)
+    await screen.findByText(/of 1 posted/)
+    await user.click(screen.getByRole('button', { name: 'WARM-UP' }))
+    await user.click(screen.getByRole('button', { name: '30' }))
+    await user.click(await screen.findByRole('button', { name: /TikTok/ }))
+
+    expect(await screen.findByText('@brandnew')).toBeInTheDocument()
     expect(screen.getByText('30:00')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Mark warmed up' }))
 
     await waitFor(async () => {
-      const events = await adapter.listWarmupEvents({ campaignId: fresh.id })
-      expect(events).toHaveLength(1)
-      expect(events[0].minutes).toBe(30)
+      const events = await adapter.listWarmupEvents()
+      expect(events.filter((e) => e.account_id === account.id)).toHaveLength(1)
     })
   })
 
-  it('leaves the WARM-UP list once an account has warmed up twice, and offers it in FILM instead', async () => {
-    const fresh = await adapter.createCampaign({
-      name: 'Brand new campaign',
-      company: null,
-      default_setup: 'face',
-      approval_mode: 'none',
-      pay_per_video_cents: 1000,
-      cycle_size: null,
-    })
-    await adapter.recordWarmupEvent(fresh.id, 30)
-    await adapter.recordWarmupEvent(fresh.id, 30)
+  it('promotes an account to ready after two sessions, and drops it off the list', async () => {
+    const { account } = await freshAccount()
+
+    await adapter.recordWarmupEvent(account.id, 30)
+    // One session in: warming, not ready.
+    expect((await adapter.listCampaignAccounts())[0].status).toBe('warming')
+
+    await adapter.recordWarmupEvent(account.id, 30)
+    expect((await adapter.listCampaignAccounts())[0].status).toBe('ready')
 
     const user = userEvent.setup()
     renderScreen(<Now />)
@@ -348,12 +377,22 @@ describe('warming up an account', () => {
     await user.click(screen.getByRole('button', { name: 'WARM-UP' }))
     await user.click(screen.getByRole('button', { name: '30' }))
     await screen.findByText(/nothing needs warming up/i)
-    expect(screen.queryByRole('button', { name: /Brand new campaign/ })).toBeNull()
 
+    // And it is workable now.
     await user.click(screen.getByRole('button', { name: 'Change session' }))
     await user.click(screen.getByRole('button', { name: 'FILM' }))
     await user.click(screen.getByRole('button', { name: '30' }))
     expect(await screen.findByRole('button', { name: /Brand new campaign/ })).toBeInTheDocument()
+  })
+
+  it('never demotes an account he marked ready himself', async () => {
+    const { account } = await freshAccount()
+    await adapter.updateCampaignAccount(account.id, { status: 'ready' })
+
+    await adapter.recordWarmupEvent(account.id, 30)
+
+    // He knows something the count does not.
+    expect((await adapter.listCampaignAccounts())[0].status).toBe('ready')
   })
 })
 

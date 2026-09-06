@@ -485,3 +485,142 @@ describe('reset', () => {
     expect(settings.opening_unedited_count).toBeNull()
   })
 })
+
+describe('work sessions', () => {
+  it('records the goal and the window he chose, and nothing about progress', async () => {
+    const campaign = await makeCampaign()
+    const session = await adapter.startWorkSession({
+      campaign_id: campaign.id,
+      kind: 'film',
+      goal_videos: 7,
+      planned_minutes: 60,
+      ended_at: null,
+    })
+
+    expect(session.goal_videos).toBe(7)
+    expect(session.planned_minutes).toBe(60)
+    expect(session.ended_at).toBeNull()
+    // No progress counter on the row: "3 of 7" is counted from phase_events at
+    // query time, so a stored number cannot drift from the log explaining it.
+    expect(session).not.toHaveProperty('completed_videos')
+  })
+
+  it('keeps the first end time when it is ended twice', async () => {
+    const campaign = await makeCampaign()
+    const session = await adapter.startWorkSession({
+      campaign_id: campaign.id,
+      kind: 'edit',
+      goal_videos: 3,
+      planned_minutes: 30,
+      ended_at: null,
+    })
+
+    const first = await adapter.endWorkSession(session.id)
+    const second = await adapter.endWorkSession(session.id)
+
+    // A reopened tab must not extend an evening that already finished.
+    expect(second.ended_at).toBe(first.ended_at)
+  })
+
+  it('refuses a goal of zero videos', async () => {
+    const campaign = await makeCampaign()
+    await expect(
+      adapter.startWorkSession({
+        campaign_id: campaign.id,
+        kind: 'film',
+        goal_videos: 0,
+        planned_minutes: 60,
+        ended_at: null,
+      }),
+    ).rejects.toBeInstanceOf(ConstraintError)
+  })
+})
+
+describe('hooks', () => {
+  it('keeps a generated hook honest about what wrote it', async () => {
+    const campaign = await makeCampaign()
+
+    // A generated hook must name its model and when it was written: nothing
+    // downstream can otherwise tell it apart from a line he wrote himself.
+    await expect(
+      adapter.addCampaignHook({
+        campaign_id: campaign.id,
+        angle_id: null,
+        body: 'Your account froze the month you finally had a good month.',
+        outline: null,
+        source: 'generated',
+        model: null,
+        generated_at: null,
+        used_at: null,
+      }),
+    ).rejects.toBeInstanceOf(ConstraintError)
+  })
+
+  it('refuses to let a hand-written hook claim a model wrote it', async () => {
+    const campaign = await makeCampaign()
+    await expect(
+      adapter.addCampaignHook({
+        campaign_id: campaign.id,
+        angle_id: null,
+        body: 'Mine, in my own words.',
+        outline: null,
+        source: 'user_entered',
+        model: 'claude-haiku-4-5-20251001',
+        generated_at: new Date().toISOString(),
+        used_at: null,
+      }),
+    ).rejects.toBeInstanceOf(ConstraintError)
+  })
+
+  it('stops offering a hook once it has been used, and can offer it again', async () => {
+    const campaign = await makeCampaign()
+    const hook = await adapter.addCampaignHook({
+      campaign_id: campaign.id,
+      angle_id: null,
+      body: 'Mine, in my own words.',
+      outline: null,
+      source: 'user_entered',
+      model: null,
+      generated_at: null,
+      used_at: null,
+    })
+
+    expect(await adapter.listCampaignHooks(campaign.id, { unusedOnly: true })).toHaveLength(1)
+
+    await adapter.setHookUsed(hook.id, true)
+    expect(await adapter.listCampaignHooks(campaign.id, { unusedOnly: true })).toHaveLength(0)
+    expect(await adapter.listCampaignHooks(campaign.id)).toHaveLength(1)
+
+    await adapter.setHookUsed(hook.id, false)
+    expect(await adapter.listCampaignHooks(campaign.id, { unusedOnly: true })).toHaveLength(1)
+  })
+
+  it('carries the new tables into the backup', async () => {
+    const campaign = await makeCampaign()
+    await adapter.startWorkSession({
+      campaign_id: campaign.id,
+      kind: 'film',
+      goal_videos: 5,
+      planned_minutes: 60,
+      ended_at: null,
+    })
+    await adapter.addCampaignHook({
+      campaign_id: campaign.id,
+      angle_id: null,
+      body: 'Mine.',
+      outline: null,
+      source: 'user_entered',
+      model: null,
+      generated_at: null,
+      used_at: null,
+    })
+
+    const snapshot = await adapter.exportAll()
+
+    // A table missing from the snapshot is a table that silently does not get
+    // backed up - which is how the accounts would have been lost.
+    expect(snapshot.work_sessions).toHaveLength(1)
+    expect(snapshot.campaign_hooks).toHaveLength(1)
+    expect(snapshot.campaign_accounts).toEqual([])
+  })
+})

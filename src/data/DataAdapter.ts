@@ -18,16 +18,20 @@ import type {
   BonusClaim,
   BonusTier,
   Campaign,
+  CampaignAccount,
   CampaignAngle,
   CampaignDocument,
   CampaignField,
+  CampaignHook,
   CampaignRule,
   NewBonusTier,
   NewCampaign,
   NewCampaignAngle,
   NewCampaignDocument,
+  NewCampaignHook,
   NewCampaignRule,
   NewVideo,
+  NewWorkSession,
   NewVideoPost,
   PhaseEvent,
   SessionType,
@@ -38,6 +42,7 @@ import type {
   VideoPhase,
   VideoPost,
   WarmupEvent,
+  WorkSession,
 } from './schema'
 
 /** A complete, portable copy of every table. This is the backup of record:
@@ -48,13 +53,16 @@ export interface BackupSnapshot {
   format_version: number
   exported_at: string
   campaigns: Campaign[]
+  campaign_accounts: CampaignAccount[]
   campaign_documents: CampaignDocument[]
   campaign_fields: CampaignField[]
   campaign_angles: CampaignAngle[]
+  campaign_hooks: CampaignHook[]
   campaign_rules: CampaignRule[]
   videos: Video[]
   video_posts: VideoPost[]
   phase_events: PhaseEvent[]
+  work_sessions: WorkSession[]
   warmup_events: WarmupEvent[]
   bonus_tiers: BonusTier[]
   bonus_claims: BonusClaim[]
@@ -228,6 +236,35 @@ export interface DataAdapter {
   /** One completed warm-up session for this campaign's account, for the
    *  minutes the session actually ran. */
   recordWarmupEvent(campaignId: string, minutes: number): Promise<WarmupEvent>
+
+  // --- Work sessions -----------------------------------------------------
+  //
+  // One sitting: a campaign, a goal of N videos and a window. This holds the
+  // intent and the wall-clock bracket, and deliberately holds no progress
+  // counter - "3 of 7 done" is counted from phase_events at query time, the
+  // same reasoning as "warmed up twice". A stored counter drifts from the log
+  // that explains it, and the log is what measured timings come from.
+
+  listWorkSessions(filter?: { campaignId?: string; openOnly?: boolean }): Promise<WorkSession[]>
+  startWorkSession(session: NewWorkSession): Promise<WorkSession>
+
+  /** Closes it. Idempotent: a session already ended keeps its first end time,
+   *  because a reopened tab should not extend an evening that finished. */
+  endWorkSession(id: string): Promise<WorkSession>
+
+  // --- Hooks -------------------------------------------------------------
+  //
+  // Not campaign_fields: a field is a claim about a document and carries a
+  // quote that can be checked against it. A hook is invented text that no
+  // document contains, so the honest question is a different one - who made
+  // this up, when, and with what - which is what `source`, `model` and
+  // `generated_at` answer.
+
+  listCampaignHooks(campaignId: string, filter?: { unusedOnly?: boolean }): Promise<CampaignHook[]>
+  addCampaignHook(hook: NewCampaignHook): Promise<CampaignHook>
+
+  /** Marks a hook used so it is not offered again, or clears that mark. */
+  setHookUsed(id: string, used: boolean): Promise<CampaignHook>
 
   // --- Money -------------------------------------------------------------
 

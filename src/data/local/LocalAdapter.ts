@@ -30,13 +30,16 @@ import type {
   CampaignAngle,
   CampaignDocument,
   CampaignField,
+  CampaignHook,
   CampaignRule,
   NewBonusTier,
   NewCampaign,
   NewCampaignAngle,
   NewCampaignDocument,
+  NewCampaignHook,
   NewCampaignRule,
   NewVideo,
+  NewWorkSession,
   NewVideoPost,
   PhaseEvent,
   TableName,
@@ -46,6 +49,7 @@ import type {
   VideoPhase,
   VideoPost,
   WarmupEvent,
+  WorkSession,
 } from '../schema'
 import { LocalDatabase, MIRRORED_TABLES, type OutboxEntry } from './db'
 
@@ -796,6 +800,112 @@ export class LocalAdapter implements DataAdapter {
     })
   }
 
+  // --- Work sessions -----------------------------------------------------
+
+  async listWorkSessions(filter?: {
+    campaignId?: string
+    openOnly?: boolean
+  }): Promise<WorkSession[]> {
+    let rows = filter?.campaignId
+      ? await this.db.work_sessions.where('campaign_id').equals(filter.campaignId).toArray()
+      : await this.db.work_sessions.toArray()
+
+    if (filter?.openOnly) rows = rows.filter((row) => row.ended_at === null)
+    return rows.sort((a, b) => b.started_at.localeCompare(a.started_at))
+  }
+
+  async startWorkSession(session: NewWorkSession): Promise<WorkSession> {
+    const timestamp = now()
+    const row: WorkSession = {
+      id: session.id ?? newId(),
+      user_id: this.userId,
+      campaign_id: session.campaign_id,
+      kind: session.kind,
+      goal_videos: session.goal_videos,
+      planned_minutes: session.planned_minutes,
+      started_at: session.started_at ?? timestamp,
+      ended_at: session.ended_at ?? null,
+      created_at: session.created_at ?? timestamp,
+      updated_at: session.updated_at ?? timestamp,
+    }
+    assertRow('work_sessions', row)
+
+    await this.tx([this.db.work_sessions, this.db.campaigns, this.db._outbox], async (tx) => {
+      await this.requireRow(tx, 'campaigns', row.campaign_id)
+      await tx.table('work_sessions').add(row)
+      this.enqueue(tx, 'work_sessions', row.id, 'insert', row)
+    })
+    return row
+  }
+
+  async endWorkSession(id: string): Promise<WorkSession> {
+    return this.tx([this.db.work_sessions, this.db._outbox], async (tx) => {
+      const existing = (await this.requireRow(tx, 'work_sessions', id)) as WorkSession
+      // Already finished. A reopened tab must not extend an evening that ended.
+      if (existing.ended_at !== null) return existing
+
+      const row: WorkSession = { ...existing, ended_at: now(), updated_at: now() }
+      assertRow('work_sessions', row)
+      await tx.table('work_sessions').put(row)
+      this.enqueue(tx, 'work_sessions', row.id, 'update', row)
+      return row
+    })
+  }
+
+  // --- Hooks -------------------------------------------------------------
+
+  async listCampaignHooks(
+    campaignId: string,
+    filter?: { unusedOnly?: boolean },
+  ): Promise<CampaignHook[]> {
+    const rows = await this.db.campaign_hooks.where('campaign_id').equals(campaignId).toArray()
+    const kept = filter?.unusedOnly ? rows.filter((row) => row.used_at === null) : rows
+    return kept.sort((a, b) => a.created_at.localeCompare(b.created_at))
+  }
+
+  async addCampaignHook(hook: NewCampaignHook): Promise<CampaignHook> {
+    const timestamp = now()
+    const row: CampaignHook = {
+      id: hook.id ?? newId(),
+      user_id: this.userId,
+      campaign_id: hook.campaign_id,
+      angle_id: hook.angle_id,
+      body: hook.body,
+      outline: hook.outline,
+      source: hook.source,
+      model: hook.model,
+      generated_at: hook.generated_at,
+      used_at: hook.used_at,
+      created_at: hook.created_at ?? timestamp,
+      updated_at: hook.updated_at ?? timestamp,
+    }
+    // The check constraints carry the honesty rule here: a generated hook has
+    // to name the model that wrote it, and one he typed cannot claim a model.
+    assertRow('campaign_hooks', row)
+
+    await this.tx([this.db.campaign_hooks, this.db.campaigns, this.db._outbox], async (tx) => {
+      await this.requireRow(tx, 'campaigns', row.campaign_id)
+      await tx.table('campaign_hooks').add(row)
+      this.enqueue(tx, 'campaign_hooks', row.id, 'insert', row)
+    })
+    return row
+  }
+
+  async setHookUsed(id: string, used: boolean): Promise<CampaignHook> {
+    return this.tx([this.db.campaign_hooks, this.db._outbox], async (tx) => {
+      const existing = (await this.requireRow(tx, 'campaign_hooks', id)) as CampaignHook
+      const row: CampaignHook = {
+        ...existing,
+        used_at: used ? (existing.used_at ?? now()) : null,
+        updated_at: now(),
+      }
+      assertRow('campaign_hooks', row)
+      await tx.table('campaign_hooks').put(row)
+      this.enqueue(tx, 'campaign_hooks', row.id, 'update', row)
+      return row
+    })
+  }
+
   // --- Money -------------------------------------------------------------
 
   async listBonusTiers(campaignId: string): Promise<BonusTier[]> {
@@ -989,13 +1099,16 @@ export class LocalAdapter implements DataAdapter {
   async exportAll(): Promise<BackupSnapshot> {
     const [
       campaigns,
+      campaign_accounts,
       campaign_documents,
       campaign_fields,
       campaign_angles,
+      campaign_hooks,
       campaign_rules,
       videos,
       video_posts,
       phase_events,
+      work_sessions,
       warmup_events,
       bonus_tiers,
       bonus_claims,
@@ -1003,13 +1116,16 @@ export class LocalAdapter implements DataAdapter {
       user_settings,
     ] = await Promise.all([
       this.db.campaigns.toArray(),
+      this.db.campaign_accounts.toArray(),
       this.db.campaign_documents.toArray(),
       this.db.campaign_fields.toArray(),
       this.db.campaign_angles.toArray(),
+      this.db.campaign_hooks.toArray(),
       this.db.campaign_rules.toArray(),
       this.db.videos.toArray(),
       this.db.video_posts.toArray(),
       this.db.phase_events.toArray(),
+      this.db.work_sessions.toArray(),
       this.db.warmup_events.toArray(),
       this.db.bonus_tiers.toArray(),
       this.db.bonus_claims.toArray(),
@@ -1021,13 +1137,16 @@ export class LocalAdapter implements DataAdapter {
       format_version: BACKUP_FORMAT_VERSION,
       exported_at: now(),
       campaigns,
+      campaign_accounts,
       campaign_documents,
       campaign_fields,
       campaign_angles,
+      campaign_hooks,
       campaign_rules,
       videos,
       video_posts,
       phase_events,
+      work_sessions,
       warmup_events,
       bonus_tiers,
       bonus_claims,

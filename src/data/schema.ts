@@ -35,6 +35,26 @@ export const SESSION_TYPE_VALUES = [
   'warm_up',
 ] as const satisfies readonly SessionType[]
 
+export type AccountStatus =
+  | 'new'
+  | 'warming'
+  | 'ready'
+
+export const ACCOUNT_STATUS_VALUES = [
+  'new',
+  'warming',
+  'ready',
+] as const satisfies readonly AccountStatus[]
+
+export type HookSource =
+  | 'generated'
+  | 'user_entered'
+
+export const HOOK_SOURCE_VALUES = [
+  'generated',
+  'user_entered',
+] as const satisfies readonly HookSource[]
+
 export type VideoPhase =
   | 'awaiting_brief'
   | 'awaiting_script_approval'
@@ -131,6 +151,26 @@ export interface Campaign {
 export type NewCampaign = Omit<Campaign, 'user_id' | 'id' | 'is_active' | 'approval_mode' | 'daily_post_quota' | 'opening_post_count' | 'brief_is_incomplete' | 'created_at' | 'updated_at'> &
   Partial<Pick<Campaign, 'id' | 'is_active' | 'approval_mode' | 'daily_post_quota' | 'opening_post_count' | 'brief_is_incomplete' | 'created_at' | 'updated_at'>>
 
+/** Mirrors `campaign_accounts`. */
+export interface CampaignAccount {
+  id: string
+  user_id: string
+  campaign_id: string
+  platform: string
+  handle: string | null
+  posts_per_day: number
+  status: AccountStatus
+  is_active: boolean
+  sort_order: number
+  created_at: string
+  updated_at: string
+}
+
+/** `campaign_accounts` as supplied by a caller: user_id comes from the session, and
+ *  columns the database defaults are optional. */
+export type NewCampaignAccount = Omit<CampaignAccount, 'user_id' | 'id' | 'posts_per_day' | 'status' | 'is_active' | 'sort_order' | 'created_at' | 'updated_at'> &
+  Partial<Pick<CampaignAccount, 'id' | 'posts_per_day' | 'status' | 'is_active' | 'sort_order' | 'created_at' | 'updated_at'>>
+
 /** Mirrors `campaign_documents`. */
 export interface CampaignDocument {
   id: string
@@ -176,12 +216,34 @@ export interface CampaignAngle {
   family: string | null
   is_verified: boolean
   sort_order: number
+  updated_at: string
 }
 
 /** `campaign_angles` as supplied by a caller: user_id comes from the session, and
  *  columns the database defaults are optional. */
-export type NewCampaignAngle = Omit<CampaignAngle, 'user_id' | 'id' | 'is_verified' | 'sort_order'> &
-  Partial<Pick<CampaignAngle, 'id' | 'is_verified' | 'sort_order'>>
+export type NewCampaignAngle = Omit<CampaignAngle, 'user_id' | 'id' | 'is_verified' | 'sort_order' | 'updated_at'> &
+  Partial<Pick<CampaignAngle, 'id' | 'is_verified' | 'sort_order' | 'updated_at'>>
+
+/** Mirrors `campaign_hooks`. */
+export interface CampaignHook {
+  id: string
+  user_id: string
+  campaign_id: string
+  angle_id: string | null
+  body: string
+  outline: string | null
+  source: HookSource
+  model: string | null
+  generated_at: string | null
+  used_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** `campaign_hooks` as supplied by a caller: user_id comes from the session, and
+ *  columns the database defaults are optional. */
+export type NewCampaignHook = Omit<CampaignHook, 'user_id' | 'id' | 'created_at' | 'updated_at'> &
+  Partial<Pick<CampaignHook, 'id' | 'created_at' | 'updated_at'>>
 
 /** Mirrors `campaign_rules`. */
 export interface CampaignRule {
@@ -191,12 +253,13 @@ export interface CampaignRule {
   body: string
   is_verified: boolean
   sort_order: number
+  updated_at: string
 }
 
 /** `campaign_rules` as supplied by a caller: user_id comes from the session, and
  *  columns the database defaults are optional. */
-export type NewCampaignRule = Omit<CampaignRule, 'user_id' | 'id' | 'is_verified' | 'sort_order'> &
-  Partial<Pick<CampaignRule, 'id' | 'is_verified' | 'sort_order'>>
+export type NewCampaignRule = Omit<CampaignRule, 'user_id' | 'id' | 'is_verified' | 'sort_order' | 'updated_at'> &
+  Partial<Pick<CampaignRule, 'id' | 'is_verified' | 'sort_order' | 'updated_at'>>
 
 /** Mirrors `videos`. */
 export interface Video {
@@ -226,17 +289,19 @@ export interface VideoPost {
   id: string
   user_id: string
   video_id: string
+  account_id: string | null
   platform: string
   url: string | null
   posted_at: string
   view_count: number | null
   view_count_entered_at: string | null
+  updated_at: string
 }
 
 /** `video_posts` as supplied by a caller: user_id comes from the session, and
  *  columns the database defaults are optional. */
-export type NewVideoPost = Omit<VideoPost, 'user_id' | 'id' | 'posted_at'> &
-  Partial<Pick<VideoPost, 'id' | 'posted_at'>>
+export type NewVideoPost = Omit<VideoPost, 'user_id' | 'id' | 'account_id' | 'posted_at' | 'updated_at'> &
+  Partial<Pick<VideoPost, 'id' | 'account_id' | 'posted_at' | 'updated_at'>>
 
 /** Mirrors `phase_events`. */
 export interface PhaseEvent {
@@ -246,6 +311,7 @@ export interface PhaseEvent {
   from_phase: VideoPhase | null
   to_phase: VideoPhase
   session: SessionType | null
+  work_session_id: string | null
   occurred_at: string
   duration_seconds: number | null
   client_id: string
@@ -253,14 +319,34 @@ export interface PhaseEvent {
 
 /** `phase_events` as supplied by a caller: user_id comes from the session, and
  *  columns the database defaults are optional. */
-export type NewPhaseEvent = Omit<PhaseEvent, 'user_id' | 'id' | 'occurred_at' | 'client_id'> &
-  Partial<Pick<PhaseEvent, 'id' | 'occurred_at' | 'client_id'>>
+export type NewPhaseEvent = Omit<PhaseEvent, 'user_id' | 'id' | 'work_session_id' | 'occurred_at' | 'client_id'> &
+  Partial<Pick<PhaseEvent, 'id' | 'work_session_id' | 'occurred_at' | 'client_id'>>
+
+/** Mirrors `work_sessions`. */
+export interface WorkSession {
+  id: string
+  user_id: string
+  campaign_id: string
+  kind: SessionType
+  goal_videos: number
+  planned_minutes: number
+  started_at: string
+  ended_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** `work_sessions` as supplied by a caller: user_id comes from the session, and
+ *  columns the database defaults are optional. */
+export type NewWorkSession = Omit<WorkSession, 'user_id' | 'id' | 'started_at' | 'created_at' | 'updated_at'> &
+  Partial<Pick<WorkSession, 'id' | 'started_at' | 'created_at' | 'updated_at'>>
 
 /** Mirrors `warmup_events`. */
 export interface WarmupEvent {
   id: number
   user_id: string
   campaign_id: string
+  account_id: string | null
   minutes: number
   occurred_at: string
   client_id: string
@@ -268,8 +354,8 @@ export interface WarmupEvent {
 
 /** `warmup_events` as supplied by a caller: user_id comes from the session, and
  *  columns the database defaults are optional. */
-export type NewWarmupEvent = Omit<WarmupEvent, 'user_id' | 'id' | 'occurred_at' | 'client_id'> &
-  Partial<Pick<WarmupEvent, 'id' | 'occurred_at' | 'client_id'>>
+export type NewWarmupEvent = Omit<WarmupEvent, 'user_id' | 'id' | 'account_id' | 'occurred_at' | 'client_id'> &
+  Partial<Pick<WarmupEvent, 'id' | 'account_id' | 'occurred_at' | 'client_id'>>
 
 /** Mirrors `bonus_tiers`. */
 export interface BonusTier {
@@ -280,12 +366,13 @@ export interface BonusTier {
   threshold_views: number
   payout_cents: number
   view_window_days: number | null
+  updated_at: string
 }
 
 /** `bonus_tiers` as supplied by a caller: user_id comes from the session, and
  *  columns the database defaults are optional. */
-export type NewBonusTier = Omit<BonusTier, 'user_id' | 'id'> &
-  Partial<Pick<BonusTier, 'id'>>
+export type NewBonusTier = Omit<BonusTier, 'user_id' | 'id' | 'updated_at'> &
+  Partial<Pick<BonusTier, 'id' | 'updated_at'>>
 
 /** Mirrors `bonus_claims`. */
 export interface BonusClaim {
@@ -296,12 +383,13 @@ export interface BonusClaim {
   probability: number
   received_cents: number | null
   received_at: string | null
+  updated_at: string
 }
 
 /** `bonus_claims` as supplied by a caller: user_id comes from the session, and
  *  columns the database defaults are optional. */
-export type NewBonusClaim = Omit<BonusClaim, 'user_id' | 'id' | 'probability'> &
-  Partial<Pick<BonusClaim, 'id' | 'probability'>>
+export type NewBonusClaim = Omit<BonusClaim, 'user_id' | 'id' | 'probability' | 'updated_at'> &
+  Partial<Pick<BonusClaim, 'id' | 'probability' | 'updated_at'>>
 
 /** Mirrors `time_estimates`. */
 export interface TimeEstimate {
@@ -311,12 +399,13 @@ export interface TimeEstimate {
   film_minutes: number
   edit_minutes: number
   post_minutes: number
+  updated_at: string
 }
 
 /** `time_estimates` as supplied by a caller: user_id comes from the session, and
  *  columns the database defaults are optional. */
-export type NewTimeEstimate = Omit<TimeEstimate, 'user_id' | 'id'> &
-  Partial<Pick<TimeEstimate, 'id'>>
+export type NewTimeEstimate = Omit<TimeEstimate, 'user_id' | 'id' | 'updated_at'> &
+  Partial<Pick<TimeEstimate, 'id' | 'updated_at'>>
 
 /** Mirrors `user_settings`. */
 export interface UserSettings {
@@ -338,13 +427,16 @@ export type NewUserSettings = Omit<UserSettings, 'user_id' | 'setup_switch_minut
  *  can replay them top to bottom without dangling references. */
 export const TABLE_NAMES = [
   'campaigns',
+  'campaign_accounts',
   'campaign_documents',
   'campaign_fields',
   'campaign_angles',
+  'campaign_hooks',
   'campaign_rules',
   'videos',
   'video_posts',
   'phase_events',
+  'work_sessions',
   'warmup_events',
   'bonus_tiers',
   'bonus_claims',
@@ -357,13 +449,16 @@ export type TableName = (typeof TABLE_NAMES)[number]
 /** Maps each table name to its row type. */
 export interface TableRowMap {
   campaigns: Campaign
+  campaign_accounts: CampaignAccount
   campaign_documents: CampaignDocument
   campaign_fields: CampaignField
   campaign_angles: CampaignAngle
+  campaign_hooks: CampaignHook
   campaign_rules: CampaignRule
   videos: Video
   video_posts: VideoPost
   phase_events: PhaseEvent
+  work_sessions: WorkSession
   warmup_events: WarmupEvent
   bonus_tiers: BonusTier
   bonus_claims: BonusClaim
@@ -377,20 +472,31 @@ export interface TableRowMap {
  *  so that src/data/constraints.ts can be checked against them by eye.
  *  The enforcing code lives there; this is the record of what it owes. */
 export const SQL_TABLE_CONSTRAINTS: Readonly<Record<string, readonly string[]>> = {
+  campaign_accounts: [
+    "unique (campaign_id, platform)",
+  ],
   campaign_fields: [
     "unique (campaign_id, field_key)",
     "constraint parsed_is_unconfirmed check (source <> 'parsed_unreviewed' or confirmed_at is null)",
     "constraint documented_needs_proof check (source <> 'documented' or (confirmed_at is not null and source_quote is not null))",
     "constraint missing_is_empty check (source <> 'missing' or field_value is null)",
   ],
+  campaign_hooks: [
+    "constraint generated_names_its_model check (source <> 'generated' or (model is not null and generated_at is not null))",
+    "constraint user_entered_has_no_model check (source <> 'user_entered' or (model is null and generated_at is null))",
+  ],
   videos: [
     "constraint posted_is_timestamped check (phase <> 'posted' or posted_at is not null)",
   ],
   video_posts: [
     "unique (video_id, platform)",
+    "unique (video_id, account_id)",
   ],
   phase_events: [
     "unique (user_id, client_id)",
+  ],
+  work_sessions: [
+    "constraint ends_after_it_starts check (ended_at is null or ended_at >= started_at)",
   ],
   warmup_events: [
     "unique (user_id, client_id)",
@@ -416,6 +522,9 @@ export const SQL_COLUMN_CHECKS: Readonly<Record<string, Readonly<Record<string, 
     cycle_size: ["check (cycle_size > 0)"],
     opening_post_count: ["check (opening_post_count >= 0)"],
   },
+  campaign_accounts: {
+    posts_per_day: ["check (posts_per_day >= 0)"],
+  },
   videos: {
     rate_snapshot_cents: ["check (rate_snapshot_cents >= 0)"],
   },
@@ -424,6 +533,10 @@ export const SQL_COLUMN_CHECKS: Readonly<Record<string, Readonly<Record<string, 
   },
   phase_events: {
     duration_seconds: ["check (duration_seconds >= 0)"],
+  },
+  work_sessions: {
+    goal_videos: ["check (goal_videos > 0)"],
+    planned_minutes: ["check (planned_minutes > 0)"],
   },
   warmup_events: {
     minutes: ["check (minutes > 0)"],

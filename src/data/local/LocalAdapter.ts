@@ -398,6 +398,7 @@ export class LocalAdapter implements DataAdapter {
       family: angle.family,
       is_verified: angle.is_verified ?? false,
       sort_order: angle.sort_order ?? 0,
+      updated_at: now(),
     }
     assertRow('campaign_angles', row)
 
@@ -424,6 +425,7 @@ export class LocalAdapter implements DataAdapter {
       body: rule.body,
       is_verified: rule.is_verified ?? false,
       sort_order: rule.sort_order ?? 0,
+      updated_at: now(),
     }
     assertRow('campaign_rules', row)
 
@@ -667,6 +669,7 @@ export class LocalAdapter implements DataAdapter {
       from_phase: video.phase,
       to_phase: target,
       session: options?.session ?? null,
+      work_session_id: null,
       occurred_at: timestamp,
       duration_seconds: options?.durationSeconds ?? null,
       // Minted here, before the row lands, so the same key travels with every
@@ -685,11 +688,13 @@ export class LocalAdapter implements DataAdapter {
       id: post.id ?? newId(),
       user_id: this.userId,
       video_id: post.video_id,
+      account_id: post.account_id ?? null,
       platform: post.platform,
       url: post.url,
       posted_at: post.posted_at ?? now(),
       view_count: post.view_count,
       view_count_entered_at: post.view_count_entered_at,
+      updated_at: post.updated_at ?? now(),
     }
     assertRow('video_posts', row)
 
@@ -715,6 +720,7 @@ export class LocalAdapter implements DataAdapter {
         view_count: viewCount,
         // Stamped so a bonus can be judged against how stale the number is.
         view_count_entered_at: now(),
+        updated_at: now(),
       }
       assertRow('video_posts', row)
       await tx.table('video_posts').put(row)
@@ -759,6 +765,7 @@ export class LocalAdapter implements DataAdapter {
       const draft = {
         user_id: this.userId,
         campaign_id: campaignId,
+        account_id: null,
         minutes,
         occurred_at: now(),
         // Client-minted so a retried push lands exactly once - see
@@ -788,6 +795,7 @@ export class LocalAdapter implements DataAdapter {
       threshold_views: tier.threshold_views,
       payout_cents: tier.payout_cents,
       view_window_days: tier.view_window_days,
+      updated_at: now(),
     }
     assertRow('bonus_tiers', row)
 
@@ -831,6 +839,7 @@ export class LocalAdapter implements DataAdapter {
       probability: 0,
       received_cents: null,
       received_at: null,
+      updated_at: now(),
     }
   }
 
@@ -846,7 +855,7 @@ export class LocalAdapter implements DataAdapter {
         await this.requireRow(tx, 'videos', videoId)
         await this.requireRow(tx, 'bonus_tiers', bonusTierId)
         const existing = await this.claimFor(tx, videoId, bonusTierId)
-        const row: BonusClaim = { ...existing, probability }
+        const row: BonusClaim = { ...existing, probability, updated_at: now() }
         assertRow('bonus_claims', row)
         await tx.table('bonus_claims').put(row)
         this.enqueue(tx, 'bonus_claims', row.id, 'update', row)
@@ -871,6 +880,7 @@ export class LocalAdapter implements DataAdapter {
           ...existing,
           received_cents: receivedCents,
           received_at: receivedAt,
+          updated_at: now(),
         }
         assertRow('bonus_claims', row)
         await tx.table('bonus_claims').put(row)
@@ -925,6 +935,7 @@ export class LocalAdapter implements DataAdapter {
       id: newId(),
       user_id: this.userId,
       ...e,
+      updated_at: now(),
     }))
     for (const row of seeded) assertRow('time_estimates', row)
 

@@ -49,6 +49,7 @@ const rule = (body: string): CampaignRule => ({
   body,
   is_verified: true,
   sort_order: 1,
+  updated_at: '2026-09-01T00:00:00.000Z',
 })
 
 describe('the ChatGPT block', () => {

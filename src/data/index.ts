@@ -25,6 +25,7 @@ export {
 } from './defaults'
 export { SESSION_TARGET_PHASE, chainFor, nextPhase, previousPhase } from './phases'
 export { WARMUP_SESSIONS_REQUIRED, needsWarmup, warmupCompletions } from './warmup'
+export { PULL_CURSOR_COLUMN } from './sync'
 export * from './schema'
 
 import type { DataAdapter } from './DataAdapter'

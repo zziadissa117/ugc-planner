@@ -10,6 +10,9 @@ type Status =
   | { kind: 'ok'; message: string }
   | { kind: 'error'; message: string }
 
+type Todo = { id: string; text: string; done: boolean }
+const TODO_KEY = 'ugc-planner.studio-todos'
+
 /** Export and import of all state as JSON.
  *
  *  Deliberately a textarea and a copy button rather than a file download:
@@ -83,6 +86,8 @@ export function Settings() {
 
       <Account />
 
+      <TodoList />
+
       <div>
         <h2 className="text-lg font-semibold text-text">Backup</h2>
         <p className="mt-1 text-state-later">
@@ -139,6 +144,77 @@ export function Settings() {
       </p>
     </section>
   )
+}
+
+/** A deliberately small device-local scratchpad: useful on set, but never
+ * mixed into campaign obligations or the syncable production record. */
+function TodoList() {
+  const [todos, setTodos] = useState<Todo[]>(() => readTodos())
+  const [draft, setDraft] = useState('')
+
+  useEffect(() => {
+    localStorage.setItem(TODO_KEY, JSON.stringify(todos))
+  }, [todos])
+
+  const add = () => {
+    const text = draft.trim()
+    if (!text) return
+    setTodos((current) => [...current, { id: crypto.randomUUID(), text, done: false }])
+    setDraft('')
+  }
+
+  const remaining = todos.filter((todo) => !todo.done).length
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-edge bg-surface shadow-[0_12px_36px_rgba(0,0,0,0.18)]">
+      <div className="flex items-center justify-between border-b border-edge bg-surface-raised px-4 py-3">
+        <div>
+          <h2 className="font-semibold text-text">Studio list</h2>
+          <p className="text-xs text-text-dim">
+            {remaining === 0 ? 'Clear runway.' : `${remaining} thing${remaining === 1 ? '' : 's'} left`}
+          </p>
+        </div>
+        <span className="rounded-full border border-state-waiting/30 bg-state-waiting/10 px-2.5 py-1 text-xs font-semibold text-state-waiting">
+          {todos.length}
+        </span>
+      </div>
+
+      <div className="p-3">
+        {todos.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-edge px-3 py-5 text-center text-sm text-text-dim">
+            Add the next small thing and get it out of your head.
+          </p>
+        ) : (
+          <ul className="space-y-1">
+            {todos.map((todo) => (
+              <li key={todo.id} className="group flex min-h-11 items-center gap-3 rounded-xl px-2 py-1.5 active:bg-surface-raised">
+                <button type="button" aria-label={`Mark ${todo.text} ${todo.done ? 'incomplete' : 'complete'}`} onClick={() => setTodos((current) => current.map((item) => item.id === todo.id ? { ...item, done: !item.done } : item))} className={`flex size-5 shrink-0 items-center justify-center rounded-full border ${todo.done ? 'border-state-posted bg-state-posted text-ink' : 'border-text-dim'}`}>
+                  {todo.done ? '✓' : null}
+                </button>
+                <span className={`min-w-0 flex-1 text-sm ${todo.done ? 'text-text-dim line-through' : 'text-text'}`}>{todo.text}</span>
+                <button type="button" aria-label={`Remove ${todo.text}`} onClick={() => setTodos((current) => current.filter((item) => item.id !== todo.id))} className="rounded-lg px-2 py-1 text-text-dim active:bg-ink active:text-text">×</button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="mt-3 flex gap-2 border-t border-edge pt-3">
+          <input value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') add() }} placeholder="e.g. Charge the phone rig" className="min-h-tap min-w-0 flex-1 rounded-xl border border-edge bg-ink px-3 text-sm text-text placeholder:text-text-dim" />
+          <button type="button" onClick={add} disabled={!draft.trim()} className="min-h-tap rounded-xl bg-state-now px-4 text-sm font-bold text-ink disabled:bg-surface-raised disabled:text-text-dim">Add</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function readTodos(): Todo[] {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(TODO_KEY) ?? '[]')
+    return Array.isArray(value)
+      ? value.filter((item): item is Todo => typeof item === 'object' && item !== null && typeof item.id === 'string' && typeof item.text === 'string' && typeof item.done === 'boolean')
+      : []
+  } catch {
+    return []
+  }
 }
 
 function describe(error: unknown): string {

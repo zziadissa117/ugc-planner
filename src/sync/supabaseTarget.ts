@@ -7,7 +7,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-import { MIRRORED_TABLE_NAMES, type PendingWrite, type TableName } from '../data'
+import { MIRRORED_TABLE_NAMES, PULL_CURSOR_COLUMN, type PendingWrite, type TableName } from '../data'
 import type { PushOutcome, RemoteChange, SyncTarget } from './types'
 
 /** Postgres error codes worth telling apart.
@@ -80,10 +80,7 @@ export class SupabaseSyncTarget implements SyncTarget {
     const changes: RemoteChange[] = []
 
     for (const table of MIRRORED_TABLE_NAMES) {
-      // Tables without updated_at are append-only or immutable; they are
-      // walked by their own time column instead.
-      const column =
-        table === 'phase_events' || table === 'warmup_events' ? 'occurred_at' : 'updated_at'
+      const column = PULL_CURSOR_COLUMN[table]
       let query = this.client.from(table).select('*')
       if (since !== null) query = query.gt(column, since)
 

@@ -10,6 +10,10 @@ create type setup_type as enum ('face', 'screen', 'phone', 'notalk');
 
 create type session_type as enum ('film', 'edit', 'post', 'warm_up');
 
+create type account_status as enum ('new', 'warming', 'ready');
+
+create type hook_source as enum ('generated', 'user_entered');
+
 -- The phase chain. Not every campaign uses every phase; the campaign's
 -- approval_mode decides which links are in its chain.
 create type video_phase as enum (
@@ -63,7 +67,8 @@ create table campaigns (
   approval_mode     approval_mode not null default 'none',
   default_setup     setup_type,
 
-  -- Quota of POSTED videos owed per day. 0 means no fixed quota.
+  -- Legacy quota. Superseded by campaign_accounts.posts_per_day; retained
+  -- temporarily so existing local installs can upgrade without data loss.
   daily_post_quota  integer not null default 0 check (daily_post_quota >= 0),
 
   -- Pay cycle. Null cycle_size means paid per post with no cycle.
@@ -81,6 +86,26 @@ create table campaigns (
 );
 
 create index on campaigns (user_id) where is_active;
+
+-- Where this campaign actually posts. A video may be cross-posted to each
+-- ready account, but is still one contractual deliverable.
+create table campaign_accounts (
+  id            uuid primary key default gen_random_uuid(),
+  user_id       uuid not null references auth.users(id) on delete cascade,
+  campaign_id   uuid not null references campaigns(id) on delete cascade,
+  platform      text not null,
+  handle        text,
+  posts_per_day integer not null default 0 check (posts_per_day >= 0),
+  status        account_status not null default 'new',
+  is_active     boolean not null default true,
+  sort_order    integer not null default 0,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  unique (campaign_id, platform)
+);
+
+create index on campaign_accounts (campaign_id);
+create index on campaign_accounts (user_id, status);
 
 -- Raw uploaded documents. Kept forever so the brief page renders the real thing.
 create table campaign_documents (
@@ -139,10 +164,34 @@ create table campaign_angles (
   body         text,
   family       text,                    -- e.g. 'fear' / 'greed'
   is_verified  boolean not null default false,
-  sort_order   integer not null default 0
+  sort_order   integer not null default 0,
+  updated_at   timestamptz not null default now()
 );
 
 create index on campaign_angles (campaign_id);
+
+-- A usable opening and optional beats. Unlike campaign_fields, this is
+-- authored text and carries who/what generated it rather than a source quote.
+create table campaign_hooks (
+  id            uuid primary key default gen_random_uuid(),
+  user_id       uuid not null references auth.users(id) on delete cascade,
+  campaign_id   uuid not null references campaigns(id) on delete cascade,
+  angle_id      uuid references campaign_angles(id) on delete set null,
+  body          text not null,
+  outline       text,
+  source        hook_source not null,
+  model         text,
+  generated_at  timestamptz,
+  used_at       timestamptz,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  constraint generated_names_its_model
+    check (source <> 'generated' or (model is not null and generated_at is not null)),
+  constraint user_entered_has_no_model
+    check (source <> 'user_entered' or (model is null and generated_at is null))
+);
+
+create index on campaign_hooks (campaign_id, used_at);
 
 -- The never-do list. Rendered in red.
 create table campaign_rules (
@@ -151,7 +200,8 @@ create table campaign_rules (
   campaign_id  uuid not null references campaigns(id) on delete cascade,
   body         text not null,
   is_verified  boolean not null default false,
-  sort_order   integer not null default 0
+  sort_order   integer not null default 0,
+  updated_at   timestamptz not null default now()
 );
 
 create index on campaign_rules (campaign_id);
@@ -220,13 +270,16 @@ create table video_posts (
   id          uuid primary key default gen_random_uuid(),
   user_id     uuid not null references auth.users(id) on delete cascade,
   video_id    uuid not null references videos(id) on delete cascade,
+  account_id  uuid default null references campaign_accounts(id) on delete set null,
   platform    text not null,
   url         text,
   posted_at   timestamptz not null default now(),
   view_count  integer check (view_count >= 0),
   view_count_entered_at timestamptz,
+  updated_at  timestamptz not null default now(),
 
-  unique (video_id, platform)
+  unique (video_id, platform),
+  unique (video_id, account_id)
 );
 
 create index on video_posts (video_id);
@@ -244,6 +297,7 @@ create table phase_events (
   from_phase   video_phase,
   to_phase     video_phase not null,
   session      session_type,
+  work_session_id uuid default null,
   occurred_at  timestamptz not null default now(),
   -- Wall-clock seconds spent in the previous phase, when measurable.
   duration_seconds integer check (duration_seconds >= 0),
@@ -266,6 +320,29 @@ create table phase_events (
 create index on phase_events (video_id, occurred_at);
 create index on phase_events (user_id, to_phase, occurred_at);
 
+-- One deliberate sitting. Progress is derived from phase_events, never
+-- cached here, so it cannot drift away from the history that explains it.
+create table work_sessions (
+  id              uuid primary key default gen_random_uuid(),
+  user_id         uuid not null references auth.users(id) on delete cascade,
+  campaign_id     uuid not null references campaigns(id) on delete cascade,
+  kind            session_type not null,
+  goal_videos     integer not null check (goal_videos > 0),
+  planned_minutes integer not null check (planned_minutes > 0),
+  started_at      timestamptz not null default now(),
+  ended_at        timestamptz,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now(),
+  constraint ends_after_it_starts check (ended_at is null or ended_at >= started_at)
+);
+
+alter table phase_events
+  add constraint phase_events_work_session_id_fkey
+  foreign key (work_session_id) references work_sessions(id) on delete set null;
+
+create index on work_sessions (campaign_id, started_at);
+create index on work_sessions (user_id, started_at);
+
 -- Every completed account warm-up session. Append-only, same reasoning as
 -- phase_events: "warmed up twice" is a count taken from this log at query
 -- time, never a mutable number on the campaign row, so it cannot be nudged
@@ -274,6 +351,7 @@ create table warmup_events (
   id           bigserial primary key,
   user_id      uuid not null references auth.users(id) on delete cascade,
   campaign_id  uuid not null references campaigns(id) on delete cascade,
+  account_id   uuid default null references campaign_accounts(id) on delete cascade,
   -- How long this warm-up session ran. The session window he chose, not a guess.
   minutes      integer not null check (minutes > 0),
   occurred_at  timestamptz not null default now(),
@@ -286,6 +364,7 @@ create table warmup_events (
 );
 
 create index on warmup_events (campaign_id, occurred_at);
+create index on warmup_events (account_id, occurred_at);
 
 -- ---------------------------------------------------------------------------
 -- Money. Three numbers that must never be summed.
@@ -300,6 +379,7 @@ create table bonus_tiers (
   payout_cents  integer not null check (payout_cents >= 0),
   -- Views only count within this many days of upload, per contract.
   view_window_days integer,
+  updated_at    timestamptz not null default now(),
 
   unique (campaign_id, threshold_views)
 );
@@ -318,6 +398,7 @@ create table bonus_claims (
   -- USER ENTERED: only what was actually logged as received.
   received_cents integer check (received_cents >= 0),
   received_at    timestamptz,
+  updated_at    timestamptz not null default now(),
 
   unique (video_id, bonus_tier_id),
   constraint received_needs_date
@@ -339,6 +420,7 @@ create table time_estimates (
   film_minutes  integer not null check (film_minutes > 0),
   edit_minutes  integer not null check (edit_minutes > 0),
   post_minutes  integer not null check (post_minutes > 0),
+  updated_at    timestamptz not null default now(),
 
   unique (user_id, setup)
 );
@@ -358,13 +440,16 @@ create table user_settings (
 -- ---------------------------------------------------------------------------
 
 alter table campaigns          enable row level security;
+alter table campaign_accounts  enable row level security;
 alter table campaign_documents enable row level security;
 alter table campaign_fields    enable row level security;
 alter table campaign_angles    enable row level security;
+alter table campaign_hooks     enable row level security;
 alter table campaign_rules     enable row level security;
 alter table videos             enable row level security;
 alter table video_posts        enable row level security;
 alter table phase_events       enable row level security;
+alter table work_sessions      enable row level security;
 alter table warmup_events      enable row level security;
 alter table bonus_tiers        enable row level security;
 alter table bonus_claims       enable row level security;
@@ -375,9 +460,9 @@ do $$
 declare t text;
 begin
   foreach t in array array[
-    'campaigns','campaign_documents','campaign_fields','campaign_angles',
+    'campaigns','campaign_accounts','campaign_documents','campaign_fields','campaign_angles','campaign_hooks',
     'campaign_rules','videos','video_posts','bonus_tiers','bonus_claims',
-    'time_estimates'
+    'time_estimates','work_sessions'
   ]
   loop
     execute format(

@@ -15,7 +15,11 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { useData } from '../data/useData'
 import { AuthContext, type AuthControls } from './AuthContext'
 import { claimLocalRows } from './claim'
+import { drainOutbox, pullChanges } from './engine'
 import { getSupabaseClient, signIn, signOut as signOutRemote } from './auth'
+import { SupabaseSyncTarget } from './supabaseTarget'
+
+const SYNC_CURSOR_KEY = 'ugc-planner.sync_cursor'
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const data = useData()
@@ -24,6 +28,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [email, setEmail] = useState<string | null>(null)
   const [requestStatus, setRequestStatus] = useState<AuthControls['requestStatus']>('idle')
   const [requestError, setRequestError] = useState<string | null>(null)
+
+  // Sync is intentionally owned by the app root: UI writes stay local-first,
+  // while this small loop drains the outbox after sign-in, on reconnect, and
+  // periodically while the app is open.
+  useEffect(() => {
+    // Lightweight auth mocks in UI tests do not expose the database client;
+    // production Supabase clients always do.
+    if (!client || typeof client.from !== 'function') return
+    const target = new SupabaseSyncTarget(client)
+    let running = false
+    const run = async () => {
+      if (running || !navigator.onLine) return
+      const { data: { session } } = await client.auth.getSession()
+      if (!session?.user.id) return
+      running = true
+      try {
+        await claimLocalRows(data, { getAuthState: async () => ({ userId: session.user.id }) })
+        await drainOutbox(data, target)
+        const pulled = await pullChanges(data, target, localStorage.getItem(SYNC_CURSOR_KEY))
+        if (pulled.serverTime) localStorage.setItem(SYNC_CURSOR_KEY, pulled.serverTime)
+      } finally {
+        running = false
+      }
+    }
+    void run()
+    const timer = window.setInterval(() => void run(), 30_000)
+    window.addEventListener('online', run)
+    return () => { window.clearInterval(timer); window.removeEventListener('online', run) }
+  }, [client, data])
 
   useEffect(() => {
     if (!client) return

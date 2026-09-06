@@ -62,9 +62,11 @@ describe('docs/schema.sql', () => {
     expect(tables.rows.map((r) => r.table_name)).toEqual([
       'bonus_claims',
       'bonus_tiers',
+      'campaign_accounts',
       'campaign_angles',
       'campaign_documents',
       'campaign_fields',
+      'campaign_hooks',
       'campaign_rules',
       'campaigns',
       'phase_events',
@@ -73,6 +75,7 @@ describe('docs/schema.sql', () => {
       'video_posts',
       'videos',
       'warmup_events',
+      'work_sessions',
     ])
   })
 
@@ -81,9 +84,11 @@ describe('docs/schema.sql', () => {
       `select typname from pg_type where typtype = 'e' order by typname`,
     )
     expect(types.rows.map((r) => r.typname)).toEqual([
+      'account_status',
       'approval_mode',
       'document_kind',
       'field_source',
+      'hook_source',
       'session_type',
       'setup_type',
       'video_kind',
@@ -91,13 +96,13 @@ describe('docs/schema.sql', () => {
     ])
   })
 
-  it('enables row level security on all thirteen tables', async () => {
+  it('enables row level security on all mirrored tables', async () => {
     const rls = await db.query<{ relname: string }>(
       `select c.relname from pg_class c
        join pg_namespace n on n.oid = c.relnamespace
        where n.nspname = 'public' and c.relkind = 'r' and c.relrowsecurity`,
     )
-    expect(rls.rows).toHaveLength(13)
+    expect(rls.rows).toHaveLength(16)
   })
 
   it.each(['phase_events', 'warmup_events'])(
@@ -289,7 +294,7 @@ describe('docs/migrations/0002_phase_events_client_id.sql', () => {
     // A database that only ran 0001 has none of it - table, index, RLS or
     // policies - so all four are stripped the same way.
     return withoutColumn
-      .replace(/\r?\n-- Every completed account warm-up session\.[\s\S]*?create index on warmup_events \(campaign_id, occurred_at\);\r?\n/, '\n')
+      .replace(/\r?\n-- Every completed account warm-up session\.[\s\S]*?create index on warmup_events \(account_id, occurred_at\);\r?\n/, '\n')
       .replace(/\r?\nalter table warmup_events\s+enable row level security;/, '')
       .replace(/\r?\n-- warmup_events is append-only in exactly the same way\.[\s\S]*?create policy warmup_events_append on warmup_events for insert to authenticated\r?\n  with check \(user_id = \(select auth\.uid\(\)\)\);(?:\r?\n)?/, '\n')
   })()

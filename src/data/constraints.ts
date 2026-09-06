@@ -25,7 +25,9 @@ import {
   type BonusClaim,
   type BonusTier,
   type Campaign,
+  type CampaignAccount,
   type CampaignAngle,
+  type CampaignHook,
   type CampaignDocument,
   type CampaignField,
   type CampaignRule,
@@ -36,6 +38,7 @@ import {
   type Video,
   type VideoPost,
   type WarmupEvent,
+  type WorkSession,
 } from './schema'
 
 /** A row that Postgres would have rejected. Carries the constraint name from
@@ -240,6 +243,19 @@ export function assertCampaignAngle(row: CampaignAngle): void {
   integer(t, 'sort_order', row.sort_order, { nullable: false })
 }
 
+export function assertCampaignAccount(row: CampaignAccount): void {
+  const t: TableName = 'campaign_accounts'
+  text(t, 'id', row.id, { nullable: false }); text(t, 'user_id', row.user_id, { nullable: false }); text(t, 'campaign_id', row.campaign_id, { nullable: false }); text(t, 'platform', row.platform, { nullable: false }); text(t, 'handle', row.handle, { nullable: true })
+  integer(t, 'posts_per_day', row.posts_per_day, { min: 0, nullable: false }); isEnum(t, 'status', row.status, ['new', 'warming', 'ready'], false); boolean(t, 'is_active', row.is_active); integer(t, 'sort_order', row.sort_order, { nullable: false }); timestamp(t, 'created_at', row.created_at, { nullable: false }); timestamp(t, 'updated_at', row.updated_at, { nullable: false })
+}
+
+export function assertCampaignHook(row: CampaignHook): void {
+  const t: TableName = 'campaign_hooks'
+  text(t, 'id', row.id, { nullable: false }); text(t, 'user_id', row.user_id, { nullable: false }); text(t, 'campaign_id', row.campaign_id, { nullable: false }); text(t, 'angle_id', row.angle_id, { nullable: true }); text(t, 'body', row.body, { nullable: false }); text(t, 'outline', row.outline, { nullable: true }); isEnum(t, 'source', row.source, ['generated', 'user_entered'], false); text(t, 'model', row.model, { nullable: true }); timestamp(t, 'generated_at', row.generated_at, { nullable: true }); timestamp(t, 'used_at', row.used_at, { nullable: true }); timestamp(t, 'created_at', row.created_at, { nullable: false }); timestamp(t, 'updated_at', row.updated_at, { nullable: false })
+  if (row.source === 'generated' && (row.model === null || row.generated_at === null)) fail(t, 'generated_names_its_model', 'a generated hook needs a model and time')
+  if (row.source === 'user_entered' && (row.model !== null || row.generated_at !== null)) fail(t, 'user_entered_has_no_model', 'a user-entered hook cannot name a model')
+}
+
 export function assertCampaignRule(row: CampaignRule): void {
   const t: TableName = 'campaign_rules'
   text(t, 'id', row.id, { nullable: false })
@@ -284,11 +300,13 @@ export function assertVideoPost(row: VideoPost): void {
   text(t, 'id', row.id, { nullable: false })
   text(t, 'user_id', row.user_id, { nullable: false })
   text(t, 'video_id', row.video_id, { nullable: false })
+  text(t, 'account_id', row.account_id, { nullable: true })
   text(t, 'platform', row.platform, { nullable: false })
   text(t, 'url', row.url, { nullable: true })
   timestamp(t, 'posted_at', row.posted_at, { nullable: false })
   integer(t, 'view_count', row.view_count, { min: 0, nullable: true })
   timestamp(t, 'view_count_entered_at', row.view_count_entered_at, { nullable: true })
+  timestamp(t, 'updated_at', row.updated_at, { nullable: false })
 }
 
 export function assertPhaseEvent(row: PhaseEvent): void {
@@ -299,6 +317,7 @@ export function assertPhaseEvent(row: PhaseEvent): void {
   isEnum(t, 'from_phase', row.from_phase, VIDEO_PHASE_VALUES, true)
   isEnum(t, 'to_phase', row.to_phase, VIDEO_PHASE_VALUES, false)
   isEnum(t, 'session', row.session, SESSION_TYPE_VALUES, true)
+  text(t, 'work_session_id', row.work_session_id, { nullable: true })
   timestamp(t, 'occurred_at', row.occurred_at, { nullable: false })
   integer(t, 'duration_seconds', row.duration_seconds, { min: 0, nullable: true })
 }
@@ -308,9 +327,16 @@ export function assertWarmupEvent(row: WarmupEvent): void {
   integer(t, 'id', row.id, { min: 1, nullable: false })
   text(t, 'user_id', row.user_id, { nullable: false })
   text(t, 'campaign_id', row.campaign_id, { nullable: false })
+  text(t, 'account_id', row.account_id, { nullable: true })
   integer(t, 'minutes', row.minutes, { exclusiveMin: 0, nullable: false })
   timestamp(t, 'occurred_at', row.occurred_at, { nullable: false })
   text(t, 'client_id', row.client_id, { nullable: false })
+}
+
+export function assertWorkSession(row: WorkSession): void {
+  const t: TableName = 'work_sessions'
+  text(t, 'id', row.id, { nullable: false }); text(t, 'user_id', row.user_id, { nullable: false }); text(t, 'campaign_id', row.campaign_id, { nullable: false }); isEnum(t, 'kind', row.kind, SESSION_TYPE_VALUES, false); integer(t, 'goal_videos', row.goal_videos, { exclusiveMin: 0, nullable: false }); integer(t, 'planned_minutes', row.planned_minutes, { exclusiveMin: 0, nullable: false }); timestamp(t, 'started_at', row.started_at, { nullable: false }); timestamp(t, 'ended_at', row.ended_at, { nullable: true }); timestamp(t, 'created_at', row.created_at, { nullable: false }); timestamp(t, 'updated_at', row.updated_at, { nullable: false })
+  if (row.ended_at !== null && Date.parse(row.ended_at) < Date.parse(row.started_at)) fail(t, 'ends_after_it_starts', 'ended_at must not be before started_at')
 }
 
 export function assertBonusTier(row: BonusTier): void {
@@ -378,13 +404,16 @@ export function assertUserSettings(row: UserSettings): void {
  *  JSON and must not trust a single field of it. */
 const VALIDATORS = {
   campaigns: assertCampaign,
+  campaign_accounts: assertCampaignAccount,
   campaign_documents: assertCampaignDocument,
   campaign_fields: assertCampaignField,
   campaign_angles: assertCampaignAngle,
+  campaign_hooks: assertCampaignHook,
   campaign_rules: assertCampaignRule,
   videos: assertVideo,
   video_posts: assertVideoPost,
   phase_events: assertPhaseEvent,
+  work_sessions: assertWorkSession,
   warmup_events: assertWarmupEvent,
   bonus_tiers: assertBonusTier,
   bonus_claims: assertBonusClaim,

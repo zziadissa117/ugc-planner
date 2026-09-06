@@ -58,6 +58,7 @@ const tier = (payoutCents: number, id = 't1'): BonusTier => ({
   threshold_views: 50_000,
   payout_cents: payoutCents,
   view_window_days: 30,
+  updated_at: '2026-09-01T00:00:00.000Z',
 })
 
 const claim = (
@@ -72,6 +73,7 @@ const claim = (
   probability: 0,
   received_cents: null,
   received_at: null,
+  updated_at: '2026-09-01T00:00:00.000Z',
   ...overrides,
 })
 

@@ -182,13 +182,16 @@ function toPascal(snake) {
  *  campaign_fields -> CampaignField, user_settings -> UserSettings. */
 const ROW_TYPE_NAMES = {
   campaigns: 'Campaign',
+  campaign_accounts: 'CampaignAccount',
   campaign_documents: 'CampaignDocument',
   campaign_fields: 'CampaignField',
   campaign_angles: 'CampaignAngle',
+  campaign_hooks: 'CampaignHook',
   campaign_rules: 'CampaignRule',
   videos: 'Video',
   video_posts: 'VideoPost',
   phase_events: 'PhaseEvent',
+  work_sessions: 'WorkSession',
   warmup_events: 'WarmupEvent',
   bonus_tiers: 'BonusTier',
   bonus_claims: 'BonusClaim',

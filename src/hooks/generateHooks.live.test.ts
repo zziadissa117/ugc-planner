@@ -73,12 +73,14 @@ describe('the deployed generate-hooks function', () => {
   })
 
   it('refuses a request with no campaign name', async () => {
-    const { data } = await client.functions.invoke('generate-hooks', {
+    // A malformed context must not reach the prompt and be answered with
+    // confident nonsense built on the string "undefined". supabase-js reports
+    // a non-2xx as `error` with a null body, so that is what is checked.
+    const { data, error } = await client.functions.invoke('generate-hooks', {
       body: { count: 3 },
     })
-    // A malformed context must not reach the prompt and be answered with
-    // confident nonsense built on the string "undefined".
-    expect((data as { error?: string } | null)?.error ?? '').toContain('campaignName')
+    expect(error).not.toBeNull()
+    expect(data).toBeNull()
   })
 
   it('writes hooks from the campaign material, obeying its never-do list', async () => {

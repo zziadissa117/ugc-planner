@@ -314,3 +314,48 @@ describe('how you make it', () => {
     })
   })
 })
+
+describe('hooks', () => {
+  it('saves a hook he typed, marked as his and not a model\u2019s', async () => {
+    const user = userEvent.setup()
+    await renderBrief()
+
+    await user.type(
+      screen.getByLabelText('New hook'),
+      'Your account froze the month you finally had a good month.',
+    )
+    await user.click(screen.getByRole('button', { name: 'Add hook' }))
+
+    await waitFor(async () => {
+      const hooks = await adapter.listCampaignHooks(INFLOW_CAMPAIGN_ID)
+      expect(hooks).toHaveLength(1)
+      expect(hooks[0].body).toBe('Your account froze the month you finally had a good month.')
+      // The constraint that keeps the two apart: a hook he wrote cannot claim
+      // a model produced it.
+      expect(hooks[0].source).toBe('user_entered')
+      expect(hooks[0].model).toBeNull()
+    })
+  })
+
+  it('ties a hook to an angle, so the family is visible while filming', async () => {
+    const user = userEvent.setup()
+    await renderBrief()
+
+    await user.type(screen.getByLabelText('New hook'), 'The sale clears in 3 seconds.')
+    await user.selectOptions(
+      screen.getByLabelText('Angle'),
+      screen.getByRole('option', { name: 'B. Waiting for your own money' }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Add hook' }))
+
+    await waitFor(async () => {
+      const [hook] = await adapter.listCampaignHooks(INFLOW_CAMPAIGN_ID)
+      expect(hook.angle_id).not.toBeNull()
+    })
+    // The hook line carries the angle and its family, so alternating FEAR and
+    // GREED is visible while filming rather than something to remember.
+    expect(
+      await screen.findByText(/B\. Waiting for your own money - fear - you wrote this/i),
+    ).toBeInTheDocument()
+  })
+})

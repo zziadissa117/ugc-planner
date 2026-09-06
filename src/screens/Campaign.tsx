@@ -8,6 +8,7 @@ import type {
   Campaign as CampaignRow,
   CampaignAngle,
   CampaignField,
+  CampaignHook,
   CampaignRule,
   SetupType,
 } from '../data'
@@ -183,6 +184,8 @@ export function Campaign() {
           />
         </div>
       </div>
+
+      <HooksEditor campaignId={campaign.id} angles={angles} />
 
       <div>
         <h2 className="text-lg font-semibold text-text">Pay</h2>
@@ -462,6 +465,115 @@ function LoginBox({
           }
         />
       ))}
+    </div>
+  )
+}
+
+/** The hooks he works down in a FILM session.
+ *
+ *  Kept here rather than in campaign_fields: a field is a claim about a
+ *  document and carries a quote that can be checked against it, and a hook is
+ *  invented text that no document contains. What matters instead is who wrote
+ *  it, which is what `source` records - so a line he typed can never be
+ *  mistaken later for one a model produced. */
+function HooksEditor({ campaignId, angles }: { campaignId: string; angles: CampaignAngle[] }) {
+  const data = useData()
+  const [hooks, setHooks] = useState<CampaignHook[]>([])
+  const [body, setBody] = useState("")
+  const [angleId, setAngleId] = useState("")
+  const [busy, setBusy] = useState(false)
+
+  const reload = useCallback(async () => {
+    setHooks(await data.listCampaignHooks(campaignId))
+  }, [campaignId, data])
+
+  useEffect(() => {
+    void reload()
+  }, [reload])
+
+  async function add() {
+    if (body.trim() === "") return
+    setBusy(true)
+    try {
+      await data.addCampaignHook({
+        campaign_id: campaignId,
+        angle_id: angleId === "" ? null : angleId,
+        body: body.trim(),
+        outline: null,
+        // His words. A model never wrote this, so it must not claim one did.
+        source: "user_entered",
+        model: null,
+        generated_at: null,
+        used_at: null,
+      })
+      setBody("")
+      await reload()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const anglesById = new Map(angles.map((a) => [a.id, a]))
+
+  return (
+    <div>
+      <h2 className="text-lg font-semibold text-text">Hooks</h2>
+      <p className="mt-1 text-sm text-state-later">
+        The openers you work down while filming. Nothing is written for you here.
+      </p>
+
+      {hooks.length > 0 ? (
+        <ul className="mt-3 flex flex-col gap-2">
+          {hooks.map((hook) => {
+            const angle = hook.angle_id === null ? undefined : anglesById.get(hook.angle_id)
+            return (
+              <li key={hook.id} className="rounded-lg border border-edge bg-surface px-3 py-2">
+                <p className={hook.used_at === null ? "text-text" : "text-state-later line-through"}>
+                  {hook.body}
+                </p>
+                <p className="text-xs uppercase tracking-wide text-state-later">
+                  {angle ? angle.label : "no angle"}
+                  {angle?.family ? " - " + angle.family : ""}
+                  {hook.source === "generated" ? " - generated" : " - you wrote this"}
+                </p>
+              </li>
+            )
+          })}
+        </ul>
+      ) : null}
+
+      <div className="mt-3 flex flex-col gap-2">
+        <textarea
+          value={body}
+          onChange={(event) => setBody(event.target.value)}
+          aria-label="New hook"
+          placeholder="Type a hook."
+          className="h-20 w-full resize-y rounded-lg border border-edge bg-surface p-3 text-text placeholder:text-state-later"
+        />
+        {angles.length > 0 ? (
+          <select
+            value={angleId}
+            onChange={(event) => setAngleId(event.target.value)}
+            aria-label="Angle"
+            className="min-h-tap rounded-lg border border-edge bg-surface px-3 text-text"
+          >
+            <option value="">No angle</option>
+            {angles.map((angle) => (
+              <option key={angle.id} value={angle.id}>
+                {angle.label}
+              </option>
+            ))}
+          </select>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => void add()}
+          disabled={busy || body.trim() === ""}
+          className="min-h-tap rounded-lg border border-edge bg-surface px-4 font-semibold text-text active:bg-surface-raised disabled:text-state-later"
+        >
+          Add hook
+        </button>
+      </div>
     </div>
   )
 }

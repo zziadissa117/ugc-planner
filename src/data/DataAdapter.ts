@@ -299,6 +299,22 @@ export interface DataAdapter {
    *  Pending outbox entries are rewritten too. They were queued under the old
    *  id and would be refused on arrival otherwise. */
   claimRowsForUser(userId: string): Promise<ClaimResult>
+
+  /** Queues every local row the server may not have, and returns how many.
+   *
+   *  The outbox only ever held what was enqueued at the moment of the write,
+   *  and two things were never enqueued: rows written before a write path
+   *  learned to queue them, and rows created inside a Dexie upgrade, which
+   *  writes to the store directly and so bypasses the queue entirely.
+   *
+   *  claimRowsForUser sweeps everything, but only while actually claiming -
+   *  it returns early once the rows already belong to the account - so after
+   *  the first sign-in there was no path that could ever carry that history
+   *  to the server. This is that path.
+   *
+   *  Safe to run more than once: mutable tables upsert, and append-only
+   *  tables are deduplicated by client_id on arrival. */
+  backfillOutbox(): Promise<number>
 }
 
 export interface ClaimResult {

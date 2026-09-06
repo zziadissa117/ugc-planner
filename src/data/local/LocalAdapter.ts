@@ -1111,6 +1111,39 @@ export class LocalAdapter implements DataAdapter {
     return this.userId
   }
 
+  async backfillOutbox(): Promise<number> {
+    let queued = 0
+
+    await this.tx(
+      [...MIRRORED_TABLES.map((t) => this.db.table(t)), this.db._outbox],
+      async (tx) => {
+        for (const table of MIRRORED_TABLES) {
+          const rows = (await tx.table(table).toArray()) as {
+            user_id: string
+            id?: string | number
+          }[]
+
+          for (const row of rows) {
+            // Another account's rows are not this device's to push.
+            if (row.user_id !== this.userId) continue
+
+            // Append-only tables insert and are deduplicated by client_id;
+            // everything else upserts, so an update carries a row the server
+            // has never seen just as well as one it has.
+            const op =
+              table === 'phase_events' || table === 'warmup_events' ? 'insert' : 'update'
+            const rowId = table === 'user_settings' ? this.userId : String(row.id ?? '')
+
+            this.enqueue(tx, table, rowId, op, row)
+            queued++
+          }
+        }
+      },
+    )
+
+    return queued
+  }
+
   async claimRowsForUser(userId: string): Promise<ClaimResult> {
     const previousUserId = this.userId
     if (previousUserId === userId) {

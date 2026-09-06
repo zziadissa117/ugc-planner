@@ -361,3 +361,59 @@ describe('pulling', () => {
     expect(await adapter.listVideos()).toEqual([])
   })
 })
+
+// The outbox only ever held what was enqueued at the moment of the write. Two
+// kinds of row were never in it: history written before the write paths
+// enqueued it, and rows a Dexie upgrade wrote straight to the store. Nothing
+// could carry either to the server, because claimRowsForUser sweeps only while
+// it is actually claiming and returns early once the rows already belong to the
+// account. This is the path that rescues them.
+describe('backfilling the outbox', () => {
+  it('queues rows the outbox never saw, so stranded history can still sync', async () => {
+    const campaign = await makeCampaign()
+    const video = await adapter.createVideo({
+      campaign_id: campaign.id,
+      setup: 'face',
+      angle_id: null,
+      script: null,
+      blocked_reason: null,
+      owed_for_date: null,
+      rate_snapshot_cents: null,
+      posted_at: null,
+    })
+
+    // Drain everything, so the queue is empty and the server is up to date.
+    await drainOutbox(adapter, fakeTarget(() => ({ status: 'applied' })), { batchSize: 1000 })
+    expect(await adapter.listPendingWrites()).toHaveLength(0)
+
+    const queued = await adapter.backfillOutbox()
+    const tables = (await adapter.listPendingWrites()).map((w) => w.table_name)
+
+    expect(queued).toBeGreaterThan(0)
+    // The campaign, the video and the opening phase_event are all queued again.
+    expect(tables).toContain('campaigns')
+    expect(tables).toContain('videos')
+    expect(tables).toContain('phase_events')
+    expect(tables.filter((t) => t === 'videos')).toHaveLength(1)
+    void video
+  })
+
+  it('is safe to run twice - the server deduplicates what it already has', async () => {
+    await makeCampaign()
+    await adapter.backfillOutbox()
+    const first = (await adapter.listPendingWrites()).length
+
+    await adapter.backfillOutbox()
+    const second = (await adapter.listPendingWrites()).length
+
+    // It queues again rather than tracking what it sent: append-only rows are
+    // deduplicated by client_id on arrival and everything else upserts, so a
+    // repeat is wasted bytes rather than a duplicate row.
+    expect(second).toBeGreaterThan(first)
+
+    const report = await drainOutbox(adapter, fakeTarget(() => ({ status: 'applied' })), {
+      batchSize: 1000,
+    })
+    expect(report.rejected).toBe(0)
+  })
+})

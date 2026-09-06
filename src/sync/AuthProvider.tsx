@@ -21,6 +21,10 @@ import { SupabaseSyncTarget } from './supabaseTarget'
 
 const SYNC_CURSOR_KEY = 'ugc-planner.sync_cursor'
 
+/** Set once the device has queued the history it made before the outbox was
+ *  carrying everything. Client-side state, like the cursor above. */
+const OUTBOX_BACKFILL_KEY = 'ugc-planner.outbox_backfilled_at'
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const data = useData()
   const client = useMemo(() => getSupabaseClient(), [])
@@ -45,6 +49,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       running = true
       try {
         await claimLocalRows(data, { getAuthState: async () => ({ userId: session.user.id }) })
+
+        // Once per device: queue the rows that were written before every path
+        // enqueued, and the ones a Dexie upgrade wrote straight to the store.
+        // claimLocalRows above only sweeps while it is actually claiming, so
+        // without this there is no path that ever carries that history up.
+        if (!localStorage.getItem(OUTBOX_BACKFILL_KEY)) {
+          await data.backfillOutbox()
+          localStorage.setItem(OUTBOX_BACKFILL_KEY, new Date().toISOString())
+        }
+
         await drainOutbox(data, target)
         const pulled = await pullChanges(data, target, localStorage.getItem(SYNC_CURSOR_KEY))
         if (pulled.serverTime) localStorage.setItem(SYNC_CURSOR_KEY, pulled.serverTime)

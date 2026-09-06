@@ -39,8 +39,8 @@ const PAY_FIELD_KEYS = ['pay_per_video_cents', 'cycle_size']
  *  chosen rather than derived. */
 const ACCOUNT_LABELS: Record<string, string> = {
   platforms: 'Platform',
-  handle_tiktok: 'TikTok @',
-  handle_instagram: 'Instagram @',
+  handle_tiktok: '♪ TikTok',
+  handle_instagram: '▣ Instagram',
   account_email: 'Email',
   account_password: 'Password',
 }
@@ -136,9 +136,18 @@ export function Campaign() {
       <header>
         <h1 className="text-2xl font-semibold text-text">{campaign.name}</h1>
         <p className="text-state-later">{campaign.company ?? 'company not saved yet'}</p>
+        <div className="mt-3">
+          <IdentityStrip
+            fields={fields}
+            campaign={campaign}
+            campaignId={campaign.id}
+            onSave={saveField}
+            onConfirm={confirmField}
+          />
+        </div>
       </header>
 
-      <AccountBox fields={fields} campaignId={campaign.id} onSave={saveField} onConfirm={confirmField} />
+      <LoginBox fields={fields} campaignId={campaign.id} onSave={saveField} onConfirm={confirmField} />
 
       {campaign.brief_is_incomplete ? (
         <p className="rounded-lg border border-state-waiting/40 bg-state-waiting/10 px-4 py-3 text-state-waiting">
@@ -157,17 +166,6 @@ export function Campaign() {
       <div>
         <h2 className="text-lg font-semibold text-text">Pay</h2>
         <div className="mt-2 flex flex-col divide-y divide-edge">
-          <PayRow
-            fieldKey="pay_per_video_cents"
-            field={byKey.get('pay_per_video_cents')}
-            fallbackValue={
-              campaign.pay_per_video_cents === null
-                ? null
-                : `$${centsToDollarsInput(campaign.pay_per_video_cents)}`
-            }
-            onSave={saveField}
-            onConfirm={confirmField}
-          />
           <PayRow
             fieldKey="cycle_size"
             field={byKey.get('cycle_size')}
@@ -344,12 +342,75 @@ export function Campaign() {
   )
 }
 
-/** What account this campaign actually posts from, first and prominent -
- *  which platform, which @, which login. No document ever states a handle or
- *  a password (NEVER_PARSED_FIELDS), so every row here is his to fill in, and
- *  a campaign with no handle saved at all is flagged in the open rather than
- *  waiting to be noticed at post time, when the pipeline is what stalls. */
-function AccountBox({
+/** Platform, both handles and the pay figure, as one compact row right under
+ *  the title - the three facts he needs before he can post at all, read at a
+ *  glance instead of hunted through three separate sections. No document ever
+ *  states a handle (NEVER_PARSED_FIELDS), so these are his to fill in, and a
+ *  campaign with no handle saved at all is flagged in the open here rather
+ *  than waiting to be noticed at post time, when the pipeline is what stalls. */
+function IdentityStrip({
+  fields,
+  campaign,
+  campaignId,
+  onSave,
+  onConfirm,
+}: {
+  fields: CampaignField[]
+  campaign: CampaignRow
+  campaignId: string
+  onSave: (fieldKey: string, value: string | null) => Promise<void>
+  onConfirm: (fieldKey: string) => Promise<void>
+}) {
+  const byKey = new Map(fields.map((f) => [f.field_key, f]))
+  const needsHandle = !hasAccountHandle(fields)
+  const identityKeys = ['platforms', 'handle_tiktok', 'handle_instagram'] as const
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center gap-2">
+        {identityKeys.map((fieldKey) => (
+          <EditableField
+            key={fieldKey}
+            compact
+            field={byKey.get(fieldKey) ?? virtualField(campaignId, fieldKey)}
+            label={ACCOUNT_LABELS[fieldKey]}
+            onSave={(value) => onSave(fieldKey, value)}
+            onConfirm={
+              byKey.get(fieldKey)?.source === 'parsed_unreviewed'
+                ? () => onConfirm(fieldKey)
+                : undefined
+            }
+          />
+        ))}
+        <PayRow
+          compact
+          label="Pay"
+          fieldKey="pay_per_video_cents"
+          field={byKey.get('pay_per_video_cents')}
+          fallbackValue={
+            campaign.pay_per_video_cents === null
+              ? null
+              : `$${centsToDollarsInput(campaign.pay_per_video_cents)}`
+          }
+          onSave={onSave}
+          onConfirm={onConfirm}
+        />
+      </div>
+
+      {needsHandle ? (
+        <p className="mt-2 text-sm font-semibold text-state-blocked">
+          No @ handle saved yet - required before this campaign can post.
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+/** Email and password, together in one small box - the login, as opposed to
+ *  the identity strip above it, because these two are typed once and then
+ *  looked up rather than glanced at, and don't need the same prominence as
+ *  the @ handle. */
+function LoginBox({
   fields,
   campaignId,
   onSave,
@@ -361,34 +422,25 @@ function AccountBox({
   onConfirm: (fieldKey: string) => Promise<void>
 }) {
   const byKey = new Map(fields.map((f) => [f.field_key, f]))
-  const needsHandle = !hasAccountHandle(fields)
+  const loginKeys = ['account_email', 'account_password'] as const
 
   return (
-    <div className="rounded-lg border border-edge bg-surface p-4">
-      <h2 className="text-lg font-semibold text-text">Account</h2>
-
-      {needsHandle ? (
-        <p className="mt-1 text-sm font-semibold text-state-blocked">
-          No @ handle saved yet - required before this campaign can post.
-        </p>
-      ) : null}
-
-      <div className="mt-2 flex flex-col divide-y divide-edge">
-        {ACCOUNT_FIELD_KEYS.map((fieldKey) => (
-          <EditableField
-            key={fieldKey}
-            field={byKey.get(fieldKey) ?? virtualField(campaignId, fieldKey)}
-            label={ACCOUNT_LABELS[fieldKey]}
-            mask={fieldKey === 'account_password'}
-            onSave={(value) => onSave(fieldKey, value)}
-            onConfirm={
-              byKey.get(fieldKey)?.source === 'parsed_unreviewed'
-                ? () => onConfirm(fieldKey)
-                : undefined
-            }
-          />
-        ))}
-      </div>
+    <div className="inline-flex flex-wrap items-center gap-2 self-start rounded-lg border border-edge bg-surface p-2">
+      {loginKeys.map((fieldKey) => (
+        <EditableField
+          key={fieldKey}
+          compact
+          mask={fieldKey === 'account_password'}
+          field={byKey.get(fieldKey) ?? virtualField(campaignId, fieldKey)}
+          label={ACCOUNT_LABELS[fieldKey]}
+          onSave={(value) => onSave(fieldKey, value)}
+          onConfirm={
+            byKey.get(fieldKey)?.source === 'parsed_unreviewed'
+              ? () => onConfirm(fieldKey)
+              : undefined
+          }
+        />
+      ))}
     </div>
   )
 }
@@ -402,16 +454,22 @@ function PayRow({
   fallbackValue,
   onSave,
   onConfirm,
+  compact,
+  label,
 }: {
   fieldKey: string
   field: CampaignField | undefined
   fallbackValue: string | null
   onSave: (fieldKey: string, value: string | null) => Promise<void>
   onConfirm: (fieldKey: string) => Promise<void>
+  compact?: boolean
+  label?: string
 }) {
   if (field) {
     return (
       <EditableField
+        compact={compact}
+        label={label}
         field={field}
         onSave={(value) => onSave(fieldKey, value)}
         onConfirm={
@@ -423,6 +481,8 @@ function PayRow({
 
   return (
     <EditableField
+      compact={compact}
+      label={label}
       field={{
         id: `virtual-${fieldKey}`,
         user_id: '',

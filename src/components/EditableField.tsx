@@ -19,6 +19,7 @@ export function EditableField({
   onConfirm,
   label,
   mask,
+  compact,
 }: {
   field: CampaignField
   onSave: (value: string | null) => Promise<void>
@@ -30,6 +31,11 @@ export function EditableField({
    *  rest and while editing. The length shown is fixed, not the real length -
    *  a password's length is itself information. */
   mask?: boolean
+  /** Renders the resting view as a small inline pill instead of a full-width
+   *  row - for fields meant to sit next to each other (platform, handle, pay)
+   *  rather than stacked one per line. Editing still opens the same full-size
+   *  card either way; only the at-rest shape changes. */
+  compact?: boolean
 }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
@@ -147,6 +153,50 @@ export function EditableField({
   }
 
   const shown = mask && !absent && !revealed ? '••••••••' : displayValue(field, isMoney)
+
+  if (compact) {
+    return (
+      <div className="inline-flex min-h-tap items-center gap-2 rounded-full border border-edge bg-surface-raised px-3 py-1.5">
+        <div className="leading-tight">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-state-later">
+            {displayLabel}
+          </p>
+          <p
+            className={`text-sm ${mask ? 'font-mono' : ''} ${unreviewed ? 'text-state-waiting' : absent ? 'text-state-later' : 'text-text'}`}
+          >
+            {absent ? 'not saved yet' : shown}
+            {mask && !absent ? (
+              <button
+                type="button"
+                onClick={() => setRevealed((current) => !current)}
+                className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-state-later"
+              >
+                {revealed ? 'Hide' : 'Show'}
+              </button>
+            ) : null}
+          </p>
+        </div>
+        {unreviewed && onConfirm ? (
+          <button
+            type="button"
+            onClick={() => void confirm()}
+            disabled={busy}
+            className="shrink-0 rounded-full border border-state-waiting/50 px-2 py-1 text-xs font-semibold text-state-waiting active:bg-surface disabled:opacity-60"
+          >
+            Confirm
+          </button>
+        ) : null}
+        <button
+          type="button"
+          onClick={startEditing}
+          className="shrink-0 rounded-full border border-edge px-2 py-1 text-xs font-semibold text-state-later active:bg-surface"
+        >
+          Edit
+        </button>
+        {error ? <p className="w-full text-xs text-state-blocked">{error}</p> : null}
+      </div>
+    )
+  }
 
   return (
     <div className="flex items-start justify-between gap-3 py-1">

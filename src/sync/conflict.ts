@@ -32,10 +32,10 @@ export function resolveConflict(
   local: Record<string, unknown>,
   remote: Record<string, unknown>,
 ): Resolution {
-  // History is append-only and immutable. A phase_event that exists on both
-  // sides is the same event told twice, and there is nothing to resolve - the
-  // server's copy stands, and the local one is not re-pushed.
-  if (table === 'phase_events') {
+  // History is append-only and immutable. A phase_event or warmup_event that
+  // exists on both sides is the same event told twice, and there is nothing
+  // to resolve - the server's copy stands, and the local one is not re-pushed.
+  if (table === 'phase_events' || table === 'warmup_events') {
     return {
       winner: 'remote',
       row: remote,

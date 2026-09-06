@@ -45,6 +45,7 @@ import type {
   Video,
   VideoPhase,
   VideoPost,
+  WarmupEvent,
 } from '../schema'
 import { LocalDatabase, MIRRORED_TABLES, type OutboxEntry } from './db'
 
@@ -739,6 +740,38 @@ export class LocalAdapter implements DataAdapter {
     return rows.sort((a, b) => a.id - b.id)
   }
 
+  // --- Warm-up -------------------------------------------------------------
+
+  async listWarmupEvents(filter?: { campaignId?: string }): Promise<WarmupEvent[]> {
+    const rows = filter?.campaignId
+      ? await this.db.warmup_events.where('campaign_id').equals(filter.campaignId).toArray()
+      : await this.db.warmup_events.toArray()
+    return rows.sort((a, b) => a.id - b.id)
+  }
+
+  async recordWarmupEvent(campaignId: string, minutes: number): Promise<WarmupEvent> {
+    return this.tx([this.db.warmup_events, this.db.campaigns, this.db._outbox], async (tx) => {
+      await this.requireRow(tx, 'campaigns', campaignId)
+
+      // No `id` field: Dexie's ++id only auto-assigns when the key is absent,
+      // not when it is present at any value - same as the phase_event insert
+      // in createVideo above.
+      const draft = {
+        user_id: this.userId,
+        campaign_id: campaignId,
+        minutes,
+        occurred_at: now(),
+        // Client-minted so a retried push lands exactly once - see
+        // phase_events.client_id for why.
+        client_id: newId(),
+      }
+      const id = await tx.table('warmup_events').add(draft)
+      const saved: WarmupEvent = { ...draft, id: id as number }
+      this.enqueue(tx, 'warmup_events', String(saved.id), 'insert', saved)
+      return saved
+    })
+  }
+
   // --- Money -------------------------------------------------------------
 
   async listBonusTiers(campaignId: string): Promise<BonusTier[]> {
@@ -935,6 +968,7 @@ export class LocalAdapter implements DataAdapter {
       videos,
       video_posts,
       phase_events,
+      warmup_events,
       bonus_tiers,
       bonus_claims,
       time_estimates,
@@ -948,6 +982,7 @@ export class LocalAdapter implements DataAdapter {
       this.db.videos.toArray(),
       this.db.video_posts.toArray(),
       this.db.phase_events.toArray(),
+      this.db.warmup_events.toArray(),
       this.db.bonus_tiers.toArray(),
       this.db.bonus_claims.toArray(),
       this.db.time_estimates.toArray(),
@@ -965,6 +1000,7 @@ export class LocalAdapter implements DataAdapter {
       videos,
       video_posts,
       phase_events,
+      warmup_events,
       bonus_tiers,
       bonus_claims,
       time_estimates,
@@ -1080,9 +1116,10 @@ export class LocalAdapter implements DataAdapter {
             }
 
             rowsClaimed++
-            // phase_events is insert-only; the server has never seen any of
-            // this, because sync does not run before sign-in.
-            const op = table === "phase_events" ? "insert" : "update"
+            // phase_events and warmup_events are insert-only; the server has
+            // never seen any of this, because sync does not run before sign-in.
+            const op =
+              table === "phase_events" || table === "warmup_events" ? "insert" : "update"
             const rowId =
               table === "user_settings" ? userId : (claimedRow.id ?? "")
             this.enqueue(tx, table, String(rowId), op, claimedRow)

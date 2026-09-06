@@ -43,13 +43,13 @@ export class SupabaseSyncTarget implements SyncTarget {
 
     const row = write.payload as Record<string, unknown>
 
-    // phase_events is insert-only and its id is a server sequence, so the
-    // local id must not be sent - the server assigns its own.
-    if (write.table_name === 'phase_events') {
+    // phase_events and warmup_events are insert-only and their id is a server
+    // sequence, so the local id must not be sent - the server assigns its own.
+    if (write.table_name === 'phase_events' || write.table_name === 'warmup_events') {
       // The local id is a client-side sequence and means nothing here, so the
       // server assigns its own. client_id is what makes this safe to retry.
       const { id: _localId, ...event } = row
-      const { error } = await this.client.from('phase_events').insert(event)
+      const { error } = await this.client.from(write.table_name).insert(event)
       if (!error) return { status: 'applied' }
 
       if (error.code === '23505') {
@@ -82,7 +82,8 @@ export class SupabaseSyncTarget implements SyncTarget {
     for (const table of MIRRORED_TABLE_NAMES) {
       // Tables without updated_at are append-only or immutable; they are
       // walked by their own time column instead.
-      const column = table === 'phase_events' ? 'occurred_at' : 'updated_at'
+      const column =
+        table === 'phase_events' || table === 'warmup_events' ? 'occurred_at' : 'updated_at'
       let query = this.client.from(table).select('*')
       if (since !== null) query = query.gt(column, since)
 

@@ -266,6 +266,27 @@ create table phase_events (
 create index on phase_events (video_id, occurred_at);
 create index on phase_events (user_id, to_phase, occurred_at);
 
+-- Every completed account warm-up session. Append-only, same reasoning as
+-- phase_events: "warmed up twice" is a count taken from this log at query
+-- time, never a mutable number on the campaign row, so it cannot be nudged
+-- back down by an edit and cannot double-count a retried push.
+create table warmup_events (
+  id           bigserial primary key,
+  user_id      uuid not null references auth.users(id) on delete cascade,
+  campaign_id  uuid not null references campaigns(id) on delete cascade,
+  -- How long this warm-up session ran. The session window he chose, not a guess.
+  minutes      integer not null check (minutes > 0),
+  occurred_at  timestamptz not null default now(),
+
+  -- Same idempotency key as phase_events.client_id, for the same reason: a
+  -- retried push must not double up a completed warm-up.
+  client_id    uuid not null default gen_random_uuid(),
+
+  unique (user_id, client_id)
+);
+
+create index on warmup_events (campaign_id, occurred_at);
+
 -- ---------------------------------------------------------------------------
 -- Money. Three numbers that must never be summed.
 -- ---------------------------------------------------------------------------
@@ -344,6 +365,7 @@ alter table campaign_rules     enable row level security;
 alter table videos             enable row level security;
 alter table video_posts        enable row level security;
 alter table phase_events       enable row level security;
+alter table warmup_events      enable row level security;
 alter table bonus_tiers        enable row level security;
 alter table bonus_claims       enable row level security;
 alter table time_estimates     enable row level security;
@@ -373,4 +395,10 @@ create policy user_settings_owner on user_settings for all to authenticated
 create policy phase_events_read on phase_events for select to authenticated
   using (user_id = (select auth.uid()));
 create policy phase_events_append on phase_events for insert to authenticated
+  with check (user_id = (select auth.uid()));
+
+-- warmup_events is append-only in exactly the same way.
+create policy warmup_events_read on warmup_events for select to authenticated
+  using (user_id = (select auth.uid()));
+create policy warmup_events_append on warmup_events for insert to authenticated
   with check (user_id = (select auth.uid()));

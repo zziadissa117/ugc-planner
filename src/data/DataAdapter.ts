@@ -37,6 +37,7 @@ import type {
   Video,
   VideoPhase,
   VideoPost,
+  WarmupEvent,
 } from './schema'
 
 /** A complete, portable copy of every table. This is the backup of record:
@@ -54,6 +55,7 @@ export interface BackupSnapshot {
   videos: Video[]
   video_posts: VideoPost[]
   phase_events: PhaseEvent[]
+  warmup_events: WarmupEvent[]
   bonus_tiers: BonusTier[]
   bonus_claims: BonusClaim[]
   time_estimates: TimeEstimate[]
@@ -215,6 +217,17 @@ export interface DataAdapter {
   // --- History. Readable and appendable, never editable ------------------
 
   listPhaseEvents(filter?: { videoId?: string; since?: string }): Promise<PhaseEvent[]>
+
+  // --- Warm-up. Readable and appendable, never editable -------------------
+  //
+  // "Warmed up twice" is a count taken from this log, never a mutable number
+  // on the campaign - the same reasoning, for the same reason, as phase_events.
+
+  listWarmupEvents(filter?: { campaignId?: string }): Promise<WarmupEvent[]>
+
+  /** One completed warm-up session for this campaign's account, for the
+   *  minutes the session actually ran. */
+  recordWarmupEvent(campaignId: string, minutes: number): Promise<WarmupEvent>
 
   // --- Money -------------------------------------------------------------
 

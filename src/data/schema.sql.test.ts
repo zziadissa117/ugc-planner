@@ -72,6 +72,7 @@ describe('docs/schema.sql', () => {
       'user_settings',
       'video_posts',
       'videos',
+      'warmup_events',
     ])
   })
 
@@ -90,24 +91,27 @@ describe('docs/schema.sql', () => {
     ])
   })
 
-  it('enables row level security on all twelve tables', async () => {
+  it('enables row level security on all thirteen tables', async () => {
     const rls = await db.query<{ relname: string }>(
       `select c.relname from pg_class c
        join pg_namespace n on n.oid = c.relnamespace
        where n.nspname = 'public' and c.relkind = 'r' and c.relrowsecurity`,
     )
-    expect(rls.rows).toHaveLength(12)
+    expect(rls.rows).toHaveLength(13)
   })
 
-  it('makes phase_events insert-and-select only, with no update or delete policy', async () => {
-    const policies = await db.query<{ cmd: string }>(
-      `select cmd from pg_policies where tablename = 'phase_events'`,
-    )
-    const commands = policies.rows.map((r) => r.cmd).sort()
-    // History is appended to and read from. There is no policy that would let
-    // it be edited or erased.
-    expect(commands).toEqual(['INSERT', 'SELECT'])
-  })
+  it.each(['phase_events', 'warmup_events'])(
+    'makes %s insert-and-select only, with no update or delete policy',
+    async (table) => {
+      const policies = await db.query<{ cmd: string }>(
+        `select cmd from pg_policies where tablename = '${table}'`,
+      )
+      const commands = policies.rows.map((r) => r.cmd).sort()
+      // History is appended to and read from. There is no policy that would
+      // let it be edited or erased.
+      expect(commands).toEqual(['INSERT', 'SELECT'])
+    },
+  )
 })
 
 describe('the constraints the local store mirrors', () => {
@@ -167,6 +171,14 @@ describe('the constraints the local store mirrors', () => {
                     values ('${USER}', '${campaignId}', 'handle', 'user_entered')`
     await db.exec(insert)
     await expect(db.exec(insert)).rejects.toThrow()
+  })
+
+  it('refuses a warm-up session of zero minutes', async () => {
+    const campaignId = await insertCampaign()
+    await expect(
+      db.exec(`insert into warmup_events (user_id, campaign_id, minutes)
+               values ('${USER}', '${campaignId}', 0)`),
+    ).rejects.toThrow()
   })
 
   it('refuses a bonus probability above 1', async () => {
@@ -265,13 +277,21 @@ describe('docs/migrations/0002_phase_events_client_id.sql', () => {
   const SCHEMA_0001 = (() => {
     const start = SCHEMA.indexOf('  -- Client-generated idempotency key.')
     const end = SCHEMA.indexOf('  unique (user_id, client_id)')
-    const withoutColumn =
+    let withoutColumn =
       SCHEMA.slice(0, start) + SCHEMA.slice(end + '  unique (user_id, client_id)'.length)
     // The column left a trailing comma on the line above it.
-    return withoutColumn.replace(
+    withoutColumn = withoutColumn.replace(
       'duration_seconds integer check (duration_seconds >= 0),',
       'duration_seconds integer check (duration_seconds >= 0)',
     )
+
+    // warmup_events is migration 0003, later than the client_id column above.
+    // A database that only ran 0001 has none of it - table, index, RLS or
+    // policies - so all four are stripped the same way.
+    return withoutColumn
+      .replace(/\r?\n-- Every completed account warm-up session\.[\s\S]*?create index on warmup_events \(campaign_id, occurred_at\);\r?\n/, '\n')
+      .replace(/\r?\nalter table warmup_events\s+enable row level security;/, '')
+      .replace(/\r?\n-- warmup_events is append-only in exactly the same way\.[\s\S]*?create policy warmup_events_append on warmup_events for insert to authenticated\r?\n  with check \(user_id = \(select auth\.uid\(\)\)\);(?:\r?\n)?/, '\n')
   })()
   it('is written against a schema that really lacks the column', () => {
     // Guards the regex above: if it silently stopped matching, the migration

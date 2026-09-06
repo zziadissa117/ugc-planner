@@ -35,6 +35,7 @@ import {
   type UserSettings,
   type Video,
   type VideoPost,
+  type WarmupEvent,
 } from './schema'
 
 /** A row that Postgres would have rejected. Carries the constraint name from
@@ -302,6 +303,16 @@ export function assertPhaseEvent(row: PhaseEvent): void {
   integer(t, 'duration_seconds', row.duration_seconds, { min: 0, nullable: true })
 }
 
+export function assertWarmupEvent(row: WarmupEvent): void {
+  const t: TableName = 'warmup_events'
+  integer(t, 'id', row.id, { min: 1, nullable: false })
+  text(t, 'user_id', row.user_id, { nullable: false })
+  text(t, 'campaign_id', row.campaign_id, { nullable: false })
+  integer(t, 'minutes', row.minutes, { exclusiveMin: 0, nullable: false })
+  timestamp(t, 'occurred_at', row.occurred_at, { nullable: false })
+  text(t, 'client_id', row.client_id, { nullable: false })
+}
+
 export function assertBonusTier(row: BonusTier): void {
   const t: TableName = 'bonus_tiers'
   text(t, 'id', row.id, { nullable: false })
@@ -374,6 +385,7 @@ const VALIDATORS = {
   videos: assertVideo,
   video_posts: assertVideoPost,
   phase_events: assertPhaseEvent,
+  warmup_events: assertWarmupEvent,
   bonus_tiers: assertBonusTier,
   bonus_claims: assertBonusClaim,
   time_estimates: assertTimeEstimate,

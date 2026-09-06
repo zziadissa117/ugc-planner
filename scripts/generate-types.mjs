@@ -189,6 +189,7 @@ const ROW_TYPE_NAMES = {
   videos: 'Video',
   video_posts: 'VideoPost',
   phase_events: 'PhaseEvent',
+  warmup_events: 'WarmupEvent',
   bonus_tiers: 'BonusTier',
   bonus_claims: 'BonusClaim',
   time_estimates: 'TimeEstimate',

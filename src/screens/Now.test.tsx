@@ -59,13 +59,17 @@ function renderScreen(element: React.ReactElement) {
   )
 }
 
-/** Picks FILM and a 60 minute window. Does not assume the list is non-empty:
+/** Picks FILM and a 60 minute window, then the campaign (Inflow is the only
+ *  one seeded, and its seed carries handles, so it never needs warming up)
+ *  and past its do/don't briefing. Does not assume the list is non-empty:
  *  when a session has nothing at its stage there is no list to find. */
 async function openFilmSession(user: ReturnType<typeof userEvent.setup>) {
   renderScreen(<Now />)
   await screen.findByText(/of 1 posted/)
   await user.click(screen.getByRole('button', { name: 'FILM' }))
   await user.click(screen.getByRole('button', { name: '60' }))
+  await user.click(await screen.findByRole('button', { name: /Inflow/ }))
+  await user.click(await screen.findByRole('button', { name: 'Start filming' }))
 }
 
 async function startFilmSession(user: ReturnType<typeof userEvent.setup>) {
@@ -190,6 +194,131 @@ describe('the NOW screen', () => {
 
     // The filmed video belongs to an EDIT session, not this one.
     expect(within(list).queryByText('Other campaign')).toBeNull()
+  })
+})
+
+describe('choosing a campaign for FILM and EDIT', () => {
+  it('shows the do/don\'t briefing before a FILM session starts, and offers to start it', async () => {
+    await adapter.addCampaignRule({ campaign_id: INFLOW_CAMPAIGN_ID, body: 'Never say the brand name twice.' })
+
+    const user = userEvent.setup()
+    renderScreen(<Now />)
+    await screen.findByText(/of 1 posted/)
+    await user.click(screen.getByRole('button', { name: 'FILM' }))
+    await user.click(screen.getByRole('button', { name: '60' }))
+    await user.click(await screen.findByRole('button', { name: /Inflow/ }))
+
+    expect(await screen.findByText('Never say the brand name twice.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Start filming' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Start filming' }))
+    expect(await screen.findByRole('list', { name: 'Tonight' })).toBeInTheDocument()
+  })
+
+  it('shows the editing style he typed himself in an EDIT briefing', async () => {
+    await adapter.setCampaignField({
+      campaign_id: INFLOW_CAMPAIGN_ID,
+      field_key: 'editing_style',
+      field_value: 'Fast cuts, no music, captions burned in.',
+      source: 'user_entered',
+      source_quote: null,
+      source_document_id: null,
+    })
+
+    const user = userEvent.setup()
+    renderScreen(<Now />)
+    await screen.findByText(/of 1 posted/)
+    await user.click(screen.getByRole('button', { name: 'EDIT' }))
+    await user.click(screen.getByRole('button', { name: '60' }))
+    await user.click(await screen.findByRole('button', { name: /Inflow/ }))
+
+    expect(await screen.findByText('Fast cuts, no music, captions burned in.')).toBeInTheDocument()
+  })
+
+  it('does not offer a campaign whose account has never posted and is still warming up', async () => {
+    await adapter.createCampaign({
+      name: 'Brand new campaign',
+      company: null,
+      default_setup: 'face',
+      approval_mode: 'none',
+      pay_per_video_cents: 1000,
+      cycle_size: null,
+    })
+
+    const user = userEvent.setup()
+    renderScreen(<Now />)
+    await screen.findByText(/of 1 posted/)
+    await user.click(screen.getByRole('button', { name: 'FILM' }))
+    await user.click(screen.getByRole('button', { name: '60' }))
+
+    await screen.findByRole('button', { name: /Inflow/ })
+    expect(screen.queryByRole('button', { name: /Brand new campaign/ })).toBeNull()
+  })
+})
+
+describe('warming up an account', () => {
+  it('shows the account and a countdown, and records a completed session', async () => {
+    const fresh = await adapter.createCampaign({
+      name: 'Brand new campaign',
+      company: null,
+      default_setup: 'face',
+      approval_mode: 'none',
+      pay_per_video_cents: 1000,
+      cycle_size: null,
+    })
+    await adapter.setCampaignField({
+      campaign_id: fresh.id,
+      field_key: 'handle_tiktok',
+      field_value: '@brandnew',
+      source: 'user_entered',
+      source_quote: null,
+      source_document_id: null,
+    })
+
+    const user = userEvent.setup()
+    renderScreen(<Now />)
+    await screen.findByText(/of 1 posted/)
+    await user.click(screen.getByRole('button', { name: 'WARM-UP' }))
+    await user.click(screen.getByRole('button', { name: '30' }))
+    await user.click(await screen.findByRole('button', { name: /Brand new campaign/ }))
+
+    expect(await screen.findByText('TikTok @brandnew')).toBeInTheDocument()
+    expect(screen.getByText('30:00')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Mark warmed up' }))
+
+    await waitFor(async () => {
+      const events = await adapter.listWarmupEvents({ campaignId: fresh.id })
+      expect(events).toHaveLength(1)
+      expect(events[0].minutes).toBe(30)
+    })
+  })
+
+  it('leaves the WARM-UP list once an account has warmed up twice, and offers it in FILM instead', async () => {
+    const fresh = await adapter.createCampaign({
+      name: 'Brand new campaign',
+      company: null,
+      default_setup: 'face',
+      approval_mode: 'none',
+      pay_per_video_cents: 1000,
+      cycle_size: null,
+    })
+    await adapter.recordWarmupEvent(fresh.id, 30)
+    await adapter.recordWarmupEvent(fresh.id, 30)
+
+    const user = userEvent.setup()
+    renderScreen(<Now />)
+    await screen.findByText(/of 1 posted/)
+
+    await user.click(screen.getByRole('button', { name: 'WARM-UP' }))
+    await user.click(screen.getByRole('button', { name: '30' }))
+    await screen.findByText(/nothing needs warming up/i)
+    expect(screen.queryByRole('button', { name: /Brand new campaign/ })).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: 'Change session' }))
+    await user.click(screen.getByRole('button', { name: 'FILM' }))
+    await user.click(screen.getByRole('button', { name: '30' }))
+    expect(await screen.findByRole('button', { name: /Brand new campaign/ })).toBeInTheDocument()
   })
 })
 

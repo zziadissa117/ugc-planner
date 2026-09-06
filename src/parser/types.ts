@@ -89,6 +89,7 @@ export const NEVER_PARSED_FIELDS = [
   'handle_instagram',
   'account_email',
   'account_password',
+  'editing_style',
   'setup type',
   'real film / edit / post minutes',
   'daily post quota',

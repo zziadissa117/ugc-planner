@@ -25,6 +25,7 @@ import type {
   UserSettings,
   Video,
   VideoPost,
+  WarmupEvent,
 } from '../schema'
 
 /** A write waiting to go to the server.
@@ -64,6 +65,7 @@ export class LocalDatabase extends Dexie {
   videos!: EntityTable<Video, 'id'>
   video_posts!: EntityTable<VideoPost, 'id'>
   phase_events!: EntityTable<PhaseEvent, 'id'>
+  warmup_events!: EntityTable<WarmupEvent, 'id'>
   bonus_tiers!: EntityTable<BonusTier, 'id'>
   bonus_claims!: EntityTable<BonusClaim, 'id'>
   time_estimates!: EntityTable<TimeEstimate, 'id'>
@@ -116,6 +118,12 @@ export class LocalDatabase extends Dexie {
             if (!event.client_id) event.client_id = crypto.randomUUID()
           })
       })
+
+    // v3 adds warmup_events - a new table, so no upgrade() migration of
+    // existing data is needed, unlike phase_events.client_id above.
+    this.version(3).stores({
+      warmup_events: '++id, &client_id, campaign_id, [campaign_id+occurred_at], occurred_at',
+    })
   }
 }
 
@@ -130,6 +138,7 @@ export const MIRRORED_TABLES: readonly TableName[] = [
   'videos',
   'video_posts',
   'phase_events',
+  'warmup_events',
   'bonus_tiers',
   'bonus_claims',
   'time_estimates',

@@ -256,6 +256,21 @@ export interface PhaseEvent {
 export type NewPhaseEvent = Omit<PhaseEvent, 'user_id' | 'id' | 'occurred_at' | 'client_id'> &
   Partial<Pick<PhaseEvent, 'id' | 'occurred_at' | 'client_id'>>
 
+/** Mirrors `warmup_events`. */
+export interface WarmupEvent {
+  id: number
+  user_id: string
+  campaign_id: string
+  minutes: number
+  occurred_at: string
+  client_id: string
+}
+
+/** `warmup_events` as supplied by a caller: user_id comes from the session, and
+ *  columns the database defaults are optional. */
+export type NewWarmupEvent = Omit<WarmupEvent, 'user_id' | 'id' | 'occurred_at' | 'client_id'> &
+  Partial<Pick<WarmupEvent, 'id' | 'occurred_at' | 'client_id'>>
+
 /** Mirrors `bonus_tiers`. */
 export interface BonusTier {
   id: string
@@ -330,6 +345,7 @@ export const TABLE_NAMES = [
   'videos',
   'video_posts',
   'phase_events',
+  'warmup_events',
   'bonus_tiers',
   'bonus_claims',
   'time_estimates',
@@ -348,6 +364,7 @@ export interface TableRowMap {
   videos: Video
   video_posts: VideoPost
   phase_events: PhaseEvent
+  warmup_events: WarmupEvent
   bonus_tiers: BonusTier
   bonus_claims: BonusClaim
   time_estimates: TimeEstimate
@@ -373,6 +390,9 @@ export const SQL_TABLE_CONSTRAINTS: Readonly<Record<string, readonly string[]>> 
     "unique (video_id, platform)",
   ],
   phase_events: [
+    "unique (user_id, client_id)",
+  ],
+  warmup_events: [
     "unique (user_id, client_id)",
   ],
   bonus_tiers: [
@@ -404,6 +424,9 @@ export const SQL_COLUMN_CHECKS: Readonly<Record<string, Readonly<Record<string, 
   },
   phase_events: {
     duration_seconds: ["check (duration_seconds >= 0)"],
+  },
+  warmup_events: {
+    minutes: ["check (minutes > 0)"],
   },
   bonus_tiers: {
     threshold_views: ["check (threshold_views > 0)"],

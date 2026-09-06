@@ -24,6 +24,7 @@ export {
   EXPORT_REMINDER_DAYS,
 } from './defaults'
 export { SESSION_TARGET_PHASE, chainFor, nextPhase, previousPhase } from './phases'
+export { WARMUP_SESSIONS_REQUIRED, needsWarmup, warmupCompletions } from './warmup'
 export * from './schema'
 
 import type { DataAdapter } from './DataAdapter'

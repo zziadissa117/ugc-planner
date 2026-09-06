@@ -112,18 +112,13 @@ export function Money() {
               </p>
             ))}
         </Figure>
-        <Figure
-          label="Expected"
-          note="Bonus payouts times the odds you gave them. Not earned."
-          cents={totals.expectedBonusCents}
-          muted={totals.expectedBonusCents === 0}
-          zeroNote="No odds set yet, so this stays $0.00 until you judge one."
-        />
-        <Figure
-          label="User entered"
-          note="Bonus money you logged as actually received."
-          cents={totals.receivedBonusCents}
-        />
+        {/* The expected-bonus and paid-bonus figures used to sit here. Both
+            read $0.00 permanently, because nothing in the app could enter a
+            probability or a received amount - the adapter had the methods and
+            no screen ever called them. Two columns that can only ever say zero
+            are worse than absent: they look like a fact about his earnings.
+            src/money.ts still computes them, so they come back the day there
+            is a way to enter the numbers behind them. */}
       </div>
 
       {totals.unpricedPostedCount > 0 ? (

@@ -56,26 +56,36 @@ async function renderMoney() {
 }
 
 describe('the money screen', () => {
-  it('shows the three figures under three different labels', async () => {
+  it('shows what was actually earned, labelled as documented', async () => {
     await postVideos(2)
     await renderMoney()
 
     expect(screen.getByText('Documented')).toBeInTheDocument()
-    expect(screen.getByText('Expected')).toBeInTheDocument()
-    expect(screen.getByText('User entered')).toBeInTheDocument()
-
     // 2 posts at $35.
     expect(screen.getByText('$70.00')).toBeInTheDocument()
   })
 
-  it('shows expected and received as their own zero rather than folding them in', async () => {
+  it('does not show bonus columns that could only ever read zero', async () => {
     await postVideos(2)
     await renderMoney()
 
-    // $70 documented, $0 expected, $0 received - three numbers, and no $70
-    // grand total pretending to be anything else.
-    expect(screen.getAllByText('$0.00')).toHaveLength(2)
-    expect(screen.getByText(/no odds set yet/i)).toBeInTheDocument()
+    // Nothing in the app can enter a bonus probability or a received amount,
+    // so both figures were permanently $0.00 - which reads as a fact about his
+    // earnings rather than as a missing feature. They come back when there is
+    // a way to enter the numbers behind them.
+    expect(screen.queryByText('Expected')).toBeNull()
+    expect(screen.queryByText('User entered')).toBeNull()
+    expect(screen.queryByText(/no odds set yet/i)).toBeNull()
+  })
+
+  it('still never sums the figures it does show', async () => {
+    await postVideos(2)
+    await renderMoney()
+
+    // The rule that outlives the trim: base earned and the cycle position are
+    // different kinds of number and are never added together.
+    expect(screen.getByText('$70.00')).toBeInTheDocument()
+    expect(screen.queryByText('$70.00 total')).toBeNull()
   })
 
   it('reports the cycle as 13 of 60 with only the carried-over balance', async () => {

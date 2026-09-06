@@ -139,8 +139,8 @@ export function Settings() {
       </div>
 
       <p className="text-state-later">
-        Time estimates, the setup switch cost and the reset buttons are not built yet - phase 7 and
-        phase 9 add them.
+        Time estimates and the setup switch cost are only used by the optional planner, and are
+        left at their defaults. The reset buttons are not built.
       </p>
     </section>
   )

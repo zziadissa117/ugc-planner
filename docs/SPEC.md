@@ -1,5 +1,11 @@
 # SPEC - UGC production planner
 
+> **Read this first.** Sections 2, 4, 5 and 8 described an app that chose the
+> work for him. He asked for the opposite, and the app was rebuilt around a
+> target and a scoreboard - see CLAUDE.md, "What this is". Those sections are
+> corrected in place and each says what changed and why. Sections 1, 3, 7 and
+> 9-13 still hold.
+
 The product specification. `CLAUDE.md` covers stack and process; this covers
 what the thing does. `schema.sql` is the authoritative data shape.
 
@@ -44,6 +50,15 @@ FILM   |   EDIT   |   POST   |   WARM-UP
   brand hashtag or submission step.
 
 The second question is how long: 30 / 60 / 90 / 120 minutes plus a free-type box.
+
+**Then which campaign, and how many.** FILM and EDIT ask for a campaign and a
+goal - a number of videos - and open a console against them. This reverses what
+this section originally said; see section 8.
+
+**WARM-UP is not a filming session.** It lists the accounts set `new` or
+`warming`, shows one at a time with its platform, handle and a countdown, and
+records a completed session. Two of them promote the account to `ready`, and it
+leaves the list. It creates no videos.
 
 **Runway** is the number of days of posting already banked - videos sitting in
 `approved`, unposted. Show it as one small line. If runway is under 3 days and
@@ -115,7 +130,15 @@ from under his thumb mid-tap.
 
 ---
 
-## 5. Screen: SHOOT
+## 5. Screen: SHOOT - superseded by the console
+
+> The console (`src/screens/Console.tsx`) is the main screen for FILM and EDIT
+> now: everything visible at once, because he works on a laptop with the phone
+> as the camera. SHOOT survives for when he wants a full script in large type
+> and nothing else. What this section rules out - phase diagrams, difficulty
+> ratings, take counters, statistics - still applies to both.
+
+## 5a. Screen: SHOOT
 
 One video at a time, stripped to almost nothing:
 
@@ -216,7 +239,19 @@ points at a section that is not present, set `brief_is_incomplete` and show:
 
 ---
 
-## 8. The fitting algorithm
+## 8. The fitting algorithm - now optional
+
+> This is no longer the default path. It runs behind "Or plan it for me" on the
+> campaign picker, unchanged, for the evenings he does not want to choose. The
+> rule below that "he never picks a count" is the one thing here he explicitly
+> reversed: the console asks for a goal, because he asked it to.
+>
+> One correction that applies wherever the algorithm still runs: a campaign
+> with no `default_setup` used to be dropped silently, because `stageMinutes`
+> returned null and nothing surfaced it. There is now a setup picker on the
+> brief page, which is what makes a campaign he added plannable at all.
+
+## 8a. The fitting algorithm, as it still works
 
 Runs **within the chosen session type**. A FILM session only considers videos
 needing filming.
@@ -277,6 +312,13 @@ campaign at a stage. Never present an estimate as a measurement.
 ---
 
 ## 10. Money - three figures, never summed
+
+> **Currently one figure is shown.** Expected bonus and paid bonus both read
+> $0.00 permanently, because nothing in the app can enter a probability or a
+> received amount - the adapter has the methods and no screen ever called them.
+> Two columns that can only say zero look like a fact about his earnings rather
+> than a missing feature, so they are out of the UI. `src/money.ts` still
+> computes all three and the rule below is unchanged: they are never summed.
 
 - **Base earned** - posted videos times `rate_snapshot_cents`. Label DOCUMENTED.
 - **Expected bonus** - payout times a probability **the user typed**. Every
@@ -420,6 +462,8 @@ Each renders `not saved yet` and blocks only what it actually blocks.
    first-run field. Do not seed a guess - the runway figure depends on it.
 2. **SideShift submission URL.**
 3. **Real film / edit / post minutes.** Start at EST, measure from use.
+   *Now possible:* the console stamps `phase_events.work_session_id` and real
+   durations, so measured timings finally have data behind them.
 4. **Trial period status.** The brief sets a 15-day trial from the first Inflow
    post, reviewed at day 15. That date is in neither document. Ship a field; if
    filled, show days remaining.

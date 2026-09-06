@@ -292,7 +292,10 @@ describe('how you make it', () => {
     )
     await screen.findByRole('heading', { name: 'No setup yet' })
 
-    expect(screen.getByText(/cannot be planned into a session/i)).toBeInTheDocument()
+    // Dogfooding a real ten-campaign run found this warning was flatly wrong:
+    // a campaign with no default_setup films fine through the console, since
+    // it only matters to the optional auto-planner.
+    expect(screen.getByText(/or plan it for me.*will skip this campaign/i)).toBeInTheDocument()
   })
 
   it('lets the editing style be written by hand, as his own words', async () => {

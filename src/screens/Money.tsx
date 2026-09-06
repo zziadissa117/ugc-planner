@@ -217,7 +217,7 @@ function CampaignSection({
 
       <dl className="flex flex-col gap-2 text-sm">
         <Line label="Posted in this app">
-          {summary.postedInAppCount} Â· {formatCents(summary.documentedCents)} documented
+          {summary.postedInAppCount} - {formatCents(summary.documentedCents)} documented
         </Line>
 
         {/* Its own line, never folded into the posted-video maths. */}

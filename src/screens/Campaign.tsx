@@ -715,7 +715,7 @@ function SetupPicker({
       <p className="text-sm text-state-later">default setup</p>
       {value === null ? (
         <p className="mt-1 text-sm font-semibold text-state-blocked">
-          Not set - this campaign cannot be planned into a session until it is.
+          Not set - "Or plan it for me" on the campaign picker will skip this campaign until it is.
         </p>
       ) : null}
       <div className="mt-2 flex flex-wrap gap-2">

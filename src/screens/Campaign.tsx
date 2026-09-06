@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 
 import { AccountsEditor } from '../components/AccountsEditor'
 import { EditableField } from '../components/EditableField'
@@ -138,7 +138,18 @@ export function Campaign() {
   return (
     <section className="mx-auto flex max-w-screen-sm flex-col gap-8">
       <header>
-        <h1 className="text-2xl font-semibold text-text">{campaign.name}</h1>
+        <div className="flex items-baseline justify-between gap-3">
+          <h1 className="text-2xl font-semibold text-text">{campaign.name}</h1>
+          {/* The brief changes every couple of weeks - a new rate, a new
+              platform, a document full of hooks. This is how a newer document
+              gets merged in rather than creating a second campaign. */}
+          <Link
+            to={`/campaigns/${campaign.id}/update`}
+            className="shrink-0 rounded-lg border border-edge bg-surface px-3 py-1.5 text-sm font-semibold text-state-later active:bg-surface-raised"
+          >
+            Update from a new brief
+          </Link>
+        </div>
         <p className="text-state-later">{campaign.company ?? 'company not saved yet'}</p>
         <div className="mt-3">
           <IdentityStrip

@@ -14,6 +14,7 @@ import { Now } from './screens/Now'
 import { Settings } from './screens/Settings'
 import { Shoot } from './screens/Shoot'
 import { Posting } from './screens/Posting'
+import { UpdateCampaign } from './screens/UpdateCampaign'
 import { TickOff } from './screens/TickOff'
 import { SessionProvider } from './session/SessionProvider'
 import { AuthProvider } from './sync'
@@ -32,6 +33,7 @@ const router = createBrowserRouter([
       { path: 'campaigns', element: <Campaigns /> },
       { path: 'campaigns/new', element: <NewCampaign /> },
       { path: 'campaigns/:campaignId', element: <Campaign /> },
+      { path: 'campaigns/:campaignId/update', element: <UpdateCampaign /> },
       { path: 'money', element: <Money /> },
       { path: 'settings', element: <Settings /> },
       { path: '*', element: <NotFound /> },

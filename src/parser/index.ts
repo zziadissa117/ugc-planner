@@ -12,3 +12,11 @@ export {
   type ParsedField,
 } from './types'
 export { inspectBrief, verifyQuotes, type BriefIntegrity, type VerificationOutcome } from './verify'
+export {
+  applyCampaignUpdate,
+  diffFields,
+  newBonusTiers,
+  newRules,
+  type ApplyUpdateInput,
+  type FieldDiff,
+} from './updateCampaign'

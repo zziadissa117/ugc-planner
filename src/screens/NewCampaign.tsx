@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import { DocumentInput, type Upload } from '../components/DocumentInput'
 import { fieldLabel } from '../components/fieldLabel'
+import { ReadingProgress } from '../components/ReadingProgress'
 import { ACCOUNT_FIELD_KEYS, saveFieldValue } from '../data/campaignFields'
 import { useData } from '../data/useData'
 import {
@@ -14,11 +16,6 @@ import {
   type ParseResult,
 } from '../parser'
 import { EdgeFunctionParser } from '../parser/edgeFunction'
-
-interface Upload {
-  text: string
-  filename: string | null
-}
 
 /** No document ever states a handle, an email or a password
  *  (NEVER_PARSED_FIELDS) - this is always typed by hand, on this screen,
@@ -208,116 +205,6 @@ export function NewCampaign() {
         {parsing ? 'Reading the documents...' : 'Review it'}
       </button>
     </section>
-  )
-}
-
-/** The one wait in the app that is a real network round trip.
- *
- *  Indeterminate on purpose: the request reports no progress, so a bar filling
- *  towards a percentage would be a number nobody measured. The elapsed count
- *  is measured, so that is what it shows - enough to tell "working" from
- *  "hung" without pretending to know more than it does. */
-function ReadingProgress() {
-  const [seconds, setSeconds] = useState(0)
-
-  useEffect(() => {
-    const started = Date.now()
-    const timer = window.setInterval(() => {
-      setSeconds(Math.floor((Date.now() - started) / 1000))
-    }, 1000)
-    return () => window.clearInterval(timer)
-  }, [])
-
-  return (
-    <div
-      role="progressbar"
-      aria-label="Reading the documents"
-      aria-busy="true"
-      className="flex flex-col gap-2"
-    >
-      <div className="h-1 w-full overflow-hidden rounded-full bg-surface-raised">
-        <div className="indeterminate-bar h-full w-1/4 rounded-full bg-state-now" />
-      </div>
-      <p className="text-sm text-state-later">
-        Reading the documents - {seconds}s. Usually takes about ten.
-      </p>
-    </div>
-  )
-}
-
-/** One document slot. Tap-to-pick comes first and is the biggest target:
- *  phones do not really drag and drop, and SPEC section 7 says that matters
- *  more than the drop area does. */
-function DocumentInput({
-  label,
-  upload,
-  onChange,
-}: {
-  label: string
-  upload: Upload
-  onChange: (upload: Upload) => void
-}) {
-  const inputRef = useRef<HTMLInputElement>(null)
-  const [dragging, setDragging] = useState(false)
-
-  const readFile = useCallback(
-    (file: File) => {
-      void file.text().then((text) => onChange({ text, filename: file.name }))
-    },
-    [onChange],
-  )
-
-  return (
-    <div
-      onDragOver={(event) => {
-        event.preventDefault()
-        setDragging(true)
-      }}
-      onDragLeave={() => setDragging(false)}
-      onDrop={(event) => {
-        event.preventDefault()
-        setDragging(false)
-        const file = event.dataTransfer.files[0]
-        if (file) readFile(file)
-      }}
-      className={`rounded-lg border p-4 ${dragging ? 'border-state-now' : 'border-edge'}`}
-    >
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-state-later">{label}</h2>
-
-      <input
-        ref={inputRef}
-        type="file"
-        accept=".md,.markdown,.txt,text/markdown,text/plain"
-        aria-label={`${label} file`}
-        onChange={(event) => {
-          const file = event.target.files?.[0]
-          if (file) readFile(file)
-        }}
-        className="hidden"
-      />
-      <button
-        type="button"
-        onClick={() => inputRef.current?.click()}
-        className="mt-3 min-h-tap w-full rounded-lg border border-edge bg-surface px-4 font-semibold text-text active:bg-surface-raised"
-      >
-        {upload.filename ?? 'Choose a file'}
-      </button>
-
-      <textarea
-        value={upload.text}
-        onChange={(event) => onChange({ ...upload, text: event.target.value })}
-        aria-label={`${label} text`}
-        spellCheck={false}
-        placeholder="or paste the text here"
-        className="mt-3 h-32 w-full resize-y rounded-lg border border-edge bg-surface p-3 font-mono text-xs text-text placeholder:text-state-later"
-      />
-
-      {upload.text.trim() === '' ? null : (
-        <p className="mt-2 text-sm text-state-later">
-          {upload.text.length.toLocaleString()} characters, stored as-is.
-        </p>
-      )}
-    </div>
   )
 }
 

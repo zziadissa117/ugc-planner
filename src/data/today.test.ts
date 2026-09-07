@@ -7,7 +7,7 @@ import { LocalDatabase } from './local/db'
 import { LocalAdapter } from './local/LocalAdapter'
 import { SESSION_TARGET_PHASE } from './phases'
 import { INFLOW_CAMPAIGN_ID, ensureSeeded } from './seed'
-import { ensureTodaysQuota, shouldNudgeToEdit, summariseToday } from './today'
+import { ensureTodaysQuota, summariseToday } from './today'
 
 const USER = '11111111-1111-4111-8111-111111111111'
 let adapter: LocalAdapter
@@ -97,32 +97,6 @@ describe('runway', () => {
     const s = await summary()
     expect(s.posted).toBe(1)
     expect(s.owed).toBe(1)
-  })
-})
-
-describe('the edit nudge', () => {
-  it('fires under 3 days banked with a filmed backlog', () => {
-    expect(
-      shouldNudgeToEdit({
-        posted: 0,
-        owed: 1,
-        postReadyCount: 2,
-        runwayDays: 2,
-        editBacklog: 4,
-      }),
-    ).toBe(true)
-  })
-
-  it('stays quiet when the backlog is empty', () => {
-    expect(
-      shouldNudgeToEdit({ posted: 0, owed: 1, postReadyCount: 0, runwayDays: 0, editBacklog: 0 }),
-    ).toBe(false)
-  })
-
-  it('stays quiet with plenty of runway', () => {
-    expect(
-      shouldNudgeToEdit({ posted: 0, owed: 1, postReadyCount: 9, runwayDays: 9, editBacklog: 4 }),
-    ).toBe(false)
   })
 })
 

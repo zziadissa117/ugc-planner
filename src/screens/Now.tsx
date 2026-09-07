@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { VideoRow } from '../components/VideoRow'
@@ -7,7 +7,6 @@ import type {
   BonusTier,
   Campaign,
   CampaignAccount,
-  CampaignField,
   CampaignRule,
   SessionType,
   TimeEstimate,
@@ -15,52 +14,48 @@ import type {
   WarmupEvent,
 } from '../data'
 import { WARMUP_SESSIONS_REQUIRED, localToday, needsWarmup, warmupCompletions } from '../data'
-import { ensureTodaysQuota, shouldNudgeToEdit, summariseToday } from '../data/today'
+import { ensureTodaysQuota, summariseToday } from '../data/today'
 import { useData } from '../data/useData'
 import { readyAtFromEvents, fitSession } from '../fitting/fit'
 import { materialiseSupply } from '../fitting/supply'
-import {
-  SESSION_MINUTES,
-  SESSION_PHASE,
-  SESSION_TYPES,
-  formatCents,
-  formatMinutes,
-  stageMinutes,
-} from '../session'
+import { SESSION_PHASE, formatCents, formatMinutes, stageMinutes } from '../session'
 import { useSession } from '../session/useSession'
 import { Console } from './Console'
 
-/** FILM and EDIT are worked one campaign at a time now: he picks which
- *  campaign before anything is packed, sees its do/don't list at a glance,
- *  and only that campaign's work fills the window. WARM-UP never touches the
- *  video pipeline at all - it is a timer against an account, not a session
- *  full of videos - so it gets its own stages entirely. */
-/** Presets for the goal. He batches roughly seven in a filming session, and
- *  edits fewer at a time because editing is the slower stage. */
+/** FILM is worked one campaign at a time: he picks which campaign before
+ *  anything is packed, sees its do/don't list at a glance, and only that
+ *  campaign's work fills the console. WARM-UP never touches the video
+ *  pipeline at all - it is a timer against an account, not a session full of
+ *  videos - so it gets its own stages entirely.
+ *
+ *  EDIT and POST used to live here too, each behind their own goal-and-timer
+ *  setup. Both were noise: editing needed nothing but a single "mark this one
+ *  edited" tap (see EditBacklog below), and posting already has its own
+ *  screen at /post, keyed to platforms and handles rather than a session.
+ *  There is no "how long tonight" step any more, either - he asked for a
+ *  target and a scoreboard, not a clock, so FILM asks only for a goal, and
+ *  nothing else asks for anything at all. */
 const GOAL_PRESETS = [3, 5, 7, 10] as const
+const DEFAULT_GOAL = 7
 
-const DEFAULT_GOALS: Record<'film' | 'edit', number> = { film: 7, edit: 5 }
+/** `work_sessions.planned_minutes` is `not null check (> 0)` in the schema,
+ *  but nothing in the UI asks for a time budget any more - he only ever
+ *  watches the goal count. This is bookkeeping only: a fixed placeholder so
+ *  the row can be written, never surfaced or compared against anywhere. */
+const FILM_SESSION_PLANNED_MINUTES = 120
+
+/** How long a warm-up countdown runs. It used to be a preset he chose before
+ *  picking a session type at all; now nothing asks, since the account only
+ *  needs to be used for a while, not for an exact time he has to plan. */
+const WARMUP_DEFAULT_MINUTES = 15
 
 type Stage =
   | { kind: 'chooser' }
-  | { kind: 'pick_campaign'; type: 'film' | 'edit'; minutes: number }
-  | { kind: 'briefing'; type: 'film' | 'edit'; minutes: number; campaign: Campaign }
-  | {
-      kind: 'console'
-      type: 'film' | 'edit'
-      minutes: number
-      campaign: Campaign
-      goal: number
-      workSessionId: string
-      startedAt: number
-    }
-  | { kind: 'warmup_pick'; minutes: number }
-  | { kind: 'warmup_timer'; minutes: number; account: CampaignAccount; campaign: Campaign | null }
-
-const START_LABEL: Record<'film' | 'edit', string> = {
-  film: 'Start filming',
-  edit: 'Start editing',
-}
+  | { kind: 'pick_campaign' }
+  | { kind: 'briefing'; campaign: Campaign }
+  | { kind: 'console'; campaign: Campaign; goal: number; workSessionId: string }
+  | { kind: 'warmup_pick' }
+  | { kind: 'warmup_timer'; account: CampaignAccount; campaign: Campaign | null }
 
 export function Now() {
   const data = useData()
@@ -70,9 +65,9 @@ export function Now() {
   const [estimates, setEstimates] = useState<TimeEstimate[]>([])
   const [loaded, setLoaded] = useState(false)
 
-  const [freeMinutes, setFreeMinutes] = useState('')
   const [planning, setPlanning] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [editBusy, setEditBusy] = useState(false)
 
   /** The evening in progress lives in the session context so SHOOT is walking
    *  the same list, in the same frozen order, that NOW is showing. */
@@ -117,7 +112,7 @@ export function Now() {
     setTiers(nextTiers)
     setWarmupEvents(nextWarmupEvents)
     setAccounts(nextAccounts)
-    return { nextCampaigns, nextVideos, nextEstimates, settings, nextTiers, nextClaims }
+    return { nextCampaigns, nextVideos, nextEstimates, nextTiers, nextClaims }
   }, [data])
 
   useEffect(() => {
@@ -163,50 +158,36 @@ export function Now() {
   // not the ones already warmed.
   const warmupAccounts = useMemo(() => accounts.filter(needsWarmup), [accounts])
 
-  /** Runs the fitting algorithm for the chosen session and window, creates any
-   *  supply it decided to make, and freezes the resulting order.
-   *
-   *  He never picks a count: the plan fills the window, and what comes back is
-   *  simply the evening's list, in the order to work it.
-   *
-   *  `onlyCampaign` is how FILM and EDIT became single-campaign: fitSession
-   *  scores and builds supply purely from the campaigns it is handed, so
-   *  handing it exactly one is the entire restriction - nothing in the
-   *  algorithm itself changes. */
-  /** Opens a sitting: a campaign, a goal and a window, recorded so the evening
-   *  can be looked back at and so every phase_event it produces says which
-   *  session it belonged to. */
+  /** Opens a sitting: a campaign and a goal, recorded so the evening can be
+   *  looked back at and so every phase_event it produces says which session
+   *  it belonged to. */
   const beginConsole = useCallback(
-    async (type: 'film' | 'edit', minutes: number, campaign: Campaign, goal: number) => {
-      const session = await data.startWorkSession({
+    async (campaign: Campaign, goal: number) => {
+      const workSession = await data.startWorkSession({
         campaign_id: campaign.id,
-        kind: type,
+        kind: 'film',
         goal_videos: goal,
-        planned_minutes: minutes,
+        planned_minutes: FILM_SESSION_PLANNED_MINUTES,
         ended_at: null,
       })
-      setStage({
-        kind: 'console',
-        type,
-        minutes,
-        campaign,
-        goal,
-        workSessionId: session.id,
-        startedAt: Date.parse(session.started_at),
-      })
+      setStage({ kind: 'console', campaign, goal, workSessionId: workSession.id })
     },
     [data],
   )
 
-  const startSession = useCallback(
-    async (type: SessionType, windowMinutes: number, onlyCampaign?: Campaign) => {
+  /** The old behaviour, kept as the option it now is: packs a window with the
+   *  fitting algorithm instead of him picking a goal by hand. It is the one
+   *  place left that still needs a number of minutes, since the algorithm has
+   *  to know how much time it is packing. */
+  const runAutoPlan = useCallback(
+    async (windowMinutes: number, onlyCampaign: Campaign) => {
       setPlanning(true)
       const events = await data.listPhaseEvents()
       const plan = fitSession({
-        session: type,
+        session: 'film',
         windowMinutes,
         videos,
-        campaigns: onlyCampaign ? [onlyCampaign] : campaigns,
+        campaigns: [onlyCampaign],
         estimates,
         setupSwitchMinutes: switchMinutes,
         today: localToday(),
@@ -225,38 +206,38 @@ export function Now() {
 
       await reload()
       start({
-        type,
+        type: 'film',
         windowMinutes,
         videoIds: ordered.filter((id) => id !== ''),
       })
       setStage({ kind: 'chooser' })
       setPlanning(false)
     },
-    [campaigns, claims, data, estimates, reload, start, switchMinutes, tiers, videos],
-  )
-
-  const pickSessionKind = useCallback(
-    (type: SessionType, minutes: number) => {
-      if (type === 'post') {
-        void startSession('post', minutes)
-        return
-      }
-      if (type === 'warm_up') {
-        setStage({ kind: 'warmup_pick', minutes })
-        return
-      }
-      setStage({ kind: 'pick_campaign', type, minutes })
-    },
-    [startSession],
+    [claims, data, estimates, reload, start, switchMinutes, tiers, videos],
   )
 
   const recordWarmup = useCallback(
-    async (accountId: string, minutes: number) => {
-      await data.recordWarmupEvent(accountId, minutes)
+    async (accountId: string) => {
+      await data.recordWarmupEvent(accountId, WARMUP_DEFAULT_MINUTES)
       await reload()
     },
     [data, reload],
   )
+
+  const markOneEdited = useCallback(async () => {
+    setEditBusy(true)
+    try {
+      const filmed = videos
+        .filter((v) => v.phase === 'filmed')
+        .sort((a, b) => a.created_at.localeCompare(b.created_at))
+      const next = filmed[0]
+      if (!next) return
+      await data.advanceVideoPhase(next.id, { session: 'edit' })
+      await reload()
+    } finally {
+      setEditBusy(false)
+    }
+  }, [data, reload, videos])
 
   const handleTap = useCallback(
     async (video: Video, done: boolean) => {
@@ -297,40 +278,34 @@ export function Now() {
           }}
         />
       ) : stage.kind === 'chooser' ? (
-        <Chooser
-          freeMinutes={freeMinutes}
-          setFreeMinutes={setFreeMinutes}
-          onStart={pickSessionKind}
-          nudgeToEdit={shouldNudgeToEdit(summary)}
-          planning={planning}
-        />
+        <>
+          <EditBacklog count={summary.editBacklog} busy={editBusy} onMarkEdited={markOneEdited} />
+          <Chooser
+            onFilm={() => setStage({ kind: 'pick_campaign' })}
+            onWarmUp={() => setStage({ kind: 'warmup_pick' })}
+          />
+        </>
       ) : stage.kind === 'pick_campaign' ? (
         <CampaignPicker
           campaigns={readyCampaigns}
-          onPick={(campaign) =>
-            setStage({ kind: 'briefing', type: stage.type, minutes: stage.minutes, campaign })
-          }
+          onPick={(campaign) => setStage({ kind: 'briefing', campaign })}
           onBack={() => setStage({ kind: 'chooser' })}
         />
       ) : stage.kind === 'briefing' ? (
         <Briefing
           key={stage.campaign.id}
           campaign={stage.campaign}
-          sessionType={stage.type}
-          onStart={(goal) => void beginConsole(stage.type, stage.minutes, stage.campaign, goal)}
-          onAutoPlan={() => void startSession(stage.type, stage.minutes, stage.campaign)}
-          onBack={() => setStage({ kind: 'pick_campaign', type: stage.type, minutes: stage.minutes })}
+          onStart={(goal) => void beginConsole(stage.campaign, goal)}
+          onAutoPlan={(minutes) => void runAutoPlan(minutes, stage.campaign)}
+          onBack={() => setStage({ kind: 'pick_campaign' })}
           planning={planning}
         />
       ) : stage.kind === 'console' ? (
         <Console
           key={stage.workSessionId}
           campaign={stage.campaign}
-          sessionType={stage.type}
           goal={stage.goal}
-          plannedMinutes={stage.minutes}
           workSessionId={stage.workSessionId}
-          startedAt={stage.startedAt}
           onFinish={() => {
             void data.endWorkSession(stage.workSessionId)
             void reload()
@@ -345,7 +320,6 @@ export function Now() {
           onPick={(account) =>
             setStage({
               kind: 'warmup_timer',
-              minutes: stage.minutes,
               account,
               campaign: campaigns.find((c) => c.id === account.campaign_id) ?? null,
             })
@@ -357,12 +331,11 @@ export function Now() {
           key={stage.account.id}
           account={stage.account}
           campaign={stage.campaign}
-          minutes={stage.minutes}
           onDone={async () => {
-            await recordWarmup(stage.account.id, stage.minutes)
-            setStage({ kind: 'warmup_pick', minutes: stage.minutes })
+            await recordWarmup(stage.account.id)
+            setStage({ kind: 'warmup_pick' })
           }}
-          onBack={() => setStage({ kind: 'warmup_pick', minutes: stage.minutes })}
+          onBack={() => setStage({ kind: 'warmup_pick' })}
         />
       )}
     </section>
@@ -398,90 +371,55 @@ function Header({ summary }: { summary: ReturnType<typeof summariseToday> }) {
   )
 }
 
-function Chooser({
-  freeMinutes,
-  setFreeMinutes,
-  onStart,
-  nudgeToEdit,
-  planning,
+/** Filmed videos waiting on an edit are one tap away from being edited - no
+ *  goal, no timer, no campaign to pick. It advances the oldest one, so the
+ *  backlog drains in the order it was filmed rather than growing a tail. */
+function EditBacklog({
+  count,
+  busy,
+  onMarkEdited,
 }: {
-  freeMinutes: string
-  setFreeMinutes: (value: string) => void
-  onStart: (session: SessionType, minutes: number) => void
-  nudgeToEdit: boolean
-  planning: boolean
+  count: number
+  busy: boolean
+  onMarkEdited: () => void
 }) {
-  const [pending, setPending] = useState<SessionType | null>(null)
+  if (count === 0) return null
 
   return (
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-edge bg-surface px-4 py-3">
+      <p className="text-text">
+        {count} filmed, ready to edit
+      </p>
+      <button
+        type="button"
+        onClick={onMarkEdited}
+        disabled={busy}
+        className="min-h-tap rounded-lg border border-edge bg-surface-raised px-4 font-semibold text-text active:bg-surface disabled:text-state-later"
+      >
+        {busy ? '...' : 'Mark edited'}
+      </button>
+    </div>
+  )
+}
+
+function Chooser({ onFilm, onWarmUp }: { onFilm: () => void; onWarmUp: () => void }) {
+  return (
     <div className="flex flex-col gap-6">
-      {/* One line of text, never a modal. */}
-      {nudgeToEdit ? (
-        <p className="text-sm text-state-waiting">
-          Under 3 days banked and there is a filmed backlog - an EDIT session buys the most runway.
-        </p>
-      ) : null}
-
-      <div>
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-state-later">
-          What kind of session?
-        </h2>
-        <div className="mt-2 grid grid-cols-2 gap-3">
-          {SESSION_TYPES.map((type) => (
-            <button
-              key={type.value}
-              type="button"
-              onClick={() => setPending(type.value)}
-              aria-pressed={pending === type.value}
-              className={[
-                'min-h-tap rounded-lg border px-4 font-semibold tracking-wide active:bg-surface-raised',
-                pending === type.value
-                  ? 'border-state-now bg-surface-raised text-state-now'
-                  : 'border-edge bg-surface text-state-later',
-              ].join(' ')}
-            >
-              {type.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div>
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-state-later">
-          How long tonight?
-        </h2>
-        <div className="mt-2 grid grid-cols-4 gap-3">
-          {SESSION_MINUTES.map((preset) => (
-            <button
-              key={preset}
-              type="button"
-              disabled={pending === null || planning}
-              onClick={() => pending && onStart(pending, preset)}
-              className="min-h-tap rounded-lg border border-edge bg-surface font-semibold text-text active:bg-surface-raised disabled:text-state-later"
-            >
-              {preset}
-            </button>
-          ))}
-        </div>
-        <div className="mt-3 flex gap-3">
-          <input
-            type="number"
-            inputMode="numeric"
-            min={1}
-            value={freeMinutes}
-            onChange={(event) => setFreeMinutes(event.target.value)}
-            placeholder="or type minutes"
-            className="min-h-tap flex-1 rounded-lg border border-edge bg-surface px-4 text-text placeholder:text-state-later"
-          />
-          <button
-            type="button"
-            disabled={pending === null || planning || Number(freeMinutes) <= 0}
-            onClick={() => pending && onStart(pending, Number(freeMinutes))}
-            className="min-h-tap rounded-lg border border-edge bg-surface px-5 font-semibold text-text active:bg-surface-raised disabled:text-state-later"
-          >
-            Go
-          </button>
-        </div>
+      <div className="grid grid-cols-2 gap-3">
+        <button
+          type="button"
+          onClick={onFilm}
+          className="min-h-tap rounded-lg border border-edge bg-surface px-4 font-semibold tracking-wide text-text active:bg-surface-raised"
+        >
+          FILM
+        </button>
+        <button
+          type="button"
+          onClick={onWarmUp}
+          className="min-h-tap rounded-lg border border-edge bg-surface px-4 font-semibold tracking-wide text-text active:bg-surface-raised"
+        >
+          WARM-UP
+        </button>
       </div>
 
       <Link
@@ -531,9 +469,9 @@ function SessionList({
     return sum + (stageMinutes(session, video, estimates, campaign?.default_setup ?? null) ?? 0)
   }, 0)
 
-  // The value of what is left tonight. Deliberately not any of the three money
-  // figures - it is prospective, not earned - so it is labelled as tonight's
-  // work and never summed with them.
+  // The value of what is left tonight. Deliberately not any of the money
+  // figures on the Money screen - it is prospective, not earned - so it is
+  // labelled as tonight's work and never summed with them.
   const centsLeft = remaining.reduce((sum, video) => {
     const campaign = campaignsById.get(video.campaign_id)
     return sum + (campaign?.pay_per_video_cents ?? 0)
@@ -547,9 +485,6 @@ function SessionList({
         <p className="text-lg font-semibold tabular-nums text-text">
           {doneCount} of {rows.length}
         </p>
-        {/* Prospective, not earned. Worded so it cannot be read as a ledger
-            figure: it is what tonight is worth if he finishes it, and it is
-            never summed with base earned, expected bonus or paid bonus. */}
         <p className="text-sm tabular-nums text-state-later">
           ~{formatCents(centsLeft)} if you finish tonight - ~{formatMinutes(minutesLeft)} of{' '}
           {minutes}m
@@ -616,8 +551,8 @@ function SessionList({
   )
 }
 
-/** FILM and EDIT: which campaign, before anything is packed. Only campaigns
- *  whose account is not still warming up are offered - see needsWarmup. */
+/** FILM: which campaign, before anything is packed. Only campaigns whose
+ *  account is not still warming up are offered - see needsWarmup. */
 function CampaignPicker({
   campaigns,
   onPick,
@@ -671,39 +606,32 @@ function CampaignPicker({
 
 /** Everything to do and not do for this campaign, fast - read once, right
  *  before the camera comes out, rather than folded away like the brief
- *  page's version of the same list. EDIT additionally shows the editing
- *  style he typed himself, since no document ever states one. */
+ *  page's version of the same list. */
 function Briefing({
   campaign,
-  sessionType,
   onStart,
   onAutoPlan,
   onBack,
   planning,
 }: {
   campaign: Campaign
-  sessionType: 'film' | 'edit'
   onStart: (goal: number) => void
-  onAutoPlan: () => void
+  onAutoPlan: (minutes: number) => void
   onBack: () => void
   planning: boolean
 }) {
   const data = useData()
   const [rules, setRules] = useState<CampaignRule[] | null>(null)
-  const [editingStyle, setEditingStyle] = useState<CampaignField | null>(null)
-  const [goal, setGoal] = useState(DEFAULT_GOALS[sessionType])
+  const [goal, setGoal] = useState(DEFAULT_GOAL)
   const [typedGoal, setTypedGoal] = useState('')
+  const [autoPlanMinutes, setAutoPlanMinutes] = useState('60')
 
   useEffect(() => {
     let cancelled = false
     void (async () => {
-      const [nextRules, fields] = await Promise.all([
-        data.listCampaignRules(campaign.id),
-        data.listCampaignFields(campaign.id),
-      ])
+      const nextRules = await data.listCampaignRules(campaign.id)
       if (cancelled) return
       setRules(nextRules)
-      setEditingStyle(fields.find((f) => f.field_key === 'editing_style') ?? null)
     })()
     return () => {
       cancelled = true
@@ -715,18 +643,6 @@ function Briefing({
   return (
     <div className="flex flex-col gap-4">
       <h2 className="text-lg font-semibold text-text">{campaign.name}</h2>
-
-      {sessionType === 'edit' ? (
-        <div className="rounded-lg border border-edge bg-surface p-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-state-later">
-            Editing style
-          </p>
-          <p className="mt-1 text-text">
-            {editingStyle?.field_value ??
-              'not saved yet - no document states one, add it on the brief page'}
-          </p>
-        </div>
-      ) : null}
 
       {rules.length > 0 ? (
         <div>
@@ -748,12 +664,9 @@ function Briefing({
         <p className="text-state-later">No rules saved for this campaign yet.</p>
       )}
 
-      {/* How many tonight. The spec said never to ask this - the algorithm was
-          meant to fill the window so there was one less thing to decide - but
-          he asked for it directly: a goal to work against and count off. */}
       <div>
         <h3 className="text-sm font-semibold uppercase tracking-wide text-state-later">
-          How many {sessionType === 'film' ? 'to film' : 'to edit'}?
+          How many to film?
         </h3>
         <div className="mt-2 grid grid-cols-4 gap-3">
           {GOAL_PRESETS.map((preset) => (
@@ -794,18 +707,31 @@ function Briefing({
         disabled={planning || (typedGoal.trim() !== '' && Number(typedGoal) <= 0)}
         className="min-h-tap rounded-lg border border-state-now bg-surface-raised px-4 text-lg font-semibold tracking-wide text-state-now active:bg-surface disabled:opacity-60"
       >
-        {START_LABEL[sessionType]}
+        Start filming
       </button>
 
-      {/* The old behaviour, kept as the option he asked for it to be. */}
-      <button
-        type="button"
-        onClick={onAutoPlan}
-        disabled={planning}
-        className="min-h-tap rounded-lg border border-edge bg-surface px-4 font-semibold text-state-later active:bg-surface-raised disabled:opacity-60"
-      >
-        Or plan it for me
-      </button>
+      {/* The old behaviour, kept as the option he asked for it to be. It is
+          the one control left that asks for a number of minutes, since the
+          fitting algorithm has to know how much time it is packing. */}
+      <div className="flex items-center gap-2">
+        <input
+          type="number"
+          inputMode="numeric"
+          min={1}
+          value={autoPlanMinutes}
+          onChange={(event) => setAutoPlanMinutes(event.target.value)}
+          aria-label="Minutes to plan for"
+          className="min-h-tap w-24 rounded-lg border border-edge bg-surface px-3 text-text"
+        />
+        <button
+          type="button"
+          onClick={() => onAutoPlan(Number(autoPlanMinutes))}
+          disabled={planning || Number(autoPlanMinutes) <= 0}
+          className="min-h-tap flex-1 rounded-lg border border-edge bg-surface px-4 font-semibold text-state-later active:bg-surface-raised disabled:opacity-60"
+        >
+          Or plan it for me
+        </button>
+      </div>
 
       <button
         type="button"
@@ -820,7 +746,7 @@ function Briefing({
 
 /** WARM-UP: which account needs it. Only campaigns whose account has not yet
  *  cleared two warm-up sessions are offered - once a campaign leaves this
- *  list it is ready, and FILM/EDIT pick it up from there. */
+ *  list it is ready, and FILM picks it up from there. */
 function WarmupPicker({
   accounts,
   campaigns,
@@ -884,23 +810,21 @@ function WarmupPicker({
   )
 }
 
-/** The account to warm up, and a countdown for the window he chose. Nothing
- *  here touches the video pipeline - warming up is using the account itself,
- *  not filming anything - so there is no script and nothing to skip. */
+/** The account to warm up, and a countdown. Nothing here touches the video
+ *  pipeline - warming up is using the account itself, not filming anything -
+ *  so there is no script and nothing to skip. */
 function WarmupTimer({
   account,
   campaign,
-  minutes,
   onDone,
   onBack,
 }: {
   account: CampaignAccount
   campaign: Campaign | null
-  minutes: number
   onDone: () => Promise<void>
   onBack: () => void
 }) {
-  const [secondsLeft, setSecondsLeft] = useState(minutes * 60)
+  const [secondsLeft, setSecondsLeft] = useState(WARMUP_DEFAULT_MINUTES * 60)
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {

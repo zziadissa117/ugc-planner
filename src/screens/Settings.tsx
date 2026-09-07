@@ -88,13 +88,13 @@ export function Settings() {
 
       <TodoList />
 
-      <div>
-        <h2 className="text-lg font-semibold text-text">Backup</h2>
-        <p className="mt-1 text-state-later">
-          Everything the app knows, as JSON. Keep a copy somewhere off this device.
-        </p>
+      <details className="group">
+        <summary className="flex min-h-tap cursor-pointer list-none items-center justify-between text-lg font-semibold text-text">
+          Backup
+          <span className="text-sm font-normal text-state-later group-open:hidden">Export / import</span>
+        </summary>
 
-        <div className="mt-4 flex gap-3">
+        <div className="mt-3 flex gap-3">
           <button
             type="button"
             onClick={() => void handleExport()}
@@ -117,7 +117,7 @@ export function Settings() {
           onChange={(event) => setJson(event.target.value)}
           spellCheck={false}
           placeholder="Export puts your backup here. Or paste one in and import it."
-          className="mt-3 h-64 w-full resize-y rounded-lg border border-edge bg-surface p-3 font-mono text-xs text-text placeholder:text-state-later"
+          className="mt-3 h-32 w-full resize-y rounded-lg border border-edge bg-surface p-3 font-mono text-xs text-text placeholder:text-state-later"
         />
 
         <button
@@ -136,7 +136,7 @@ export function Settings() {
           <p className="mt-3 text-state-blocked">{status.message}</p>
         ) : null}
         {status.kind === 'busy' ? <p className="mt-3 text-state-later">Working...</p> : null}
-      </div>
+      </details>
 
       <p className="text-state-later">
         Time estimates and the setup switch cost are only used by the optional planner, and are

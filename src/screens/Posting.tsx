@@ -1,13 +1,16 @@
 // What to post today, per campaign, per account.
 //
-// His words: "simply track what i need to post for each campaign depending on
-// post per day demanded ex: inflow post 1 on ig 1 on tiktok with this handle;
-// and vertus 2 on yt 2 on ig w this handle".
+// His words: "very simply the campaigns platforms and check off if i posted
+// in them for the day thats IT. and it renews the next day." So a row is an
+// account, not a video: one line per platform he posts to, checked off once
+// he has posted on it today, unchecked again the next calendar day.
 //
-// So a row is a video, and under it one checkbox per account with the handle
-// written out. One video goes to every account and is still one deliverable,
-// which is why ticking the last account is what moves the video to `posted`
-// and snapshots the rate - not the first.
+// A checkbox still has to mean something underneath - the rate is only ever
+// earned once a video is actually posted - so checking a platform posts the
+// oldest edited video not yet posted there, and the video is marked posted
+// once every ready account for it has one. An account needing more than one a
+// day (posts_per_day > 1) gets a small counter instead of a single box, since
+// a checkbox cannot say "two".
 //
 // Accounts that are not `ready` never appear. Posting brand content from an
 // account still warming up is the thing warm-up exists to prevent.
@@ -15,8 +18,8 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import type { Campaign, CampaignAccount, Video, VideoPost } from '../data'
+import { localToday } from '../data'
 import { useData } from '../data/useData'
-import { formatCents } from '../session'
 
 interface Loaded {
   campaigns: Campaign[]
@@ -30,12 +33,14 @@ export function Posting() {
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
 
+  const today = localToday()
+
   const reload = useCallback(async () => {
     const [campaigns, accounts, videos] = await Promise.all([
       data.listCampaigns(),
       data.listCampaignAccounts(),
-      // Edited and waiting to go out. Posted videos stay listed so a tick can
-      // be undone and so he can see what he has done - rows never vanish.
+      // Edited stock, plus already-posted videos so a post made today can
+      // still be found and undone.
       data.listVideos({ phases: ['edited', 'posted'] }),
     ])
     const posts = (await Promise.all(videos.map((video) => data.listVideoPosts(video.id)))).flat()
@@ -46,63 +51,41 @@ export function Posting() {
     void reload()
   }, [reload])
 
-  const toggle = useCallback(
-    async (video: Video, account: CampaignAccount, posted: boolean, readyAccounts: number) => {
-      setBusy(`${video.id}:${account.id}`)
-      try {
-        if (posted) {
-          await data.removeVideoPost(video.id, account.id)
-          // It is no longer everywhere it needs to be, so it is not posted.
-          if (video.phase === 'posted') await data.undoLastPhaseMove(video.id, { session: 'post' })
-        } else {
-          await data.addVideoPost({
-            video_id: video.id,
-            account_id: account.id,
-            platform: account.platform,
-            url: null,
-            view_count: null,
-            view_count_entered_at: null,
-          })
-          const now = await data.listVideoPosts(video.id)
-          // Re-read rather than trusting the copy this render closed over:
-          // two quick taps on different accounts must not disagree about
-          // whether the video is already done.
-          const current = await data.getVideo(video.id)
-          // The last account is what completes the deliverable. Marking it
-          // posted on the first would count it as earned before it was.
-          if (now.length >= readyAccounts && current !== null && current.phase !== 'posted') {
-            await data.markVideoPosted(video.id, { session: 'post' })
-          }
-        }
-        await reload()
-      } finally {
-        setBusy(null)
-      }
-    },
-    [data, reload],
+  /** Posts this account picked up today - what makes the checkbox checked,
+   *  and what resets it tomorrow without anything having to run at midnight. */
+  const postsToday = useCallback(
+    (accountId: string, posts: readonly VideoPost[]) =>
+      posts.filter((post) => post.account_id === accountId && localToday(new Date(post.posted_at)) === today),
+    [today],
   )
 
-  /** One video going out on every ready account at once - the common case
-   *  ("post 1 on IG, 1 on TikTok, same video") rather than ticking each
-   *  account separately for every video in a backlog. */
-  const postEverywhere = useCallback(
-    async (video: Video, ready: CampaignAccount[], mine: VideoPost[]) => {
-      setBusy(`${video.id}:all`)
+  const logOne = useCallback(
+    async (campaign: Campaign, account: CampaignAccount, videos: Video[], posts: VideoPost[]) => {
+      // Oldest edited video this account has not already posted, so the
+      // backlog drains in the order it was finished.
+      const candidates = videos
+        .filter((v) => v.campaign_id === campaign.id && v.phase === 'edited')
+        .filter((v) => !posts.some((p) => p.video_id === v.id && p.account_id === account.id))
+        .sort((a, b) => a.created_at.localeCompare(b.created_at))
+      const video = candidates[0]
+      if (!video) return
+
+      setBusy(`${account.id}:log`)
       try {
-        const already = new Set(mine.map((post) => post.account_id))
-        for (const account of ready) {
-          if (already.has(account.id)) continue
-          await data.addVideoPost({
-            video_id: video.id,
-            account_id: account.id,
-            platform: account.platform,
-            url: null,
-            view_count: null,
-            view_count_entered_at: null,
-          })
-        }
+        await data.addVideoPost({
+          video_id: video.id,
+          account_id: account.id,
+          platform: account.platform,
+          url: null,
+          view_count: null,
+          view_count_entered_at: null,
+        })
+        const mine = await data.listVideoPosts(video.id)
+        const ready = (await data.listCampaignAccounts(campaign.id)).filter((a) => a.status === 'ready')
         const current = await data.getVideo(video.id)
-        if (current !== null && current.phase !== 'posted') {
+        // The last account is what completes the deliverable. Marking it
+        // posted on the first would count it as earned before it was.
+        if (mine.length >= ready.length && current !== null && current.phase !== 'posted') {
           await data.markVideoPosted(video.id, { session: 'post' })
         }
         await reload()
@@ -113,119 +96,149 @@ export function Posting() {
     [data, reload],
   )
 
+  const undoOne = useCallback(
+    async (account: CampaignAccount, posts: readonly VideoPost[]) => {
+      // Undoes the most recent post to this account today - a mis-tap should
+      // take back what was just done, not an arbitrary one of several.
+      const mine = postsToday(account.id, posts)
+      const last = mine[mine.length - 1]
+      if (!last) return
+
+      setBusy(`${account.id}:undo`)
+      try {
+        await data.removeVideoPost(last.video_id, account.id)
+        const current = await data.getVideo(last.video_id)
+        // It is no longer everywhere it needs to be, so it is not posted.
+        if (current !== null && current.phase === 'posted') {
+          await data.undoLastPhaseMove(last.video_id, { session: 'post' })
+        }
+        await reload()
+      } finally {
+        setBusy(null)
+      }
+    },
+    [data, postsToday, reload],
+  )
+
   if (!loaded) return null
 
   const { campaigns, accounts, videos, posts } = loaded
-  const withWork = campaigns
+  const withAccounts = campaigns
     .map((campaign) => ({
       campaign,
-      accounts: accounts.filter((a) => a.campaign_id === campaign.id && a.status === 'ready'),
-      videos: videos.filter((v) => v.campaign_id === campaign.id),
+      ready: accounts.filter((a) => a.campaign_id === campaign.id && a.status === 'ready'),
     }))
-    .filter((group) => group.videos.length > 0)
+    .filter((group) => group.ready.length > 0)
 
   return (
     <section className="mx-auto flex max-w-screen-sm flex-col gap-6">
       <header>
         <h1 className="text-2xl font-semibold text-text">Post</h1>
-        <p className="text-state-later">Tick each account as it goes up.</p>
+        <p className="text-state-later">Check off each platform as you post to it. Resets tomorrow.</p>
       </header>
 
-      {withWork.length === 0 ? (
+      {withAccounts.length === 0 ? (
         <p className="text-state-later">
-          Nothing ready to post. Edit something first, and it turns up here.
+          No account is ready to post from yet. Warm one up first.
         </p>
       ) : null}
 
-      {withWork.map(({ campaign, accounts: ready, videos: theirs }) => {
-        const outstanding = theirs.filter((v) => v.phase !== 'posted').length
-        return (
+      {withAccounts.map(({ campaign, ready }) => (
         <div key={campaign.id}>
           <h2 className="text-lg font-semibold text-text">{campaign.name}</h2>
-          {outstanding > 1 ? (
-            <p className="text-sm text-state-later">
-              {outstanding} unposted - filmed and edited faster than they went out.
-            </p>
-          ) : null}
-
-          {ready.length === 0 ? (
-            <p className="mt-1 text-sm font-semibold text-state-blocked">
-              No account is ready to post from. Warm one up, or mark one ready on the brief page.
-            </p>
-          ) : null}
-
-          <ul className="mt-2 flex flex-col gap-3">
-            {theirs.map((video) => {
-              const mine = posts.filter((post) => post.video_id === video.id)
-              const done = video.phase === 'posted'
-              return (
-                <li
-                  key={video.id}
-                  className={[
-                    'rounded-lg border p-3',
-                    done ? 'border-state-posted/50 bg-state-posted/10' : 'border-edge bg-surface',
-                  ].join(' ')}
-                >
-                  <div className="flex items-baseline justify-between gap-3">
-                    <p className={done ? 'font-semibold text-state-posted' : 'text-text'}>
-                      {done ? 'Posted' : 'Ready to post'}
-                    </p>
-                    <span className="text-sm tabular-nums text-state-later">
-                      {campaign.pay_per_video_cents === null
-                        ? 'no rate yet'
-                        : formatCents(campaign.pay_per_video_cents)}
-                    </span>
-                  </div>
-
-                  {!done && ready.length > 1 ? (
-                    <button
-                      type="button"
-                      disabled={busy === `${video.id}:all`}
-                      onClick={() => void postEverywhere(video, ready, mine)}
-                      className="mt-2 min-h-tap w-full rounded-lg border border-state-now bg-surface-raised px-3 text-sm font-semibold text-state-now active:bg-surface disabled:opacity-60"
-                    >
-                      {busy === `${video.id}:all` ? '...' : 'Posted everywhere'}
-                    </button>
-                  ) : null}
-
-                  <div className="mt-2 flex flex-col gap-2">
-                    {ready.map((account) => {
-                      const posted = mine.some((post) => post.account_id === account.id)
-                      const key = `${video.id}:${account.id}`
-                      return (
-                        <button
-                          key={account.id}
-                          type="button"
-                          disabled={busy === key}
-                          aria-pressed={posted}
-                          onClick={() => void toggle(video, account, posted, ready.length)}
-                          className={[
-                            'flex min-h-tap items-center justify-between gap-3 rounded-lg border px-3 text-left active:bg-surface-raised disabled:opacity-60',
-                            posted
-                              ? 'border-state-posted/50 text-state-posted'
-                              : 'border-edge text-text',
-                          ].join(' ')}
-                        >
-                          <span>
-                            {account.platform}
-                            <span className="ml-2 text-sm text-state-later">
-                              {account.handle ?? 'no handle saved'}
-                            </span>
-                          </span>
-                          <span aria-hidden className="text-lg">
-                            {busy === key ? '...' : posted ? '[x]' : '[ ]'}
-                          </span>
-                        </button>
-                      )
-                    })}
-                  </div>
-                </li>
-              )
-            })}
+          <ul className="mt-2 flex flex-col gap-2">
+            {ready.map((account) => (
+              <li key={account.id}>
+                <AccountRow
+                  account={account}
+                  doneToday={postsToday(account.id, posts).length}
+                  hasCandidate={videos.some(
+                    (v) =>
+                      v.campaign_id === campaign.id &&
+                      v.phase === 'edited' &&
+                      !posts.some((p) => p.video_id === v.id && p.account_id === account.id),
+                  )}
+                  busy={busy === `${account.id}:log` || busy === `${account.id}:undo`}
+                  onLog={() => void logOne(campaign, account, videos, posts)}
+                  onUndo={() => void undoOne(account, posts)}
+                />
+              </li>
+            ))}
           </ul>
         </div>
-        )
-      })}
+      ))}
     </section>
+  )
+}
+
+function AccountRow({
+  account,
+  doneToday,
+  hasCandidate,
+  busy,
+  onLog,
+  onUndo,
+}: {
+  account: CampaignAccount
+  doneToday: number
+  hasCandidate: boolean
+  busy: boolean
+  onLog: () => void
+  onUndo: () => void
+}) {
+  const target = Math.max(1, account.posts_per_day)
+  const label = (
+    <span>
+      {account.platform}
+      <span className="ml-2 text-sm text-state-later">{account.handle ?? 'no handle saved'}</span>
+    </span>
+  )
+
+  if (target === 1) {
+    const checked = doneToday >= 1
+    return (
+      <button
+        type="button"
+        disabled={busy || (!checked && !hasCandidate)}
+        aria-pressed={checked}
+        onClick={checked ? onUndo : onLog}
+        className={[
+          'flex min-h-tap w-full items-center justify-between gap-3 rounded-lg border px-3 text-left active:bg-surface-raised disabled:opacity-60',
+          checked ? 'border-state-posted/50 text-state-posted' : 'border-edge text-text',
+        ].join(' ')}
+      >
+        {label}
+        <span className="shrink-0 text-sm">
+          {busy ? '...' : checked ? '[x]' : !hasCandidate ? 'nothing ready to post' : '[ ]'}
+        </span>
+      </button>
+    )
+  }
+
+  return (
+    <div className="flex min-h-tap items-center justify-between gap-3 rounded-lg border border-edge px-3 py-2">
+      {label}
+      <div className="flex shrink-0 items-center gap-3">
+        <span className={`text-sm tabular-nums ${doneToday >= target ? 'text-state-posted' : 'text-state-later'}`}>
+          {doneToday} of {target} today
+        </span>
+        <button
+          type="button"
+          disabled={busy || doneToday === 0}
+          onClick={onUndo}
+          className="min-h-tap min-w-tap rounded-lg border border-edge text-text active:bg-surface-raised disabled:opacity-40"
+        >
+          -
+        </button>
+        <button
+          type="button"
+          disabled={busy || doneToday >= target || !hasCandidate}
+          onClick={onLog}
+          className="min-h-tap min-w-tap rounded-lg border border-edge text-text active:bg-surface-raised disabled:opacity-40"
+        >
+          +
+        </button>
+      </div>
+    </div>
   )
 }

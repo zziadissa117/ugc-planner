@@ -10,8 +10,9 @@ A UGC content production planner for a single creator who runs several brand
 campaigns at once. He has a day job and works in a window after it.
 
 The app's job is to **give him a target and a scoreboard**. He picks the
-campaign, says how many videos and how long he has, and the app puts everything
-he needs on one screen and counts them off.
+campaign, says how many videos, and the app puts everything he needs on one
+screen and counts them off. There is no timer anywhere on this path, and no
+separate EDIT session either - see the note on both below.
 
 > This used to read "the app's job is to remove the deciding", and the app was
 > built that way: it chose the campaign, chose the count, and packed his
@@ -20,6 +21,19 @@ he needs on one screen and counts them off.
 > can track and a goal x number of videos". The old behaviour is still there as
 > "Or plan it for me", one button, off the main path. Do not restore it as the
 > default.
+>
+> The FILM console built from that quote still asked "how long tonight?"
+> before it asked for a goal, and a near-identical EDIT console asked the same
+> pair of questions again for a stage that only ever needed his own editing
+> style. He later cut both: "remove the how long tonight and put volume only
+> after i click on film. the others dont need a timer for anything or volume
+> of production." So FILM asks only for a goal, nothing anywhere shows an
+> elapsed clock, and EDIT is not a session at all - a filmed video becomes a
+> single "Mark edited" button on the home screen (`EditBacklog` in
+> `src/screens/Now.tsx`) that advances the oldest one, no goal or campaign
+> picker involved. "Or plan it for me" is the one control left that still asks
+> for a number of minutes, since the fitting algorithm it runs needs a window
+> to pack.
 
 He works **on a laptop with the phone as the camera**. That is why the session
 console shows everything at once rather than one video at a time: he is reading

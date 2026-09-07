@@ -59,15 +59,15 @@ function renderScreen(element: React.ReactElement) {
   )
 }
 
-/** Picks FILM and a 60 minute window, then the campaign (Inflow is the only
- *  one seeded, and its seed carries handles, so it never needs warming up)
- *  and past its do/don't briefing. Does not assume the list is non-empty:
- *  when a session has nothing at its stage there is no list to find. */
+/** Picks FILM, then the campaign (Inflow is the only one seeded, and its seed
+ *  carries handles, so it never needs warming up) and past its do/don't
+ *  briefing, and hands off to the planner rather than a goal. Does not assume
+ *  the list is non-empty: when a session has nothing at its stage there is no
+ *  list to find. */
 async function openFilmSession(user: ReturnType<typeof userEvent.setup>) {
   renderScreen(<Now />)
   await screen.findByText(/of 1 posted/)
   await user.click(screen.getByRole('button', { name: 'FILM' }))
-  await user.click(screen.getByRole('button', { name: '60' }))
   await user.click(await screen.findByRole('button', { name: /Inflow/ }))
   // The console is the default path now; the planner is the option beside it.
   await user.click(await screen.findByRole('button', { name: 'Or plan it for me' }))
@@ -85,16 +85,16 @@ describe('the NOW screen', () => {
     expect(screen.getByText(/days of posts banked/)).toBeInTheDocument()
   })
 
-  it('offers all four session types and the preset windows', async () => {
+  it('offers FILM and WARM-UP, and nothing that asks for a time budget', async () => {
     renderScreen(<Now />)
     await screen.findByText(/of 1 posted/)
 
-    for (const label of ['FILM', 'EDIT', 'POST', 'WARM-UP']) {
+    for (const label of ['FILM', 'WARM-UP']) {
       expect(screen.getByRole('button', { name: label })).toBeInTheDocument()
     }
-    for (const preset of ['30', '60', '90', '120']) {
-      expect(screen.getByRole('button', { name: preset })).toBeInTheDocument()
-    }
+    expect(screen.queryByRole('button', { name: 'EDIT' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'POST' })).toBeNull()
+    expect(screen.queryByText(/how long tonight/i)).toBeNull()
   })
 
   it('reaches the tick-off list without picking a session type', async () => {
@@ -105,14 +105,14 @@ describe('the NOW screen', () => {
     ).toBeInTheDocument()
   })
 
-  it('fills the window with film work, existing and newly generated', async () => {
+  it('fills the plan with film work, existing and newly generated', async () => {
     await seedFilmBacklog(2)
     const user = userEvent.setup()
     const list = await startFilmSession(user)
 
-    // A 60 minute window at 12 film minutes a video: today's owed one, the two
+    // A 60 minute plan at 12 film minutes a video: today's owed one, the two
     // already built ahead, and enough new supply to use the rest. He never
-    // picked a count - the window decided.
+    // picked a count for this path - the planner decided.
     expect(within(list).getAllByRole('button')).toHaveLength(5)
 
     // Everything offered is film work, so everything starts undone.
@@ -193,12 +193,49 @@ describe('the NOW screen', () => {
     const user = userEvent.setup()
     const list = await startFilmSession(user)
 
-    // The filmed video belongs to an EDIT session, not this one.
+    // The filmed video is edit work, not this session's.
     expect(within(list).queryByText('Other campaign')).toBeNull()
   })
 })
 
-describe('choosing a campaign for FILM and EDIT', () => {
+describe('editing, without a session', () => {
+  it('shows nothing to edit when nothing has been filmed', async () => {
+    renderScreen(<Now />)
+    await screen.findByText(/of 1 posted/)
+    expect(screen.queryByText(/ready to edit/)).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Mark edited' })).toBeNull()
+  })
+
+  it('marks the oldest filmed video edited in one tap, no goal or timer involved', async () => {
+    const video = await adapter.createVideo({
+      campaign_id: INFLOW_CAMPAIGN_ID,
+      setup: 'face',
+      angle_id: null,
+      script: null,
+      blocked_reason: null,
+      owed_for_date: null,
+      rate_snapshot_cents: null,
+      posted_at: null,
+    })
+    await adapter.advanceVideoPhase(video.id, { session: 'film' })
+
+    const user = userEvent.setup()
+    renderScreen(<Now />)
+    await screen.findByText(/of 1 posted/)
+
+    expect(await screen.findByText('1 filmed, ready to edit')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Mark edited' }))
+
+    await waitFor(async () => {
+      expect((await adapter.getVideo(video.id))?.phase).toBe('edited')
+    })
+    await waitFor(() => {
+      expect(screen.queryByText(/ready to edit/)).toBeNull()
+    })
+  })
+})
+
+describe('choosing a campaign for FILM', () => {
   it('shows the do/don\'t briefing before a FILM session starts, and offers to start it', async () => {
     await adapter.addCampaignRule({ campaign_id: INFLOW_CAMPAIGN_ID, body: 'Never say the brand name twice.' })
 
@@ -206,7 +243,6 @@ describe('choosing a campaign for FILM and EDIT', () => {
     renderScreen(<Now />)
     await screen.findByText(/of 1 posted/)
     await user.click(screen.getByRole('button', { name: 'FILM' }))
-    await user.click(screen.getByRole('button', { name: '60' }))
     await user.click(await screen.findByRole('button', { name: /Inflow/ }))
 
     expect(await screen.findByText('Never say the brand name twice.')).toBeInTheDocument()
@@ -217,18 +253,18 @@ describe('choosing a campaign for FILM and EDIT', () => {
     expect(await screen.findByRole('list', { name: 'Tonight' })).toBeInTheDocument()
   })
 
-  it('opens the console against a goal, and counts a filmed video off it', async () => {
+  it('opens the console against a goal, with no timer anywhere on it', async () => {
     const user = userEvent.setup()
     renderScreen(<Now />)
     await screen.findByText(/of 1 posted/)
     await user.click(screen.getByRole('button', { name: 'FILM' }))
-    await user.click(screen.getByRole('button', { name: '60' }))
     await user.click(await screen.findByRole('button', { name: /Inflow/ }))
 
     // Seven is the default: he batches roughly seven in a filming session.
     await user.click(await screen.findByRole('button', { name: 'Start filming' }))
     expect(await screen.findByText('0')).toBeInTheDocument()
     expect(screen.getByText('of 7')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Elapsed')).toBeNull()
 
     await user.click(screen.getByRole('button', { name: 'Filmed one' }))
 
@@ -241,33 +277,12 @@ describe('choosing a campaign for FILM and EDIT', () => {
     renderScreen(<Now />)
     await screen.findByText(/of 1 posted/)
     await user.click(screen.getByRole('button', { name: 'FILM' }))
-    await user.click(screen.getByRole('button', { name: '60' }))
     await user.click(await screen.findByRole('button', { name: /Inflow/ }))
 
     await user.type(await screen.findByLabelText('or type a number'), '4')
     await user.click(screen.getByRole('button', { name: 'Start filming' }))
 
     expect(await screen.findByText('of 4')).toBeInTheDocument()
-  })
-
-  it('shows the editing style he typed himself in an EDIT briefing', async () => {
-    await adapter.setCampaignField({
-      campaign_id: INFLOW_CAMPAIGN_ID,
-      field_key: 'editing_style',
-      field_value: 'Fast cuts, no music, captions burned in.',
-      source: 'user_entered',
-      source_quote: null,
-      source_document_id: null,
-    })
-
-    const user = userEvent.setup()
-    renderScreen(<Now />)
-    await screen.findByText(/of 1 posted/)
-    await user.click(screen.getByRole('button', { name: 'EDIT' }))
-    await user.click(screen.getByRole('button', { name: '60' }))
-    await user.click(await screen.findByRole('button', { name: /Inflow/ }))
-
-    expect(await screen.findByText('Fast cuts, no music, captions burned in.')).toBeInTheDocument()
   })
 
   it('does not offer a campaign whose only account is still warming up', async () => {
@@ -292,7 +307,6 @@ describe('choosing a campaign for FILM and EDIT', () => {
     renderScreen(<Now />)
     await screen.findByText(/of 1 posted/)
     await user.click(screen.getByRole('button', { name: 'FILM' }))
-    await user.click(screen.getByRole('button', { name: '60' }))
 
     await screen.findByRole('button', { name: /Inflow/ })
     expect(screen.queryByRole('button', { name: /Brand new campaign/ })).toBeNull()
@@ -333,7 +347,6 @@ describe('warming up an account', () => {
     renderScreen(<Now />)
     await screen.findByText(/of 1 posted/)
     await user.click(screen.getByRole('button', { name: 'WARM-UP' }))
-    await user.click(screen.getByRole('button', { name: '30' }))
 
     expect(await screen.findByRole('button', { name: /TikTok/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Instagram/ })).toBeInTheDocument()
@@ -346,11 +359,10 @@ describe('warming up an account', () => {
     renderScreen(<Now />)
     await screen.findByText(/of 1 posted/)
     await user.click(screen.getByRole('button', { name: 'WARM-UP' }))
-    await user.click(screen.getByRole('button', { name: '30' }))
     await user.click(await screen.findByRole('button', { name: /TikTok/ }))
 
     expect(await screen.findByText('@brandnew')).toBeInTheDocument()
-    expect(screen.getByText('30:00')).toBeInTheDocument()
+    expect(screen.getByText('15:00')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Mark warmed up' }))
 
@@ -363,11 +375,11 @@ describe('warming up an account', () => {
   it('promotes an account to ready after two sessions, and drops it off the list', async () => {
     const { account } = await freshAccount()
 
-    await adapter.recordWarmupEvent(account.id, 30)
+    await adapter.recordWarmupEvent(account.id, 15)
     // One session in: warming, not ready.
     expect((await adapter.listCampaignAccounts())[0].status).toBe('warming')
 
-    await adapter.recordWarmupEvent(account.id, 30)
+    await adapter.recordWarmupEvent(account.id, 15)
     expect((await adapter.listCampaignAccounts())[0].status).toBe('ready')
 
     const user = userEvent.setup()
@@ -375,13 +387,11 @@ describe('warming up an account', () => {
     await screen.findByText(/of 1 posted/)
 
     await user.click(screen.getByRole('button', { name: 'WARM-UP' }))
-    await user.click(screen.getByRole('button', { name: '30' }))
     await screen.findByText(/nothing needs warming up/i)
 
     // And it is workable now.
     await user.click(screen.getByRole('button', { name: 'Change session' }))
     await user.click(screen.getByRole('button', { name: 'FILM' }))
-    await user.click(screen.getByRole('button', { name: '30' }))
     expect(await screen.findByRole('button', { name: /Brand new campaign/ })).toBeInTheDocument()
   })
 
@@ -389,7 +399,7 @@ describe('warming up an account', () => {
     const { account } = await freshAccount()
     await adapter.updateCampaignAccount(account.id, { status: 'ready' })
 
-    await adapter.recordWarmupEvent(account.id, 30)
+    await adapter.recordWarmupEvent(account.id, 15)
 
     // He knows something the count does not.
     expect((await adapter.listCampaignAccounts())[0].status).toBe('ready')

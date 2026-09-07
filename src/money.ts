@@ -183,3 +183,96 @@ export function totalMoney(summaries: readonly CampaignMoney[]): MoneyTotals {
     { documentedCents: 0, expectedBonusCents: 0, receivedBonusCents: 0, unpricedPostedCount: 0 },
   )
 }
+
+// --- Pay by day / week / month -------------------------------------------
+//
+// He asked for the cycle tracking and the opening balance to go: "just track
+// how much it pays by day, week, month to motivate me". These three numbers
+// answer that directly, from the same posted-and-priced videos as
+// documentedCents above, just bucketed by when each one was posted rather
+// than summed since the beginning of time.
+//
+// "This week" is the current calendar week (Monday start), and "this month"
+// the current calendar month - not a rolling 7 or 30 days - because those are
+// the buckets a person actually means by the words.
+
+export interface PeriodEarnings {
+  todayCents: number
+  weekCents: number
+  monthCents: number
+}
+
+function startOfLocalDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate())
+}
+
+function startOfWeek(date: Date): Date {
+  const day = startOfLocalDay(date)
+  // getDay() is 0 (Sunday) through 6 (Saturday); this walks back to Monday.
+  const sinceMonday = (day.getDay() + 6) % 7
+  day.setDate(day.getDate() - sinceMonday)
+  return day
+}
+
+function startOfMonth(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), 1)
+}
+
+export function summariseCampaignPeriodEarnings(
+  campaign: Campaign,
+  videos: readonly Video[],
+  now: Date = new Date(),
+): PeriodEarnings {
+  const today = startOfLocalDay(now)
+  const weekStart = startOfWeek(now)
+  const monthStart = startOfMonth(now)
+
+  const mine = videos.filter(
+    (v) =>
+      v.campaign_id === campaign.id &&
+      v.phase === 'posted' &&
+      v.posted_at !== null &&
+      v.rate_snapshot_cents !== null,
+  )
+
+  let todayCents = 0
+  let weekCents = 0
+  let monthCents = 0
+  for (const video of mine) {
+    const postedAt = new Date(video.posted_at as string)
+    const cents = video.rate_snapshot_cents ?? 0
+    if (postedAt >= today) todayCents += cents
+    if (postedAt >= weekStart) weekCents += cents
+    if (postedAt >= monthStart) monthCents += cents
+  }
+
+  return { todayCents, weekCents, monthCents }
+}
+
+export function totalPeriodEarnings(
+  campaigns: readonly Campaign[],
+  videos: readonly Video[],
+  now: Date = new Date(),
+): PeriodEarnings {
+  return campaigns.reduce<PeriodEarnings>(
+    (totals, campaign) => {
+      const p = summariseCampaignPeriodEarnings(campaign, videos, now)
+      return {
+        todayCents: totals.todayCents + p.todayCents,
+        weekCents: totals.weekCents + p.weekCents,
+        monthCents: totals.monthCents + p.monthCents,
+      }
+    },
+    { todayCents: 0, weekCents: 0, monthCents: 0 },
+  )
+}
+
+/** A fixed approximation, not a live rate - the app is local-first and works
+ *  fully offline, so this deliberately does not fetch one. It is labelled as
+ *  approximate everywhere it is shown for exactly that reason; update this
+ *  constant by hand if it drifts far from the real rate. */
+export const USD_TO_CAD_RATE = 1.37
+
+export function toCadCents(usdCents: number): number {
+  return Math.round(usdCents * USD_TO_CAD_RATE)
+}

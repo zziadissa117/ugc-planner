@@ -134,9 +134,3 @@ export function summariseToday(
     editBacklog,
   }
 }
-
-/** Under three days banked with a non-empty edit backlog, nudge toward an EDIT
- *  session. One line of text, per SPEC section 2 - never a modal. */
-export function shouldNudgeToEdit(summary: TodaySummary): boolean {
-  return summary.runwayDays !== null && summary.runwayDays < 3 && summary.editBacklog > 0
-}

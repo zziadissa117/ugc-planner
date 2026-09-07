@@ -1,10 +1,16 @@
-// The FILM and EDIT console.
+// The FILM console.
 //
 // One screen with everything on it, because he reads it off a laptop while
 // filming on his phone - not a wizard that shows one video at a time and hides
 // the rules behind a tap. What he asked for, in his order: a quick summary of
-// the campaign, hooks to work down, what he can and cannot say, a timer, and a
-// goal of N videos to count off.
+// the campaign, hooks to work down, what he can and cannot say, and a goal of
+// N videos to count off.
+//
+// No timer, and no EDIT version of this screen. Both were noise: a session
+// timer next to a goal he is already watching told him nothing he needed, and
+// a whole second console - goal, hooks, campaign summary - existed for a stage
+// that only ever needed his own editing style. Editing is now a single button
+// on the home screen; see `EditBacklog` in Now.tsx.
 //
 // The counter is derived, never stored: it counts the phase_events this
 // sitting produced. A number held anywhere else can disagree with the log, and
@@ -19,10 +25,7 @@ import type {
   CampaignHook,
   CampaignRule,
   PhaseEvent,
-  SessionType,
-  Video,
 } from '../data'
-import { SESSION_TARGET_PHASE } from '../data/phases'
 import { useData } from '../data/useData'
 import {
   DEFAULT_HOOK_MODEL,
@@ -33,7 +36,6 @@ import {
   leaningFamily,
   saveGeneratedHooks,
 } from '../hooks/generateHooks'
-import { formatMinutes } from '../session'
 
 /** Fields that describe the campaign in a couple of lines, in the order he
  *  needs them: what it is, who it is for, how it should sound. */
@@ -46,19 +48,13 @@ const CAN_SAY_KEYS = ['product_facts', 'disclosure', 'structure'] as const
 
 export function Console({
   campaign,
-  sessionType,
   goal,
-  plannedMinutes,
   workSessionId,
-  startedAt,
   onFinish,
 }: {
   campaign: Campaign
-  sessionType: SessionType
   goal: number
-  plannedMinutes: number
   workSessionId: string
-  startedAt: number
   onFinish: () => void
 }) {
   const data = useData()
@@ -73,8 +69,6 @@ export function Console({
   const [generating, setGenerating] = useState(false)
   const [warnings, setWarnings] = useState<string[]>([])
   const [lastFamily, setLastFamily] = useState<string | null>(null)
-
-  const targetPhase = SESSION_TARGET_PHASE[sessionType]
 
   const reload = useCallback(async () => {
     const [nextFields, nextRules, nextAngles, nextHooks, nextEvents] = await Promise.all([
@@ -107,18 +101,19 @@ export function Console({
     setBusy(true)
     setError(null)
     try {
-      // The oldest video this session's stage can act on, so the backlog
-      // drains rather than growing a tail.
-      const waiting = await data.listVideos({ campaignId: campaign.id, phases: [targetPhase] })
-      const next: Video | undefined = waiting[0]
+      // Today's owed quota raises rows at `to_film` before he ever opens this
+      // console - drain those first, so a video already owed for today gets
+      // filled rather than left sitting while fresh stock piles up next to it.
+      const waiting = await data.listVideos({ campaignId: campaign.id, phases: ['to_film'] })
+      const next = waiting[0]
 
       if (next) {
-        await data.advanceVideoPhase(next.id, { session: sessionType, workSessionId })
-      } else if (sessionType === 'film') {
-        // Nothing is waiting, so this is supply built ahead of demand. Created
-        // with owed_for_date null - it is stock, not an obligation for any
-        // particular day - and advanced straight away, because he just filmed
-        // it.
+        await data.advanceVideoPhase(next.id, { session: 'film', workSessionId })
+      } else {
+        // Nothing owed is waiting, so this is supply built ahead of demand -
+        // created with owed_for_date null, since it is stock rather than an
+        // obligation for any particular day, and advanced straight away
+        // because he just filmed it.
         const created = await data.createVideo({
           campaign_id: campaign.id,
           setup: campaign.default_setup,
@@ -129,10 +124,7 @@ export function Console({
           rate_snapshot_cents: null,
           posted_at: null,
         })
-        await data.advanceVideoPhase(created.id, { session: sessionType, workSessionId })
-      } else {
-        setError('Nothing left to edit for this campaign - film some first.')
-        return
+        await data.advanceVideoPhase(created.id, { session: 'film', workSessionId })
       }
       await reload()
     } catch (caught) {
@@ -140,7 +132,7 @@ export function Console({
     } finally {
       setBusy(false)
     }
-  }, [campaign.default_setup, campaign.id, data, reload, sessionType, targetPhase, workSessionId])
+  }, [campaign.default_setup, campaign.id, data, reload, workSessionId])
 
   const generate = useCallback(async () => {
     setGenerating(true)
@@ -183,13 +175,7 @@ export function Console({
 
   return (
     <div className="flex flex-col gap-6">
-      <Scoreboard
-        done={done}
-        goal={goal}
-        plannedMinutes={plannedMinutes}
-        startedAt={startedAt}
-        campaignName={campaign.name}
-      />
+      <Scoreboard done={done} goal={goal} campaignName={campaign.name} />
 
       <button
         type="button"
@@ -197,50 +183,41 @@ export function Console({
         disabled={busy}
         className="min-h-[4.5rem] w-full rounded-lg border border-state-now bg-surface-raised px-4 text-xl font-semibold tracking-wide text-state-now active:bg-surface disabled:opacity-60"
       >
-        {sessionType === 'film' ? 'Filmed one' : 'Edited one'}
+        Filmed one
       </button>
 
       {error ? <p className="text-sm text-state-blocked">{error}</p> : null}
 
-      {sessionType === 'edit' ? (
-        <Section title="Your editing style">
-          <Prose
-            value={byKey.get('editing_style') ?? null}
-            missing="Not saved yet - add it on the brief page."
-          />
-        </Section>
-      ) : (
-        <Section title="Hooks">
-          {lastFamily !== null && leaningFamily(angles, lastFamily) !== null ? (
-            <p className="mb-2 text-xs uppercase tracking-wide text-state-later">
-              Last one was {lastFamily} - lean {leaningFamily(angles, lastFamily)} next
-            </p>
-          ) : null}
+      <Section title="Hooks">
+        {lastFamily !== null && leaningFamily(angles, lastFamily) !== null ? (
+          <p className="mb-2 text-xs uppercase tracking-wide text-state-later">
+            Last one was {lastFamily} - lean {leaningFamily(angles, lastFamily)} next
+          </p>
+        ) : null}
 
-          <Hooks hooks={hooks} anglesById={anglesById} onToggle={toggleHook} />
+        <Hooks hooks={hooks} anglesById={anglesById} onToggle={toggleHook} />
 
-          {hookGenerationAvailable() ? (
-            <button
-              type="button"
-              onClick={() => void generate()}
-              disabled={generating}
-              className="mt-3 min-h-tap w-full rounded-lg border border-edge bg-surface px-4 font-semibold text-text active:bg-surface-raised disabled:text-state-later"
-            >
-              {generating ? 'Writing hooks...' : 'Write me some hooks'}
-            </button>
-          ) : null}
+        {hookGenerationAvailable() ? (
+          <button
+            type="button"
+            onClick={() => void generate()}
+            disabled={generating}
+            className="mt-3 min-h-tap w-full rounded-lg border border-edge bg-surface px-4 font-semibold text-text active:bg-surface-raised disabled:text-state-later"
+          >
+            {generating ? 'Writing hooks...' : 'Write me some hooks'}
+          </button>
+        ) : null}
 
-          {warnings.length > 0 ? (
-            <ul className="mt-2 flex flex-col gap-1">
-              {warnings.map((warning) => (
-                <li key={warning} className="text-xs text-state-waiting">
-                  {warning}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </Section>
-      )}
+        {warnings.length > 0 ? (
+          <ul className="mt-2 flex flex-col gap-1">
+            {warnings.map((warning) => (
+              <li key={warning} className="text-xs text-state-waiting">
+                {warning}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </Section>
 
       <Section title="The campaign, quickly">
         {SUMMARY_KEYS.every((key) => !byKey.get(key)) ? (
@@ -283,50 +260,25 @@ export function Console({
   )
 }
 
-/** How many, and how long. The two numbers he asked to be able to watch. */
+/** How many, of how many. The one number he asked to be able to watch - no
+ *  clock next to it, since nothing here is timed. */
 function Scoreboard({
   done,
   goal,
-  plannedMinutes,
-  startedAt,
   campaignName,
 }: {
   done: number
   goal: number
-  plannedMinutes: number
-  startedAt: number
   campaignName: string
 }) {
-  const [nowMs, setNowMs] = useState(() => Date.now())
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNowMs(Date.now()), 1000)
-    return () => window.clearInterval(timer)
-  }, [])
-
-  const elapsed = Math.max(0, Math.floor((nowMs - startedAt) / 1000))
-  const mm = String(Math.floor(elapsed / 60)).padStart(2, '0')
-  const ss = String(elapsed % 60).padStart(2, '0')
   const percent = goal === 0 ? 0 : Math.min(100, Math.round((done / goal) * 100))
 
   return (
     <div>
       <p className="text-sm uppercase tracking-wide text-state-later">{campaignName}</p>
-      <div className="mt-1 flex items-baseline justify-between gap-4">
-        <p className="text-3xl font-semibold tabular-nums text-text">
-          {done} <span className="text-state-later">of {goal}</span>
-        </p>
-        {/* Amber once he is past the window he set - a state, not decoration. */}
-        <p
-          aria-label="Elapsed"
-          className={`text-xl tabular-nums ${
-            elapsed > plannedMinutes * 60 ? 'text-state-waiting' : 'text-state-later'
-          }`}
-        >
-          {mm}:{ss}
-          <span className="ml-2 text-sm">of {formatMinutes(plannedMinutes)}</span>
-        </p>
-      </div>
+      <p className="mt-1 text-3xl font-semibold tabular-nums text-text">
+        {done} <span className="text-state-later">of {goal}</span>
+      </p>
       <div
         role="progressbar"
         aria-valuenow={done}

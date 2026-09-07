@@ -311,26 +311,30 @@ campaign at a stage. Never present an estimate as a measurement.
 
 ---
 
-## 10. Money - three figures, never summed
+## 10. Money - pay by day, week, month
 
-> **Currently one figure is shown.** Expected bonus and paid bonus both read
-> $0.00 permanently, because nothing in the app can enter a probability or a
-> received amount - the adapter has the methods and no screen ever called them.
-> Two columns that can only say zero look like a fact about his earnings rather
-> than a missing feature, so they are out of the UI. `src/money.ts` still
-> computes all three and the rule below is unchanged: they are never summed.
+> This used to be three figures (base earned, expected bonus, paid bonus)
+> plus cycle progress and a first-run opening balance. In real use that read
+> as a ledger he had to maintain rather than a reason to keep going, and the
+> cycle/opening-balance machinery was the part he said was "useless noise." He
+> asked directly for the opposite: "just track how much it pays by day, week,
+> month to motivate me." `src/money.ts` still computes the old three-figure,
+> never-summed breakdown (`summariseCampaignMoney`) for the one thing that
+> still needs it - flagging a posted video with no rate snapshot, which stays
+> a count, never a zero - but the screen no longer shows cycle position,
+> opening balance or "accrued" language.
 
-- **Base earned** - posted videos times `rate_snapshot_cents`. Label DOCUMENTED.
-- **Expected bonus** - payout times a probability **the user typed**. Every
-  probability defaults to zero, so this reads $0 until judged. Label EXPECTED.
-- **Bonus actually paid** - only what was logged as received. Label USER ENTERED.
-
-Also model **accrued vs payable**: Inflow pays only when a 60-post cycle
-completes. Show cycle progress (`13 of 60`) and present base earned as accrued,
-with a plain note that it is not payable until the cycle closes.
-
-**Opening balance**: a first-run field for posts made before the app existed,
-stored as a user-entered carried-over figure, never as fabricated history rows.
+- **Today / this week / this month** - posted videos times
+  `rate_snapshot_cents`, bucketed by `posted_at` into the current calendar day,
+  the current calendar week (Monday start) and the current calendar month.
+  Shown per campaign and as a total across all of them.
+- **CAD conversion** - each figure also shows an approximate CAD amount,
+  clearly labelled `~$X CAD`, converted with a fixed constant
+  (`USD_TO_CAD_RATE` in `src/money.ts`) rather than a live rate: the app is
+  local-first and works fully offline, so nothing on this screen fetches
+  anything. It is an estimate, and is never presented as exact.
+- **Unpriced posted videos** are still flagged rather than counted as zero,
+  with the same backfill action as before once a rate exists to apply.
 
 ---
 

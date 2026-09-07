@@ -1,48 +1,36 @@
-﻿import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
-import type { Campaign } from '../data'
+import type { Campaign, Video } from '../data'
 import { useData } from '../data/useData'
 import {
-  OPENING_BALANCE_RATE_KEY,
-  summariseAllMoney,
-  totalMoney,
-  type CampaignMoney,
+  summariseCampaignMoney,
+  summariseCampaignPeriodEarnings,
+  toCadCents,
+  totalPeriodEarnings,
+  type PeriodEarnings,
 } from '../money'
 import { formatCents } from '../session'
 
-/** SPEC section 10.
- *
- *  Three figures, laid out as three separate cards with three different
- *  labels, and no total anywhere. They mean genuinely different things -
- *  earned, guessed, and banked - and a single number combining them would be
- *  the most believable wrong figure the app could show. */
+/** Three numbers, meant to be looked at: what today paid, what this week has
+ *  paid, what this month has paid. He asked directly for this in place of the
+ *  cycle tracking and the opening balance - "just track how much it pays by
+ *  day, week, month to motivate me" - so this screen no longer tries to be a
+ *  ledger. It still refuses to invent one thing: a posted video with no rate
+ *  snapshot is flagged, not counted as zero. */
 export function Money() {
   const data = useData()
-  const [summaries, setSummaries] = useState<CampaignMoney[] | null>(null)
+  const [campaigns, setCampaigns] = useState<Campaign[] | null>(null)
+  const [videos, setVideos] = useState<Video[]>([])
   const [busy, setBusy] = useState(false)
 
   const load = useCallback(async () => {
-    const [campaigns, videos, claims] = await Promise.all([
-      data.listCampaigns(),
-      data.listVideos(),
-      data.listBonusClaims(),
-    ])
-    const [tiers, fields] = await Promise.all([
-      Promise.all(campaigns.map((c) => data.listBonusTiers(c.id))).then((r) => r.flat()),
-      Promise.all(campaigns.map((c) => data.listCampaignFields(c.id))).then((r) => r.flat()),
-    ])
-    return summariseAllMoney(campaigns, videos, tiers, claims, fields)
+    const [nextCampaigns, nextVideos] = await Promise.all([data.listCampaigns(), data.listVideos()])
+    setCampaigns(nextCampaigns)
+    setVideos(nextVideos)
   }, [data])
 
   useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      const next = await load()
-      if (!cancelled) setSummaries(next)
-    })()
-    return () => {
-      cancelled = true
-    }
+    void load()
   }, [load])
 
   const backfill = useCallback(
@@ -50,7 +38,7 @@ export function Money() {
       setBusy(true)
       try {
         await data.backfillUnpricedVideos(campaign.id)
-        setSummaries(await load())
+        await load()
       } finally {
         setBusy(false)
       }
@@ -58,193 +46,88 @@ export function Money() {
     [data, load],
   )
 
-  const saveOpeningRate = useCallback(
-    async (campaign: Campaign, cents: number) => {
-      setBusy(true)
-      try {
-        await data.setCampaignField({
-          campaign_id: campaign.id,
-          field_key: OPENING_BALANCE_RATE_KEY,
-          field_value: String(cents),
-          // His own figure, with no document behind it. Confirming it below
-          // leaves it user_entered rather than promoting it to documented.
-          source: 'user_entered',
-          source_quote: null,
-          source_document_id: null,
-        })
-        await data.confirmCampaignField(campaign.id, OPENING_BALANCE_RATE_KEY)
-        setSummaries(await load())
-      } finally {
-        setBusy(false)
-      }
-    },
-    [data, load],
-  )
+  if (campaigns === null) return null
 
-  if (summaries === null) return null
-  const totals = totalMoney(summaries)
+  const totals = totalPeriodEarnings(campaigns, videos)
+  const unpricedTotal = campaigns.reduce(
+    (sum, c) => sum + summariseCampaignMoney(c, videos, [], []).unpricedPostedCount,
+    0,
+  )
 
   return (
     <section className="mx-auto flex max-w-screen-sm flex-col gap-8">
       <h1 className="text-2xl font-semibold text-text">Money</h1>
 
-      <div className="flex flex-col gap-3">
-        <Figure
-          label="Documented"
-          note="Posted videos at the rate each one locked in at."
-          cents={totals.documentedCents}
-        >
-          {/* Its own line inside the card, never added to the figure above.
-              The per-video total is built from rates this app watched being
-              locked in; this is his recollection of what happened before it
-              existed. Both are honest, and they are not the same kind. */}
-          {summaries
-            .filter((s) => s.openingBalanceCents !== null)
-            .map((s) => (
-              <p key={s.campaign.id} className="mt-2 border-t border-edge pt-2 text-sm">
-                <span className="text-state-later">
-                  {s.campaign.name} - {s.openingPostCount} posts carried over at{' '}
-                  {formatCents(s.openingBalanceRateCents ?? 0)}:{' '}
-                </span>
-                <span className="tabular-nums text-text">
-                  {formatCents(s.openingBalanceCents ?? 0)}
-                </span>
-              </p>
-            ))}
-        </Figure>
-        {/* The expected-bonus and paid-bonus figures used to sit here. Both
-            read $0.00 permanently, because nothing in the app could enter a
-            probability or a received amount - the adapter had the methods and
-            no screen ever called them. Two columns that can only ever say zero
-            are worse than absent: they look like a fact about his earnings.
-            src/money.ts still computes them, so they come back the day there
-            is a way to enter the numbers behind them. */}
+      <div className="grid grid-cols-3 gap-3">
+        <Period label="Today" cents={totals.todayCents} />
+        <Period label="This week" cents={totals.weekCents} />
+        <Period label="This month" cents={totals.monthCents} />
       </div>
 
-      {totals.unpricedPostedCount > 0 ? (
+      {unpricedTotal > 0 ? (
         <p className="text-sm text-state-waiting">
-          {totals.unpricedPostedCount} posted{' '}
-          {totals.unpricedPostedCount === 1 ? 'video has' : 'videos have'} no rate saved. They are
-          not counted above - their pay is unknown, not zero.
+          {unpricedTotal} posted {unpricedTotal === 1 ? 'video has' : 'videos have'} no rate saved.
+          They are not counted above - their pay is unknown, not zero.
         </p>
       ) : null}
 
-      {summaries.map((summary) => (
+      {campaigns.map((campaign) => (
         <CampaignSection
-          key={summary.campaign.id}
-          summary={summary}
+          key={campaign.id}
+          campaign={campaign}
+          videos={videos}
           busy={busy}
-          onBackfill={() => void backfill(summary.campaign)}
-          onSaveOpeningRate={(campaign, cents) => void saveOpeningRate(campaign, cents)}
+          onBackfill={() => void backfill(campaign)}
         />
       ))}
     </section>
   )
 }
 
-function Figure({
-  label,
-  note,
-  cents,
-  muted,
-  zeroNote,
-  children,
-}: {
-  label: string
-  note: string
-  cents: number
-  muted?: boolean
-  zeroNote?: string
-  children?: React.ReactNode
-}) {
+function Period({ label, cents }: { label: string; cents: number }) {
   return (
-    <div className="rounded-lg border border-edge bg-surface p-4">
+    <div className="rounded-lg border border-edge bg-surface p-3 text-center">
       <p className="text-xs font-semibold uppercase tracking-wide text-state-later">{label}</p>
-      <p
-        className={`mt-1 text-3xl font-semibold tabular-nums ${muted ? 'text-state-later' : 'text-text'}`}
-      >
-        {formatCents(cents)}
+      <p className="mt-1 text-2xl font-semibold tabular-nums text-text">{formatCents(cents)}</p>
+      <p className="mt-1 text-xs tabular-nums text-state-later">
+        ~{formatCents(toCadCents(cents))} CAD
       </p>
-      <p className="mt-1 text-sm text-state-later">{note}</p>
-      {muted && zeroNote ? <p className="mt-1 text-sm text-state-later">{zeroNote}</p> : null}
-      {children}
     </div>
   )
 }
 
 function CampaignSection({
-  summary,
+  campaign,
+  videos,
   busy,
   onBackfill,
-  onSaveOpeningRate,
 }: {
-  summary: CampaignMoney
+  campaign: Campaign
+  videos: Video[]
   busy: boolean
   onBackfill: () => void
-  onSaveOpeningRate: (campaign: Campaign, cents: number) => void
 }) {
-  const { campaign } = summary
+  const period: PeriodEarnings = summariseCampaignPeriodEarnings(campaign, videos)
+  const money = summariseCampaignMoney(campaign, videos, [], [])
 
   return (
     <div className="flex flex-col gap-3">
       <h2 className="text-lg font-semibold text-text">{campaign.name}</h2>
 
-      {summary.cycleSize === null ? null : (
-        <div>
-          <p className="tabular-nums text-text">
-            {summary.postsIntoCurrentCycle} of {summary.cycleSize} this cycle
-          </p>
-          <div
-            role="progressbar"
-            aria-valuenow={summary.postsIntoCurrentCycle}
-            aria-valuemin={0}
-            aria-valuemax={summary.cycleSize}
-            className="mt-2 h-2 w-full overflow-hidden rounded-full bg-surface-raised"
-          >
-            <div
-              className="h-full bg-state-posted"
-              style={{ width: `${(summary.postsIntoCurrentCycle / summary.cycleSize) * 100}%` }}
-            />
-          </div>
-          {/* Accrued, not payable. Nothing is owed until a cycle closes. */}
-          <p className="mt-2 text-sm text-state-waiting">
-            {summary.isPayable
-              ? `${summary.completedCycles} ${summary.completedCycles === 1 ? 'cycle has' : 'cycles have'} completed. Everything since is accrued, not payable yet.`
-              : `${formatCents(summary.documentedCents)} accrued. Not payable until this cycle closes.`}
-          </p>
-        </div>
-      )}
-
-      <dl className="flex flex-col gap-2 text-sm">
-        <Line label="Posted in this app">
-          {summary.postedInAppCount} - {formatCents(summary.documentedCents)} documented
-        </Line>
-
-        {/* Its own line, never folded into the posted-video maths. */}
-        <Line label="Opening balance">
-          {summary.openingBalanceCents === null
-            ? `${summary.openingPostCount} posts carried over - counted toward the cycle, with no recorded earnings`
-            : `${summary.openingPostCount} posts carried over at ${formatCents(summary.openingBalanceRateCents ?? 0)} each`}
-        </Line>
-
-        <Line label="Cycle position">
-          {summary.cyclePosition}
-          {summary.cycleSize === null ? '' : ` of ${summary.cycleSize}`}
-        </Line>
+      <dl className="grid grid-cols-3 gap-3 text-sm">
+        <Line label="Today">{formatCents(period.todayCents)}</Line>
+        <Line label="This week">{formatCents(period.weekCents)}</Line>
+        <Line label="This month">{formatCents(period.monthCents)}</Line>
       </dl>
 
-      {summary.openingPostCount > 0 && summary.openingBalanceCents === null ? (
-        <OpeningRateAsk summary={summary} onSave={onSaveOpeningRate} busy={busy} />
-      ) : null}
-
-      {summary.unpricedPostedCount > 0 ? (
+      {money.unpricedPostedCount > 0 ? (
         <div className="rounded-lg border border-state-waiting/40 bg-state-waiting/10 p-4">
           <p className="text-state-waiting">
-            {summary.unpricedPostedCount} posted{' '}
-            {summary.unpricedPostedCount === 1 ? 'video was' : 'videos were'} made before this
+            {money.unpricedPostedCount} posted{' '}
+            {money.unpricedPostedCount === 1 ? 'video was' : 'videos were'} made before this
             campaign had a rate saved.
           </p>
-          {summary.canBackfill ? (
+          {money.canBackfill ? (
             <button
               type="button"
               onClick={onBackfill}
@@ -252,7 +135,7 @@ function CampaignSection({
               className="mt-3 min-h-tap w-full rounded-lg border border-edge bg-surface px-4 font-semibold text-text active:bg-surface-raised disabled:text-state-later"
             >
               Apply {formatCents(campaign.pay_per_video_cents ?? 0)} to{' '}
-              {summary.unpricedPostedCount === 1 ? 'it' : 'them'}
+              {money.unpricedPostedCount === 1 ? 'it' : 'them'}
             </button>
           ) : (
             <p className="mt-2 text-sm text-state-later">
@@ -265,63 +148,11 @@ function CampaignSection({
   )
 }
 
-/** Asks what the carried-over posts were paid at.
- *
- *  The app cannot work this out. Today's rate is a fact about today, and the
- *  posts predate everything it has ever seen. But being unable to derive it is
- *  not a reason to stay quiet about it - he knows, and nobody has asked. */
-function OpeningRateAsk({
-  summary,
-  onSave,
-  busy,
-}: {
-  summary: CampaignMoney
-  onSave: (campaign: Campaign, cents: number) => void
-  busy: boolean
-}) {
-  const [dollars, setDollars] = useState('')
-  const cents = Math.round(Number(dollars) * 100)
-  const valid = dollars.trim() !== '' && Number.isFinite(cents) && cents >= 0
-
-  return (
-    <div className="rounded-lg border border-edge bg-surface p-4">
-      <label
-        htmlFor={`opening-rate-${summary.campaign.id}`}
-        className="text-sm text-state-later"
-      >
-        What were those {summary.openingPostCount} carried-over posts paid at? Nothing here
-        records it, and it is not assumed to be the current rate.
-      </label>
-      <div className="mt-3 flex gap-3">
-        <input
-          id={`opening-rate-${summary.campaign.id}`}
-          type="number"
-          inputMode="decimal"
-          min={0}
-          step="0.01"
-          value={dollars}
-          onChange={(event) => setDollars(event.target.value)}
-          placeholder="35.00"
-          className="min-h-tap flex-1 rounded-lg border border-edge bg-ink px-4 text-text placeholder:text-state-later"
-        />
-        <button
-          type="button"
-          disabled={!valid || busy}
-          onClick={() => onSave(summary.campaign, cents)}
-          className="min-h-tap rounded-lg border border-edge bg-surface px-5 font-semibold text-text active:bg-surface-raised disabled:text-state-later"
-        >
-          Save
-        </button>
-      </div>
-    </div>
-  )
-}
-
 function Line({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex flex-col">
-      <dt className="text-state-later">{label}</dt>
-      <dd className="text-text">{children}</dd>
+    <div className="flex flex-col rounded-lg border border-edge bg-surface p-2 text-center">
+      <dt className="text-xs text-state-later">{label}</dt>
+      <dd className="tabular-nums text-text">{children}</dd>
     </div>
   )
 }

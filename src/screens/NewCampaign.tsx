@@ -5,6 +5,11 @@ import { KNOWN_PLATFORMS } from '../components/AccountsEditor'
 import { DocumentInput, type Upload } from '../components/DocumentInput'
 import { fieldLabel } from '../components/fieldLabel'
 import { ReadingProgress } from '../components/ReadingProgress'
+import {
+  centsToDollarsInput,
+  parseDollarsToCents,
+  saveFieldValue,
+} from '../data/campaignFields'
 import { useData } from '../data/useData'
 import {
   NEVER_PARSED_FIELDS,
@@ -60,6 +65,11 @@ export function NewCampaign() {
    *  campaign owes nothing and pays nothing - so it is asked for here, with
    *  one a day as the starting point rather than a guess at his contract. */
   const [quota, setQuota] = useState('1')
+  /** What one deliverable pays, in dollars as typed. Seeded from the contract
+   *  when it states a rate, and blank when it does not - a campaign whose rate
+   *  no document mentions had no way to get one at creation, so it landed on
+   *  the brief page reading "no rate yet" and stayed there. */
+  const [rate, setRate] = useState('')
 
   const briefText = brief.text.trim() === '' ? null : brief.text
   const contractText = contract.text.trim() === '' ? null : contract.text
@@ -115,6 +125,16 @@ export function NewCampaign() {
       setPlatforms(
         platformsFromBrief(verified.result.fields.platforms?.value ?? null).map(blankPlatform),
       )
+      // Whatever the contract said, shown in dollars so he can correct it
+      // rather than discover it later. Blank when it said nothing: an empty
+      // box is a question, and a guessed rate would be an answer.
+      const parsedRate = verified.result.fields.pay_per_video_cents?.value ?? null
+      const parsedCents = parsedRate === null ? null : Number(parsedRate)
+      setRate(
+        parsedCents !== null && Number.isSafeInteger(parsedCents)
+          ? centsToDollarsInput(parsedCents)
+          : '',
+      )
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught))
     } finally {
@@ -138,6 +158,15 @@ export function NewCampaign() {
       const owed = Number(quota)
       if (Number.isInteger(owed) && owed >= 0) {
         await data.updateCampaign(campaign.id, { daily_post_quota: owed })
+      }
+
+      // Only when it differs from what the parse produced, so confirming a
+      // documented rate and leaving the box alone does not rewrite it as
+      // something he typed. Through saveFieldValue, so the provenance row and
+      // the column the app plans against move together.
+      const cents = parseDollarsToCents(rate)
+      if (cents !== null && cents !== campaign.pay_per_video_cents) {
+        await saveFieldValue(data, campaign.id, 'pay_per_video_cents', String(cents))
       }
 
       // One row per platform, each carrying its own login. Typed here, never
@@ -171,6 +200,7 @@ export function NewCampaign() {
     navigate,
     platforms,
     quota,
+    rate,
     review,
   ])
 
@@ -196,6 +226,8 @@ export function NewCampaign() {
         onPlatformsChange={setPlatforms}
         quota={quota}
         onQuotaChange={setQuota}
+        rate={rate}
+        onRateChange={setRate}
       />
     )
   }
@@ -257,6 +289,8 @@ function Review({
   onPlatformsChange,
   quota,
   onQuotaChange,
+  rate,
+  onRateChange,
 }: {
   result: ParseResult
   rejected: readonly string[]
@@ -270,6 +304,8 @@ function Review({
   onPlatformsChange: (next: PlatformDraft[]) => void
   quota: string
   onQuotaChange: (next: string) => void
+  rate: string
+  onRateChange: (next: string) => void
 }) {
   const entries = Object.entries(result.fields).sort(([a], [b]) => a.localeCompare(b))
   const found = entries.filter(([, field]) => field.value !== null)
@@ -287,6 +323,8 @@ function Review({
         onChange={onPlatformsChange}
         quota={quota}
         onQuotaChange={onQuotaChange}
+        rate={rate}
+        onRateChange={onRateChange}
       />
 
       {result.brief_is_incomplete ? (
@@ -411,11 +449,15 @@ function PlatformEntry({
   onChange,
   quota,
   onQuotaChange,
+  rate,
+  onRateChange,
 }: {
   platforms: PlatformDraft[]
   onChange: (next: PlatformDraft[]) => void
   quota: string
   onQuotaChange: (next: string) => void
+  rate: string
+  onRateChange: (next: string) => void
 }) {
   const chosen = new Set(platforms.map((p) => p.platform))
 
@@ -436,16 +478,33 @@ function PlatformEntry({
         <h2 className="text-sm font-semibold uppercase tracking-wide text-state-later">
           Where it posts
         </h2>
-        <label className="flex items-center gap-2 text-sm text-state-later">
-          posts owed per day
-          <input
-            value={quota}
-            onChange={(event) => onQuotaChange(event.target.value)}
-            aria-label="Posts owed per day"
-            inputMode="numeric"
-            className="min-h-tap w-16 rounded-md border border-edge bg-surface-raised px-2 text-text"
-          />
-        </label>
+        {/* The two numbers that decide what the campaign owes and what it
+            pays. Both live here rather than only on the brief page: he
+            reported that creating a campaign gave him no way to say what it
+            pays, so it read "no rate yet" from the moment it was saved. */}
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-2 text-sm text-state-later">
+            $ per post
+            <input
+              value={rate}
+              onChange={(event) => onRateChange(event.target.value)}
+              aria-label="Dollars per post"
+              inputMode="decimal"
+              placeholder="35"
+              className="min-h-tap w-20 rounded-md border border-edge bg-surface-raised px-2 text-text placeholder:text-state-later"
+            />
+          </label>
+          <label className="flex items-center gap-2 text-sm text-state-later">
+            posts owed per day
+            <input
+              value={quota}
+              onChange={(event) => onQuotaChange(event.target.value)}
+              aria-label="Posts owed per day"
+              inputMode="numeric"
+              className="min-h-tap w-16 rounded-md border border-edge bg-surface-raised px-2 text-text"
+            />
+          </label>
+        </div>
       </div>
 
       <div className="mt-2 flex flex-wrap gap-1.5">

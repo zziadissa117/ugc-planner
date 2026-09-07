@@ -390,7 +390,9 @@ function Money({
   return (
     <InlineEdit
       label={label}
-      display={cents === null ? 'not set' : formatCents(cents)}
+      // A verb, not a status. "not set" beside a greyed figure read as
+      // something the app had decided; "Tap to set" says it is his to fill in.
+      display={cents === null ? 'Tap to set' : formatCents(cents)}
       initial={cents === null ? '' : centsToDollarsInput(cents)}
       parse={(raw) => (raw.trim() === '' ? null : parseDollarsToCents(raw))}
       invalid="Enter an amount like 35 or 35.00."
@@ -485,6 +487,10 @@ function InlineEdit({
     )
   }
 
+  // A visible box, because this used to be borderless text sitting in a strip
+  // beside a figure that really is only a readout - so the one control on the
+  // row that he most needs (the rate) read as a label saying "not set", and he
+  // reported that the app "doesn't even let me set a per post rate".
   return (
     <button
       type="button"
@@ -493,7 +499,7 @@ function InlineEdit({
         setDraft(initial)
         setEditing(true)
       }}
-      className="rounded-md px-1 text-left active:bg-surface-raised"
+      className="rounded-md border border-edge bg-surface-raised px-2 py-1 text-left hover:border-state-now active:bg-surface"
     >
       <span className="block text-[10px] font-semibold uppercase tracking-wide text-state-later">
         {label}

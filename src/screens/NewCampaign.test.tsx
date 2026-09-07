@@ -167,6 +167,47 @@ describe('the review screen', () => {
     await screen.findByRole('heading', { name: 'Review' })
   }
 
+  it('shows the contract rate in dollars, and does not rewrite it as his own', async () => {
+    const user = userEvent.setup()
+    await reachReview(user)
+
+    expect(screen.getByLabelText('Dollars per post')).toHaveValue('35.00')
+
+    // Confirm the parsed row, leave the box alone, save.
+    const list = screen.getByRole('list', { name: 'Parsed fields' })
+    await user.click(within(list).getByRole('button'))
+    await user.click(screen.getByRole('button', { name: 'Save campaign' }))
+
+    await waitFor(async () => {
+      const [saved] = await adapter.listCampaigns()
+      expect(saved?.pay_per_video_cents).toBe(3500)
+    })
+    const [saved] = await adapter.listCampaigns()
+    const fields = await adapter.listCampaignFields(saved.id)
+    // Still the contract's word for it, with the quote behind it - not his.
+    const field = fields.find((f) => f.field_key === 'pay_per_video_cents')
+    expect(field?.source).toBe('documented')
+    expect(field?.source_quote).toBe('$35.00 per approved deliverable')
+  })
+
+  it('takes a correction to a rate the contract stated', async () => {
+    const user = userEvent.setup()
+    await reachReview(user)
+
+    const rate = screen.getByLabelText('Dollars per post')
+    await user.clear(rate)
+    await user.type(rate, '40')
+    await user.click(screen.getByRole('button', { name: 'Save campaign' }))
+
+    await waitFor(async () => {
+      const [saved] = await adapter.listCampaigns()
+      expect(saved?.pay_per_video_cents).toBe(4000)
+    })
+    const [saved] = await adapter.listCampaigns()
+    const fields = await adapter.listCampaignFields(saved.id)
+    expect(fields.find((f) => f.field_key === 'pay_per_video_cents')?.source).toBe('user_entered')
+  })
+
   it('renders a parsed field amber and unreviewed until it is tapped', async () => {
     const user = userEvent.setup()
     await reachReview(user)
@@ -350,6 +391,44 @@ describe('where the campaign posts', () => {
       const [saved] = await adapter.listCampaigns()
       expect(saved?.daily_post_quota).toBe(4)
     })
+  })
+
+  it('asks what one post pays, so a campaign no document priced still gets a rate', async () => {
+    // Without this the only way to price a campaign was a contract that
+    // happened to state a rate: anything else saved, landed on the brief
+    // reading "no rate yet", and earned nothing on Money.
+    const user = userEvent.setup()
+    await reachReview(user)
+
+    const rate = screen.getByLabelText('Dollars per post')
+    expect(rate).toHaveValue('')
+
+    await user.type(rate, '42.50')
+    await user.click(screen.getByRole('button', { name: 'Save campaign' }))
+
+    await waitFor(async () => {
+      const [saved] = await adapter.listCampaigns()
+      expect(saved?.pay_per_video_cents).toBe(4250)
+    })
+    // Through the field row too, so the brief does not show a rate beside
+    // "not saved yet".
+    const [saved] = await adapter.listCampaigns()
+    const fields = await adapter.listCampaignFields(saved.id)
+    const field = fields.find((f) => f.field_key === 'pay_per_video_cents')
+    expect(field?.field_value).toBe('4250')
+    expect(field?.source).toBe('user_entered')
+  })
+
+  it('leaves a blank rate blank rather than guessing one', async () => {
+    const user = userEvent.setup()
+    await reachReview(user)
+    await user.click(screen.getByRole('button', { name: 'Save campaign' }))
+
+    await waitFor(async () => {
+      expect(await adapter.listCampaigns()).toHaveLength(1)
+    })
+    const [saved] = await adapter.listCampaigns()
+    expect(saved.pay_per_video_cents).toBeNull()
   })
 
   it('keeps each password hidden as it is typed', async () => {

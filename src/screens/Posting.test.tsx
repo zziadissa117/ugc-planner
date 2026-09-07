@@ -275,14 +275,47 @@ describe('the posting grid', () => {
     expect(screen.getByText('2 of 1 today')).toBeInTheDocument()
   })
 
-  it('shows an account that is still warming up rather than hiding the platform', async () => {
+  it('leaves out an account that is still warming up', async () => {
+    // He asked for this directly: "If a campaign is not set to ready then dont
+    // put it in the post tab." A box for an account he must not post brand
+    // content from yet is a mistake waiting to be tapped.
     const { accounts } = await setUp(1, ['Instagram', 'TikTok'])
     await adapter.updateCampaignAccount(accounts[0].id, { status: 'warming' })
     renderScreen()
 
-    expect(await screen.findByText('Instagram')).toBeInTheDocument()
-    expect(screen.getByText('TikTok')).toBeInTheDocument()
-    expect(screen.getByText('warming')).toBeInTheDocument()
+    expect(await screen.findByText('TikTok')).toBeInTheDocument()
+    expect(screen.queryByText('Instagram')).toBeNull()
+  })
+
+  it('drops the campaign entirely while none of its accounts are ready', async () => {
+    const { accounts } = await setUp(1, ['Instagram'])
+    await adapter.updateCampaignAccount(accounts[0].id, { status: 'warming' })
+    renderScreen()
+
+    // Not an empty card, and not a "no platforms saved" warning that would be
+    // untrue - the campaign has a platform, it just is not ready. The home
+    // screen is where that account is named and warmed up.
+    await waitFor(() => {
+      expect(screen.queryByText('Inflow')).toBeNull()
+    })
+    expect(screen.queryByText(/No platforms saved/)).toBeNull()
+  })
+
+  it('still says so when a campaign has no platforms at all', async () => {
+    // Different situation, and the only way he learns to add one.
+    await adapter.createCampaign({
+      name: 'Platformless',
+      company: null,
+      default_setup: 'face',
+      approval_mode: 'none',
+      daily_post_quota: 1,
+      pay_per_video_cents: 3500,
+      cycle_size: null,
+    })
+    renderScreen()
+
+    expect(await screen.findByText('Platformless')).toBeInTheDocument()
+    expect(screen.getByText(/No platforms saved/)).toBeInTheDocument()
   })
 
   it('clears the next day, and yesterday does not fill today in', async () => {

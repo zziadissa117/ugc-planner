@@ -84,7 +84,14 @@ export function buildBoard(
   posts: readonly VideoPost[],
   date: string = localToday(),
 ): PostingBoard {
-  const mine = accounts.filter((a) => a.campaign_id === campaign.id && a.is_active)
+  // Ready accounts only. An account still warming up is one he must not post
+  // brand content from yet, so offering it a box is offering him a mistake -
+  // "If a campaign is not set to ready then dont put it in the post tab." It
+  // is not hidden work: the home screen names every not-ready account and
+  // takes him straight into warming it up.
+  const mine = accounts.filter(
+    (a) => a.campaign_id === campaign.id && a.is_active && a.status === 'ready',
+  )
   const accountIds = new Set(mine.map((a) => a.id))
 
   const todays = posts

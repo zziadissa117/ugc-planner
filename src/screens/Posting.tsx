@@ -60,7 +60,17 @@ export function Posting() {
     if (!loaded) return []
     return loaded.campaigns
       .map((campaign) => buildBoard(campaign, loaded.accounts, loaded.posts, today))
-      .filter((board) => board.rows.length > 0 || board.quota > 0)
+      .filter((board) => {
+        if (board.rows.length > 0) return true
+        if (board.quota <= 0) return false
+        // No rows, and the campaign owes something. Two different situations:
+        // it has accounts but every one is still warming up - which belongs on
+        // the home screen's warm-up list, not here - or it has no accounts at
+        // all, where saying so is the only way he learns to add one.
+        return !loaded.accounts.some(
+          (account) => account.campaign_id === board.campaign.id && account.is_active,
+        )
+      })
   }, [loaded, today])
 
   const toggle = useCallback(
@@ -145,11 +155,6 @@ function CampaignBoard({
                 <span className="ml-2 text-state-later">
                   {row.account.handle ?? 'no handle saved'}
                 </span>
-                {row.account.status === 'ready' ? null : (
-                  <span className="ml-2 text-xs uppercase tracking-wide text-state-waiting">
-                    {row.account.status === 'new' ? 'new' : 'warming'}
-                  </span>
-                )}
               </span>
 
               <div className="flex shrink-0 gap-1.5">

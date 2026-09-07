@@ -166,6 +166,58 @@ describe('the numbers that decide the day', () => {
   })
 })
 
+describe('renaming a campaign', () => {
+  it('edits the title in place and keeps it a heading', async () => {
+    const user = userEvent.setup()
+    await renderBrief()
+
+    await user.click(screen.getByRole('button', { name: 'Rename Inflow' }))
+    const input = screen.getByLabelText('Campaign name')
+    await user.clear(input)
+    await user.type(input, 'Inflowpay Q4')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(async () => {
+      expect((await adapter.getCampaign(INFLOW_CAMPAIGN_ID))?.name).toBe('Inflowpay Q4')
+    })
+    // Every other screen finds a campaign by its name; making it editable must
+    // not cost it the heading role.
+    expect(await screen.findByRole('heading', { name: 'Inflowpay Q4' })).toBeInTheDocument()
+  })
+
+  it('refuses to save a blank name', async () => {
+    const user = userEvent.setup()
+    await renderBrief()
+
+    await user.click(screen.getByRole('button', { name: 'Rename Inflow' }))
+    await user.clear(screen.getByLabelText('Campaign name'))
+
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+    expect((await adapter.getCampaign(INFLOW_CAMPAIGN_ID))?.name).toBe('Inflow')
+  })
+})
+
+describe('notes', () => {
+  it('sits with the brief, and saves what he writes', async () => {
+    const user = userEvent.setup()
+    await renderBrief()
+
+    const row = screen.getByText('Notes').parentElement!.parentElement!
+    await user.click(within(row).getByRole('button', { name: 'Edit' }))
+
+    await user.type(screen.getByLabelText('Notes'), 'Brand replies slowly on weekends.')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(async () => {
+      const fields = await adapter.listCampaignFields(INFLOW_CAMPAIGN_ID)
+      const note = fields.find((f) => f.field_key === 'notes')
+      expect(note?.field_value).toBe('Brand replies slowly on weekends.')
+      // His, always: no document produces a note and no parser writes one.
+      expect(note?.source).toBe('user_entered')
+    })
+  })
+})
+
 describe('deleting a campaign', () => {
   it('takes two taps, and the first one can be taken back', async () => {
     const user = userEvent.setup()

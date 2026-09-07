@@ -40,7 +40,14 @@ async function setUp(quota: number, platforms: string[]) {
   const accounts: CampaignAccount[] = []
   for (const platform of platforms) {
     accounts.push(
-      await adapter.addCampaignAccount({ campaign_id: campaign.id, platform, handle: '@me' }),
+      // Ready: the board is only ever drawn for accounts he can actually post
+      // from, so an account left at the default 'new' would give it no rows.
+      await adapter.addCampaignAccount({
+        campaign_id: campaign.id,
+        platform,
+        handle: '@me',
+        status: 'ready',
+      }),
     )
   }
   return { campaign, accounts }
@@ -62,6 +69,26 @@ describe('the board', () => {
     expect(board.slots).toBe(1)
     expect(board.rows.every((row) => row.cells.length === 1)).toBe(true)
     expect(board.doneToday).toBe(0)
+  })
+
+  it('leaves out an account that is still warming up', async () => {
+    // "If a campaign is not set to ready then dont put it in the post tab."
+    // Offering a box for an account he must not post brand content from yet is
+    // offering him a mistake; the home screen is where those accounts live.
+    const { campaign, accounts } = await setUp(1, ['Instagram', 'TikTok'])
+    await adapter.updateCampaignAccount(accounts[1].id, { status: 'warming' })
+
+    const { board } = await state(campaign)
+    expect(board.rows).toHaveLength(1)
+    expect(board.rows[0].account.platform).toBe('Instagram')
+  })
+
+  it('has no rows at all while every account is still warming up', async () => {
+    const { campaign, accounts } = await setUp(1, ['Instagram'])
+    await adapter.updateCampaignAccount(accounts[0].id, { status: 'new' })
+
+    const { board } = await state(campaign)
+    expect(board.rows).toHaveLength(0)
   })
 
   it('gives a four-a-day campaign four columns on its one platform', async () => {

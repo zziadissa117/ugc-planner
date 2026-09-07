@@ -43,13 +43,16 @@ interface Loaded {
 
 /** The four that actually help him make the video. Everything else the parser
  *  found is kept, and kept out of the way. */
-const BRIEF_KEYS = ['product_facts', 'audience', 'tone', 'structure'] as const
+const BRIEF_KEYS = ['product_facts', 'audience', 'tone', 'structure', 'notes'] as const
 
 const BRIEF_LABELS: Record<string, string> = {
   product_facts: 'What it is',
   audience: 'Who it is for',
   tone: 'How it sounds',
   structure: 'How the video goes',
+  // His own, about this campaign. No document produces it and no parser writes
+  // it: it is the one field here that is only ever his.
+  notes: 'Notes',
 }
 
 /** Keys that are now shown somewhere better, or are gone from the app
@@ -143,19 +146,31 @@ export function Campaign() {
 
   return (
     <section className="mx-auto flex max-w-4xl flex-col gap-3">
-      <header className="flex flex-wrap items-baseline justify-between gap-2">
+      <header className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
-          <h1 className="truncate text-xl font-semibold text-text">{campaign.name}</h1>
+          <CampaignTitle
+            name={campaign.name}
+            onSave={(next) => saveColumn({ name: next })}
+          />
           {campaign.company ? (
             <p className="text-xs text-state-later">{campaign.company}</p>
           ) : null}
         </div>
-        <Link
-          to={`/campaigns/${campaign.id}/update`}
-          className="shrink-0 rounded-md border border-edge px-2 py-1 text-xs font-semibold text-state-later active:bg-surface-raised"
-        >
-          Update from a new brief
-        </Link>
+        <div className="flex shrink-0 items-center gap-2">
+          <Link
+            to={`/campaigns/${campaign.id}/update`}
+            className="rounded-md border border-edge px-2 py-1 text-xs font-semibold text-state-later active:bg-surface-raised"
+          >
+            Update from a new brief
+          </Link>
+          <DeleteCampaign
+            name={campaign.name}
+            onDelete={async () => {
+              await data.deleteCampaign(campaign.id)
+              void navigate('/campaigns')
+            }}
+          />
+        </div>
       </header>
 
       {/* The three numbers that decide what today owes and what it pays. */}
@@ -238,14 +253,6 @@ export function Campaign() {
               </ul>
             </details>
           ) : null}
-
-          <DeleteCampaign
-            name={campaign.name}
-            onDelete={async () => {
-              await data.deleteCampaign(campaign.id)
-              void navigate('/campaigns')
-            }}
-          />
 
           {rest.length > 0 ? (
             <details className="rounded-lg border border-edge bg-surface">
@@ -386,13 +393,89 @@ function HooksEditor({ campaignId }: { campaignId: string }) {
   )
 }
 
-/** Removing a campaign, behind one confirming tap.
+/** The campaign's name, renamed in place.
  *
- *  Two taps rather than one because it takes a campaign off every screen at
- *  once - today's obligation, the money, the posting board - and the second
- *  tap names it, so a mis-tap on the wrong brief cannot do it silently.
- *  Nothing is destroyed underneath: the campaign is marked inactive and its
- *  videos and their history stay exactly as they were. */
+ *  A name is his label for the work, not a claim about a document, so it goes
+ *  straight to the column with no provenance row behind it - the same as the
+ *  daily quota. An empty name is refused rather than saved: every screen finds
+ *  a campaign by its name, and a blank one is unfindable. */
+function CampaignTitle({
+  name,
+  onSave,
+}: {
+  name: string
+  onSave: (next: string) => Promise<void>
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(name)
+  const [busy, setBusy] = useState(false)
+
+  async function save() {
+    const cleaned = draft.trim()
+    if (cleaned === '') return
+    setBusy(true)
+    try {
+      if (cleaned !== name) await onSave(cleaned)
+      setEditing(false)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-2">
+        <input
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') void save()
+            if (event.key === 'Escape') setEditing(false)
+          }}
+          aria-label="Campaign name"
+          autoFocus
+          className="min-h-tap min-w-0 flex-1 rounded-md border border-state-now bg-surface-raised px-2 text-xl font-semibold text-text"
+        />
+        <button
+          type="button"
+          onClick={() => void save()}
+          disabled={busy || draft.trim() === ''}
+          className="shrink-0 rounded-md border border-state-now px-2 py-1 text-xs font-semibold text-state-now active:bg-surface disabled:opacity-60"
+        >
+          Save
+        </button>
+      </div>
+    )
+  }
+
+  // Still a real heading: it is what every screen and every test finds the
+  // campaign by, and making it editable must not cost it that.
+  return (
+    <h1 className="min-w-0 text-xl font-semibold text-text">
+      <button
+        type="button"
+        aria-label={`Rename ${name}`}
+        onClick={() => {
+          setDraft(name)
+          setEditing(true)
+        }}
+        className="max-w-full truncate rounded-md text-left active:bg-surface-raised"
+      >
+        {name}
+      </button>
+    </h1>
+  )
+}
+
+/** Removing a campaign: a bin in the header, and one confirming tap.
+ *
+ *  Small and grey at rest, beside the other thing you do to a whole campaign,
+ *  because it is not an action he is looking for. Two taps rather than one
+ *  because it takes the campaign off every screen at once - today's
+ *  obligation, the money, the posting board - and the second tap names it, so
+ *  a mis-tap on the wrong brief cannot do it silently. Nothing is destroyed
+ *  underneath: the campaign is marked inactive and its videos and their
+ *  history stay exactly as they were. */
 function DeleteCampaign({ name, onDelete }: { name: string; onDelete: () => Promise<void> }) {
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -402,9 +485,11 @@ function DeleteCampaign({ name, onDelete }: { name: string; onDelete: () => Prom
       <button
         type="button"
         onClick={() => setConfirming(true)}
-        className="min-h-tap rounded-lg border border-edge px-3 text-sm font-semibold text-state-later active:bg-surface-raised"
+        aria-label="Delete this campaign"
+        title="Delete this campaign"
+        className="rounded-md border border-edge p-1.5 text-state-later active:bg-surface-raised"
       >
-        Delete this campaign
+        <TrashIcon />
       </button>
     )
   }
@@ -435,6 +520,26 @@ function DeleteCampaign({ name, onDelete }: { name: string; onDelete: () => Prom
         </button>
       </div>
     </div>
+  )
+}
+
+function TrashIcon() {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4"
+    >
+      <path d="M4 7h16" />
+      <path d="M10 11v6M14 11v6" />
+      <path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12" />
+      <path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+    </svg>
   )
 }
 

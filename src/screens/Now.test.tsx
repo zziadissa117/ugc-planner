@@ -10,6 +10,7 @@ import { IDBFactory } from 'fake-indexeddb'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it } from 'vitest'
 
+import { WARMUP_SESSIONS_REQUIRED } from '../data'
 import { DataContext } from '../data/context'
 import type { DataAdapter } from '../data/DataAdapter'
 import { LocalDatabase } from '../data/local/db'
@@ -211,24 +212,37 @@ describe('warming up an account', () => {
     return { campaign, account }
   }
 
-  it('only appears when something actually needs warming up', async () => {
+  it('says nothing at all while every account is ready', async () => {
     renderScreen()
     await screen.findByText(/of 1/)
-    // The seed's accounts are ready, so there is nothing to offer.
-    expect(screen.queryByRole('button', { name: /Warm up/ })).toBeNull()
-
-    await freshAccount()
-    renderScreen()
-    expect(await screen.findByRole('button', { name: /Warm up 1 account/ })).toBeInTheDocument()
+    // The seed's accounts are ready. He asked not to see warmed-up accounts
+    // here, and an empty "nothing to warm up" card is noise saying the same.
+    expect(screen.queryByText('Not ready to post')).toBeNull()
   })
 
-  it('shows the account and a countdown, and records a completed session', async () => {
+  it('names the accounts that are not ready, on the home screen', async () => {
+    // The count on its own ("Warm up 2 accounts") made him tap to find out
+    // which. The point of this list is reading it without tapping.
+    await freshAccount('TikTok', '@brandnew')
+    await freshAccount('Instagram', '@second')
+
+    renderScreen()
+    expect(await screen.findByText('Not ready to post')).toBeInTheDocument()
+    expect(screen.getByText('TikTok')).toBeInTheDocument()
+    expect(screen.getByText(/@brandnew/)).toBeInTheDocument()
+    expect(screen.getByText('Instagram')).toBeInTheDocument()
+    expect(screen.getByText(/@second/)).toBeInTheDocument()
+    // Each row carries how far along its warm-up is, and which campaign it is.
+    expect(screen.getAllByText(`0 of ${WARMUP_SESSIONS_REQUIRED}`)).toHaveLength(2)
+    expect(screen.getAllByText(/Brand new campaign/)).toHaveLength(2)
+  })
+
+  it('starts the session straight from the row, with no picker in between', async () => {
     const { account } = await freshAccount()
 
     const user = userEvent.setup()
     renderScreen()
     await screen.findByText(/of 1/)
-    await user.click(await screen.findByRole('button', { name: /Warm up/ }))
     await user.click(await screen.findByRole('button', { name: /TikTok/ }))
 
     expect(await screen.findByText('@brandnew')).toBeInTheDocument()
@@ -240,6 +254,8 @@ describe('warming up an account', () => {
       const events = await adapter.listWarmupEvents()
       expect(events.filter((e) => e.account_id === account.id)).toHaveLength(1)
     })
+    // Back on the home screen, with the row now showing its progress.
+    expect(await screen.findByText(`1 of ${WARMUP_SESSIONS_REQUIRED}`)).toBeInTheDocument()
   })
 
   it('promotes an account to ready after two sessions, and drops it off the list', async () => {
@@ -256,7 +272,8 @@ describe('warming up an account', () => {
 
     renderScreen()
     await screen.findByText(/of 1/)
-    expect(screen.queryByRole('button', { name: /Warm up/ })).toBeNull()
+    expect(screen.queryByText('Not ready to post')).toBeNull()
+    expect(screen.queryByText('@brandnew')).toBeNull()
   })
 
   it('never demotes an account he marked ready himself', async () => {

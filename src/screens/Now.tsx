@@ -43,7 +43,6 @@ type Stage =
   | { kind: 'pick_campaign' }
   | { kind: 'briefing'; campaign: Campaign }
   | { kind: 'console'; campaign: Campaign; goal: number; workSessionId: string }
-  | { kind: 'warmup_pick' }
   | { kind: 'warmup_timer'; account: CampaignAccount; campaign: Campaign | null }
 
 export function Now() {
@@ -158,16 +157,18 @@ export function Now() {
               POST
             </Link>
           </div>
-          {warmupAccounts.length > 0 ? (
-            <button
-              type="button"
-              onClick={() => setStage({ kind: 'warmup_pick' })}
-              className="min-h-tap rounded-lg border border-edge bg-surface px-4 text-sm font-semibold text-state-later active:bg-surface-raised"
-            >
-              Warm up {warmupAccounts.length}{' '}
-              {warmupAccounts.length === 1 ? 'account' : 'accounts'}
-            </button>
-          ) : null}
+          <NotReadyAccounts
+            accounts={warmupAccounts}
+            campaigns={campaigns}
+            warmupEvents={warmupEvents}
+            onPick={(account) =>
+              setStage({
+                kind: 'warmup_timer',
+                account,
+                campaign: campaigns.find((c) => c.id === account.campaign_id) ?? null,
+              })
+            }
+          />
         </>
       ) : stage.kind === 'pick_campaign' ? (
         <CampaignPicker
@@ -194,20 +195,6 @@ export function Now() {
             setStage({ kind: 'home' })
           }}
         />
-      ) : stage.kind === 'warmup_pick' ? (
-        <WarmupPicker
-          accounts={warmupAccounts}
-          campaigns={campaigns}
-          warmupEvents={warmupEvents}
-          onPick={(account) =>
-            setStage({
-              kind: 'warmup_timer',
-              account,
-              campaign: campaigns.find((c) => c.id === account.campaign_id) ?? null,
-            })
-          }
-          onBack={() => setStage({ kind: 'home' })}
-        />
       ) : (
         <WarmupTimer
           key={stage.account.id}
@@ -215,9 +202,9 @@ export function Now() {
           campaign={stage.campaign}
           onDone={async () => {
             await recordWarmup(stage.account.id)
-            setStage({ kind: 'warmup_pick' })
+            setStage({ kind: 'home' })
           }}
-          onBack={() => setStage({ kind: 'warmup_pick' })}
+          onBack={() => setStage({ kind: 'home' })}
         />
       )}
     </section>
@@ -445,68 +432,62 @@ function Briefing({
   )
 }
 
-/** WARM-UP: which account needs it. Only accounts he has marked new or
- *  warming appear - once one is ready it leaves this list. */
-function WarmupPicker({
+/** The accounts he cannot safely post from yet, named on the home screen.
+ *
+ *  This used to be a button reading "Warm up 2 accounts", which told him a
+ *  number and made him tap to find out which. He asked for the opposite: "when
+ *  i have accounts not ready i want that place to be somewhere where i check
+ *  what accounts are NOT ready so i can warm them up." So the accounts
+ *  themselves are the list, and tapping one starts its session directly - the
+ *  picker screen in between is gone.
+ *
+ *  Nothing renders when every account is ready: "i dont want to see already
+ *  warmed up accounts there", and an empty card saying so is noise. */
+function NotReadyAccounts({
   accounts,
   campaigns,
   warmupEvents,
   onPick,
-  onBack,
 }: {
   accounts: CampaignAccount[]
   campaigns: Campaign[]
   warmupEvents: WarmupEvent[]
   onPick: (account: CampaignAccount) => void
-  onBack: () => void
 }) {
+  if (accounts.length === 0) return null
+
   const nameById = new Map(campaigns.map((campaign) => [campaign.id, campaign.name]))
 
   return (
-    <div className="flex flex-col gap-2">
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-state-later">
-        Which account needs warming up?
+    <div className="flex flex-col gap-1.5">
+      <h2 className="text-xs font-semibold uppercase tracking-wide text-state-waiting">
+        Not ready to post
       </h2>
-
-      {accounts.length === 0 ? (
-        <p className="text-sm text-state-later">
-          Nothing needs warming up. Every account is ready to post.
-        </p>
-      ) : (
-        <ul className="flex flex-col gap-1.5">
-          {accounts.map((account) => {
-            const done = warmupCompletions(account.id, warmupEvents)
-            return (
-              <li key={account.id}>
-                <button
-                  type="button"
-                  onClick={() => onPick(account)}
-                  className="flex min-h-tap w-full items-center justify-between gap-3 rounded-lg border border-edge bg-surface px-3 text-left font-semibold text-text active:bg-surface-raised"
-                >
-                  <span className="truncate">
-                    {account.platform}
-                    <span className="ml-2 text-sm font-normal text-state-later">
-                      {account.handle ?? 'no handle saved'} -{' '}
-                      {nameById.get(account.campaign_id) ?? 'unknown campaign'}
-                    </span>
+      <ul className="flex flex-col gap-1.5">
+        {accounts.map((account) => {
+          const done = warmupCompletions(account.id, warmupEvents)
+          return (
+            <li key={account.id}>
+              <button
+                type="button"
+                onClick={() => onPick(account)}
+                className="flex min-h-tap w-full items-center justify-between gap-3 rounded-lg border border-state-waiting/40 bg-surface px-3 text-left active:bg-surface-raised"
+              >
+                <span className="truncate">
+                  <span className="font-semibold text-text">{account.platform}</span>
+                  <span className="ml-2 text-sm text-state-later">
+                    {account.handle ?? 'no handle saved'} ·{' '}
+                    {nameById.get(account.campaign_id) ?? 'unknown campaign'}
                   </span>
-                  <span className="shrink-0 text-sm tabular-nums text-state-waiting">
-                    {done} of {WARMUP_SESSIONS_REQUIRED}
-                  </span>
-                </button>
-              </li>
-            )
-          })}
-        </ul>
-      )}
-
-      <button
-        type="button"
-        onClick={onBack}
-        className="min-h-tap rounded-lg border border-edge bg-surface px-4 text-sm font-semibold text-state-later active:bg-surface-raised"
-      >
-        Back
-      </button>
+                </span>
+                <span className="shrink-0 text-sm tabular-nums text-state-waiting">
+                  {done} of {WARMUP_SESSIONS_REQUIRED}
+                </span>
+              </button>
+            </li>
+          )
+        })}
+      </ul>
     </div>
   )
 }
@@ -575,7 +556,7 @@ function WarmupTimer({
         onClick={onBack}
         className="min-h-tap rounded-lg border border-edge bg-surface px-4 text-sm font-semibold text-state-later active:bg-surface-raised"
       >
-        Pick a different account
+        Back
       </button>
     </div>
   )

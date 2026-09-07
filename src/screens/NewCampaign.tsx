@@ -57,6 +57,10 @@ export function NewCampaign() {
   const [busy, setBusy] = useState(false)
   const [parsing, setParsing] = useState(false)
 
+  /** Typing the campaign in by hand, with no document involved at all. */
+  const [manual, setManual] = useState(false)
+  const [name, setName] = useState('')
+
   const [review, setReview] = useState<ParseResult | null>(null)
   const [rejected, setRejected] = useState<string[]>([])
   const [confirmed, setConfirmed] = useState<Set<string>>(new Set())
@@ -204,6 +208,106 @@ export function NewCampaign() {
     review,
   ])
 
+  /** The whole campaign, typed. No brief, no contract, no parse - he knows
+   *  what it pays and where it posts, and asking him to produce a document
+   *  before he can say so was the app doubting him. */
+  const saveManual = useCallback(async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      const owed = Number(quota)
+      const campaign = await data.createCampaign({
+        name: name.trim(),
+        company: null,
+        default_setup: 'face',
+        daily_post_quota: Number.isInteger(owed) && owed >= 0 ? owed : 0,
+        pay_per_video_cents: null,
+        cycle_size: null,
+      })
+
+      // Through the field row as well as the column, so the brief shows his
+      // rate as his rather than beside "not saved yet".
+      const cents = parseDollarsToCents(rate)
+      if (cents !== null) {
+        await saveFieldValue(data, campaign.id, 'pay_per_video_cents', String(cents))
+      }
+
+      let order = 0
+      for (const draft of platforms) {
+        await data.addCampaignAccount({
+          campaign_id: campaign.id,
+          platform: draft.platform,
+          handle: draft.handle.trim() === '' ? null : draft.handle.trim(),
+          email: draft.email.trim() === '' ? null : draft.email.trim(),
+          password: draft.password === '' ? null : draft.password,
+          status: 'new',
+          sort_order: order++,
+        })
+      }
+
+      void navigate(`/campaigns/${campaign.id}`)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught))
+    } finally {
+      setBusy(false)
+    }
+  }, [data, name, navigate, platforms, quota, rate])
+
+  if (manual) {
+    return (
+      <section className="mx-auto flex max-w-screen-sm flex-col gap-4">
+        <h1 className="text-2xl font-semibold text-text">New campaign</h1>
+
+        <label className="flex flex-col gap-1">
+          <span className="text-sm font-semibold uppercase tracking-wide text-state-later">
+            Campaign name
+          </span>
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            aria-label="Campaign name"
+            placeholder="Inflow"
+            className="min-h-tap rounded-lg border border-edge bg-surface px-3 text-text placeholder:text-state-later"
+          />
+        </label>
+
+        <PlatformEntry
+          platforms={platforms}
+          onChange={setPlatforms}
+          quota={quota}
+          onQuotaChange={setQuota}
+          rate={rate}
+          onRateChange={setRate}
+        />
+
+        <p className="text-sm text-state-later">
+          The brief - what it is, who it is for, hooks, the never-do list - is on the campaign
+          page once this is saved, and a brief or contract can be read in later.
+        </p>
+
+        {error ? <p className="text-state-blocked">{error}</p> : null}
+
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={() => setManual(false)}
+            className="min-h-tap flex-1 rounded-lg border border-edge bg-surface px-4 font-semibold text-state-later active:bg-surface-raised"
+          >
+            Back
+          </button>
+          <button
+            type="button"
+            onClick={() => void saveManual()}
+            disabled={busy || name.trim() === ''}
+            className="min-h-tap flex-1 rounded-lg border border-state-now bg-surface-raised px-4 font-semibold text-state-now active:bg-surface disabled:border-edge disabled:bg-surface disabled:text-state-later"
+          >
+            Save campaign
+          </button>
+        </div>
+      </section>
+    )
+  }
+
   if (review) {
     return (
       <Review
@@ -235,6 +339,21 @@ export function NewCampaign() {
   return (
     <section className="mx-auto flex max-w-screen-sm flex-col gap-6">
       <h1 className="text-2xl font-semibold text-text">New campaign</h1>
+
+      {/* First, and on its own, because it is the baseline rather than the
+          fallback: he knows the rate and the platforms, and reading documents
+          is a shortcut for when there are documents. */}
+      <button
+        type="button"
+        onClick={() => setManual(true)}
+        className="min-h-tap rounded-lg border border-state-now bg-surface-raised px-4 font-semibold text-state-now active:bg-surface"
+      >
+        Type it in myself
+      </button>
+
+      <p className="-mt-3 text-sm text-state-later">
+        Or drop the brief and contract below and have them read for you.
+      </p>
 
       <DocumentInput label="BRIEF (.md)" upload={brief} onChange={setBrief} />
       <DocumentInput label="CONTRACT (.md)" upload={contract} onChange={setContract} />

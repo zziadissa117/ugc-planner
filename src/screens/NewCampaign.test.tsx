@@ -73,6 +73,72 @@ const goodJson = JSON.stringify({
   },
 })
 
+describe('typing a campaign in by hand', () => {
+  // No brief, no contract, no parse. He knows what his campaigns pay and
+  // where they post; requiring a document before he could say so meant the
+  // rate could only ever arrive through a parser that found one.
+  async function reachManual(user: ReturnType<typeof userEvent.setup>) {
+    renderDropBox()
+    await user.click(screen.getByRole('button', { name: 'Type it in myself' }))
+  }
+
+  it('is offered without a document of any kind', async () => {
+    renderDropBox()
+    expect(screen.getByRole('button', { name: 'Type it in myself' })).not.toBeDisabled()
+  })
+
+  it('saves a name, a rate, a daily quota and a platform', async () => {
+    const user = userEvent.setup()
+    await reachManual(user)
+
+    await user.type(screen.getByLabelText('Campaign name'), 'Vertus')
+    await user.type(screen.getByLabelText('Dollars per post'), '50')
+    const quota = screen.getByLabelText('Posts owed per day')
+    await user.clear(quota)
+    await user.type(quota, '4')
+    await user.click(screen.getByRole('button', { name: 'TikTok' }))
+    await user.type(screen.getByLabelText('TikTok handle'), '@vertus.creator')
+
+    await user.click(screen.getByRole('button', { name: 'Save campaign' }))
+
+    // On the rate, not on the row: the campaign lands first and the rate is
+    // written a moment later, so waiting for the row races the field write.
+    await waitFor(async () => {
+      const [row] = await adapter.listCampaigns()
+      expect(row?.pay_per_video_cents).toBe(5000)
+    })
+    const [saved] = await adapter.listCampaigns()
+    expect(saved.name).toBe('Vertus')
+    expect(saved.daily_post_quota).toBe(4)
+
+    // His word for the rate, not a document's.
+    const fields = await adapter.listCampaignFields(saved.id)
+    expect(fields.find((f) => f.field_key === 'pay_per_video_cents')?.source).toBe('user_entered')
+
+    await waitFor(async () => {
+      expect(await adapter.listCampaignAccounts(saved.id)).toHaveLength(1)
+    })
+    const accounts = await adapter.listCampaignAccounts(saved.id)
+    expect(accounts[0].platform).toBe('TikTok')
+    expect(accounts[0].handle).toBe('@vertus.creator')
+  })
+
+  it('needs only a name - everything else can wait for the brief page', async () => {
+    const user = userEvent.setup()
+    await reachManual(user)
+
+    expect(screen.getByRole('button', { name: 'Save campaign' })).toBeDisabled()
+    await user.type(screen.getByLabelText('Campaign name'), 'Nameless no more')
+    await user.click(screen.getByRole('button', { name: 'Save campaign' }))
+
+    await waitFor(async () => {
+      expect(await adapter.listCampaigns()).toHaveLength(1)
+    })
+    const [saved] = await adapter.listCampaigns()
+    expect(saved.pay_per_video_cents).toBeNull()
+  })
+})
+
 describe('the drop box', () => {
   it('offers both document slots with tap-to-pick and a paste area', async () => {
     renderDropBox()

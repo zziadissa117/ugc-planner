@@ -110,8 +110,17 @@ export function summariseToday(
   // Counted by when the post actually happened, not by the day it was owed
   // for: posting today clears today's obligation even if the row was raised
   // yesterday.
+  //
+  // `posted_at` is stored as a UTC ISO timestamp, and `date` is a LOCAL
+  // calendar day (from localToday()). Slicing the ISO string used to compare
+  // a UTC date against a local one directly - they agree only when the two
+  // happen to be on the same calendar day, which is false for hours every
+  // evening in any timezone west of UTC. A video posted five minutes ago
+  // would silently not count as posted "today" until well past local
+  // midnight. Parsing it back through localToday() compares local day to
+  // local day, which is the only comparison that means what it says.
   const posted = videos.filter(
-    (v) => v.phase === 'posted' && v.posted_at !== null && v.posted_at.slice(0, 10) === date,
+    (v) => v.phase === 'posted' && v.posted_at !== null && localToday(new Date(v.posted_at)) === date,
   ).length
 
   const postReadyCount = videos.filter((v) => v.phase === 'edited').length

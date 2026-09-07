@@ -159,4 +159,53 @@ describe('the posting checklist', () => {
     // warm-up exists to prevent.
     expect(screen.queryByRole('button', { name: /TikTok/ })).toBeNull()
   })
+
+  it('posts to every ready account in one tap, and marks the video posted', async () => {
+    const user = userEvent.setup()
+    const { campaign } = await setUp()
+    renderScreen()
+
+    await user.click(await screen.findByRole('button', { name: 'Posted everywhere' }))
+
+    await waitFor(async () => {
+      const [video] = await adapter.listVideos({ campaignId: campaign.id })
+      expect(video.phase).toBe('posted')
+      const posts = await adapter.listVideoPosts(video.id)
+      expect(posts.map((p) => p.platform).sort()).toEqual(['Instagram', 'TikTok'])
+    })
+  })
+
+  it('does not offer the bulk button when there is only one account to tick', async () => {
+    const { accounts } = await setUp()
+    // Down to one ready account - one tap and a bulk button would be the same
+    // control twice.
+    await adapter.updateCampaignAccount(accounts[0].id, { status: 'warming' })
+    renderScreen()
+
+    await screen.findByRole('button', { name: /Instagram/ })
+    expect(screen.queryByRole('button', { name: 'Posted everywhere' })).toBeNull()
+  })
+
+  it('says how many are backed up, so a long list of identical cards is explained', async () => {
+    await setUp()
+    // A second video, also finished and waiting, so the campaign has a real
+    // backlog rather than the one obligation for today.
+    const [campaign] = await adapter.listCampaigns()
+    const second = await adapter.createVideo({
+      campaign_id: campaign.id,
+      setup: 'face',
+      angle_id: null,
+      script: null,
+      blocked_reason: null,
+      owed_for_date: null,
+      rate_snapshot_cents: null,
+      posted_at: null,
+    })
+    await adapter.advanceVideoPhase(second.id, { session: 'film' })
+    await adapter.advanceVideoPhase(second.id, { session: 'edit' })
+
+    renderScreen()
+
+    expect(await screen.findByText(/2 unposted/)).toBeInTheDocument()
+  })
 })

@@ -82,6 +82,37 @@ export function Posting() {
     [data, reload],
   )
 
+  /** One video going out on every ready account at once - the common case
+   *  ("post 1 on IG, 1 on TikTok, same video") rather than ticking each
+   *  account separately for every video in a backlog. */
+  const postEverywhere = useCallback(
+    async (video: Video, ready: CampaignAccount[], mine: VideoPost[]) => {
+      setBusy(`${video.id}:all`)
+      try {
+        const already = new Set(mine.map((post) => post.account_id))
+        for (const account of ready) {
+          if (already.has(account.id)) continue
+          await data.addVideoPost({
+            video_id: video.id,
+            account_id: account.id,
+            platform: account.platform,
+            url: null,
+            view_count: null,
+            view_count_entered_at: null,
+          })
+        }
+        const current = await data.getVideo(video.id)
+        if (current !== null && current.phase !== 'posted') {
+          await data.markVideoPosted(video.id, { session: 'post' })
+        }
+        await reload()
+      } finally {
+        setBusy(null)
+      }
+    },
+    [data, reload],
+  )
+
   if (!loaded) return null
 
   const { campaigns, accounts, videos, posts } = loaded
@@ -106,9 +137,16 @@ export function Posting() {
         </p>
       ) : null}
 
-      {withWork.map(({ campaign, accounts: ready, videos: theirs }) => (
+      {withWork.map(({ campaign, accounts: ready, videos: theirs }) => {
+        const outstanding = theirs.filter((v) => v.phase !== 'posted').length
+        return (
         <div key={campaign.id}>
           <h2 className="text-lg font-semibold text-text">{campaign.name}</h2>
+          {outstanding > 1 ? (
+            <p className="text-sm text-state-later">
+              {outstanding} unposted - filmed and edited faster than they went out.
+            </p>
+          ) : null}
 
           {ready.length === 0 ? (
             <p className="mt-1 text-sm font-semibold text-state-blocked">
@@ -138,6 +176,17 @@ export function Posting() {
                         : formatCents(campaign.pay_per_video_cents)}
                     </span>
                   </div>
+
+                  {!done && ready.length > 1 ? (
+                    <button
+                      type="button"
+                      disabled={busy === `${video.id}:all`}
+                      onClick={() => void postEverywhere(video, ready, mine)}
+                      className="mt-2 min-h-tap w-full rounded-lg border border-state-now bg-surface-raised px-3 text-sm font-semibold text-state-now active:bg-surface disabled:opacity-60"
+                    >
+                      {busy === `${video.id}:all` ? '...' : 'Posted everywhere'}
+                    </button>
+                  ) : null}
 
                   <div className="mt-2 flex flex-col gap-2">
                     {ready.map((account) => {
@@ -175,7 +224,8 @@ export function Posting() {
             })}
           </ul>
         </div>
-      ))}
+        )
+      })}
     </section>
   )
 }

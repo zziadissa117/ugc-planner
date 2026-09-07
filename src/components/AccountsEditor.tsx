@@ -18,6 +18,14 @@ import { ACCOUNT_STATUS_VALUES } from '../data'
  *  one is typing, not a migration - these are just the ones worth a button. */
 const SUGGESTED_PLATFORMS = ['TikTok', 'Instagram', 'YouTube'] as const
 
+/** The separators that mean "more than one platform typed into one box" -
+ *  "Instagram & Youtube", "IG, TikTok", "TikTok/Instagram". One account is one
+ *  platform with one handle and one posts-per-day; a combined string cannot
+ *  hold a real handle for either one, and the daily-demand math needs them
+ *  counted separately. Caught here rather than left to surface later as a
+ *  blank-handle account nobody can explain. */
+const MULTI_PLATFORM_PATTERN = /[,+/&]|\band\b/i
+
 const STATUS_LABELS: Record<AccountStatus, string> = {
   new: 'New',
   warming: 'Warming up',
@@ -55,6 +63,12 @@ export function AccountsEditor({
   async function add() {
     const name = platform.trim()
     if (name === '') return
+    if (MULTI_PLATFORM_PATTERN.test(name)) {
+      setError(
+        `"${name}" looks like more than one platform. Add each one as its own account, with its own handle.`,
+      )
+      return
+    }
     setBusy(true)
     setError(null)
     try {

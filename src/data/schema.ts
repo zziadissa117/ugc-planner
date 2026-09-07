@@ -158,6 +158,8 @@ export interface CampaignAccount {
   campaign_id: string
   platform: string
   handle: string | null
+  email: string | null
+  password: string | null
   posts_per_day: number
   status: AccountStatus
   is_active: boolean
@@ -168,8 +170,8 @@ export interface CampaignAccount {
 
 /** `campaign_accounts` as supplied by a caller: user_id comes from the session, and
  *  columns the database defaults are optional. */
-export type NewCampaignAccount = Omit<CampaignAccount, 'user_id' | 'id' | 'posts_per_day' | 'status' | 'is_active' | 'sort_order' | 'created_at' | 'updated_at'> &
-  Partial<Pick<CampaignAccount, 'id' | 'posts_per_day' | 'status' | 'is_active' | 'sort_order' | 'created_at' | 'updated_at'>>
+export type NewCampaignAccount = Omit<CampaignAccount, 'user_id' | 'id' | 'email' | 'password' | 'posts_per_day' | 'status' | 'is_active' | 'sort_order' | 'created_at' | 'updated_at'> &
+  Partial<Pick<CampaignAccount, 'id' | 'email' | 'password' | 'posts_per_day' | 'status' | 'is_active' | 'sort_order' | 'created_at' | 'updated_at'>>
 
 /** Mirrors `campaign_documents`. */
 export interface CampaignDocument {

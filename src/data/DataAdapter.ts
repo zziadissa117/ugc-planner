@@ -301,6 +301,9 @@ export interface DataAdapter {
   /** Marks a hook used so it is not offered again, or clears that mark. */
   setHookUsed(id: string, used: boolean): Promise<CampaignHook>
 
+  /** Deletes a hook. Material, not history: nothing is preserved. */
+  deleteCampaignHook(id: string): Promise<void>
+
   // --- Money -------------------------------------------------------------
 
   listBonusTiers(campaignId: string): Promise<BonusTier[]>

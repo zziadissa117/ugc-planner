@@ -18,9 +18,9 @@ separate EDIT session either - see the note on both below.
 > built that way: it chose the campaign, chose the count, and packed his
 > window. He said plainly that he wanted the opposite - "i need list of hooks,
 > things i can say and cant say, quick summary of the campaign, and a time so i
-> can track and a goal x number of videos". The old behaviour is still there as
-> "Or plan it for me", one button, off the main path. Do not restore it as the
-> default.
+> can track and a goal x number of videos". The old behaviour survived for a
+> while as "Or plan it for me", one button off the main path, and has since
+> been removed entirely - see below.
 >
 > The FILM console built from that quote still asked "how long tonight?"
 > before it asked for a goal, and a near-identical EDIT console asked the same
@@ -31,9 +31,14 @@ separate EDIT session either - see the note on both below.
 > elapsed clock, and EDIT is not a session at all - a filmed video becomes a
 > single "Mark edited" button on the home screen (`EditBacklog` in
 > `src/screens/Now.tsx`) that advances the oldest one, no goal or campaign
-> picker involved. "Or plan it for me" is the one control left that still asks
-> for a number of minutes, since the fitting algorithm it runs needs a window
-> to pack.
+> picker involved.
+>
+> "Or plan it for me" is gone too, and with it the whole fitting algorithm,
+> the SHOOT teleprompter and the separate tick-off list: "Remove the Plan
+> feature completely. I don't understand the workflow and it does not make
+> sense for how I work." Do not rebuild a planner. `src/fitting`,
+> `src/session`, `src/chatgpt.ts`, `VideoRow`, `Shoot` and `TickOff` were
+> deleted outright rather than left dark.
 
 He works **on a laptop with the phone as the camera**. That is why the session
 console shows everything at once rather than one video at a time: he is reading
@@ -109,9 +114,28 @@ for anything that is not a state.
 
 **A video is one deliverable, posted to every account.** Inflow's contract says
 one piece of content on TikTok and Instagram is *one* deliverable, and he
-confirmed the same for Vertus. So a campaign's daily demand is the **maximum**
-of `posts_per_day` across its ready accounts, never the sum, and the posting
-checklist marks a video posted when the **last** account is ticked.
+confirmed the same for Vertus.
+
+**The quota lives on the campaign; platforms are destinations.**
+`campaigns.daily_post_quota` is the only source of how much a day owes, and
+`pay_per_video_cents x daily_post_quota` is the only source of what a day
+pays. Nothing derives either from the account list. This is not a detail: when
+demand was read off the accounts, adding YouTube to a campaign owing one video
+a day silently changed both the obligation and the earnings, and the screens
+showed "$105/day" and "19 of 6 posted" as a result. Platforms say *where* a
+deliverable goes, never *how many* there are.
+
+**The Post screen is a grid, not a list of videos.** Rows are the campaign's
+accounts, columns are the deliverables owed today (`src/data/posting.ts`).
+Ticking a box records a `video_post`; ticking three platforms for the same
+column records three destinations against the *same* video, so it is earned
+once. A deliverable counts as posted the first time it goes out anywhere, and
+stops counting only when its last destination is removed.
+
+**Posting is never gated on filming.** He films on his phone, edits elsewhere
+and posts things this app never saw. A tick with no video behind it creates
+one. "Nothing ready to post" was the app telling him his own work did not
+happen, and it must not come back in any form.
 
 **One phase chain: `to_film → filmed → edited → posted`.** It used to branch on
 `approval_mode` through `submitted` and `approved`, and nothing in the app
@@ -122,20 +146,34 @@ the app is never told about it, so it is not modelled as a phase. The
 it the long way rewrites the append-only history.
 
 **Accounts, not handles.** Where a campaign posts is a row with a platform, a
-handle, a posts-per-day and a warm-up status he sets. Handles were never a
-claim about a document, so they were never really campaign fields.
+handle, an email, a password and a warm-up status he sets. Handles were never
+a claim about a document, so they were never really campaign fields - and a
+login belongs to one account, not to a campaign: he runs a different account
+per platform. Platforms are picked from a list (`KNOWN_PLATFORMS`), because
+free text produced a real row called "Instagram & Youtube" that no handle
+could describe. `campaign_accounts.posts_per_day` is legacy and unread.
+
+**Angles are optional context, never something to maintain.** Nothing asks him
+to create one, there is no angles UI, and hook generation works identically
+with none, one or many. Where they exist they are extra context and a family
+to rotate.
 
 ## Acceptance checks
 
 Run these before declaring anything done.
 
-- Marking a video posted is one tap. The row turns green and **stays in place**.
-  Rows must never reorder or disappear under the user's thumb.
-- A FILM session never proposes editing, and is timed in film minutes only.
+- Marking a post is one tap. The box turns green and **stays in place**. Rows
+  and boxes must never reorder or disappear under the user's thumb.
+- A campaign owing one post a day across three platforms shows ONE campaign,
+  THREE boxes, and pays rate x 1 - never rate x 3.
+- Every box can be ticked with nothing filmed in the app, and the day's owed
+  count can always be filled by hand.
+- The posted count can never exceed what was actually posted: it counts
+  deliverables with a post today, not phase changes.
 - A video can get from `to_film` all the way to `posted`, and posting it
   snapshots the rate.
-- Runway (days of posts banked) counts edited stock and drops by one per post.
-- Base earned is never summed with anything else.
+- Hook generation works with no angles, and builds from what he dumped into
+  the brief's Hooks & ideas box.
 - A campaign created from a contract with no brief still saves, with the
   brief-derived fields blank.
 - Every parsed field renders amber until confirmed.

@@ -1,9 +1,11 @@
-// The brief page must never present eight angles as one authored list.
+// The brief page, after it stopped being a metadata dashboard.
 //
-// The data-layer test already proves the two sets are stored separately. This
-// one proves the rendered page keeps them apart, which is where the mistake
-// would actually be visible to him: two headed sections, six rows under one
-// and two under the other, and no list anywhere containing all eight.
+// What it used to show, and what he asked to be rid of: trial dates, aspect
+// ratios, wider-topic ratios, warm-up prep notes, angle-family alternation,
+// editing style, a setup picker, an angles section with its own editor, and
+// two competing sets of handles. What is left is the four things that answer
+// a question he has while making a video, the material he generates hooks
+// from, the platforms he posts to, and the never-do list.
 
 import 'fake-indexeddb/auto'
 import { render, screen, waitFor, within } from '@testing-library/react'
@@ -41,405 +43,243 @@ async function renderBrief() {
       </MemoryRouter>
     </DataContext.Provider>,
   )
-  // The page loads its data in an effect, so wait for the heading to arrive.
   await screen.findByRole('heading', { name: 'Inflow' })
 }
 
-const BRIEF_ANGLES = [
-  'A. Frozen funds',
-  'B. Waiting for your own money',
-  'C. Your country is not supported',
-  'D. Taxes handled',
-  'E. The real rate',
-  'F. You use it too',
-]
-
-const SKILL_FILE_ANGLES = ['Nobody picks up', 'Switching is not a project']
-
-describe('the brief page', () => {
-  it('renders the six brief angles and the two skill-file angles in separate lists', async () => {
+describe('what the brief shows', () => {
+  it('shows the four things that help make the video', async () => {
     await renderBrief()
 
-    const briefList = screen.getByRole('list', { name: /from the brief/i })
-    const skillList = screen.getByRole('list', { name: /from your skill file/i })
-    expect(briefList).not.toBe(skillList)
-
-    expect(within(briefList).getAllByRole('listitem')).toHaveLength(6)
-    expect(within(skillList).getAllByRole('listitem')).toHaveLength(2)
-
-    for (const label of BRIEF_ANGLES) {
-      expect(within(briefList).getByText(label)).toBeInTheDocument()
-      expect(within(skillList).queryByText(label)).toBeNull()
-    }
-    for (const label of SKILL_FILE_ANGLES) {
-      expect(within(skillList).getByText(label)).toBeInTheDocument()
-      expect(within(briefList).queryByText(label)).toBeNull()
+    for (const label of ['What it is', 'Who it is for', 'How it sounds', 'How the video goes']) {
+      expect(screen.getByText(label)).toBeInTheDocument()
     }
   })
 
-  it('has no list anywhere on the page holding all eight angles', async () => {
+  it('does not show the metadata he never needs while filming', async () => {
     await renderBrief()
 
-    const allAngles = [...BRIEF_ANGLES, ...SKILL_FILE_ANGLES]
-    for (const list of screen.getAllByRole('list')) {
-      const present = allAngles.filter((label) => within(list).queryByText(label) !== null)
-      // A list may hold six, or two, but never the merged eight.
-      expect(present.length).toBeLessThan(allAngles.length)
+    // Gone from the app outright.
+    for (const gone of [/editing style/i, /default setup/i, /cycle position/i]) {
+      expect(screen.queryByText(gone)).toBeNull()
+    }
+
+    // Still stored and still editable, but only inside the folded section -
+    // never sitting on the page he reads while working.
+    for (const noise of [
+      /trial/i,
+      /aspect ratio/i,
+      /wider topic/i,
+      /warm.?up/i,
+      /angle family/i,
+      /opening balance/i,
+    ]) {
+      for (const element of screen.queryAllByText(noise)) {
+        expect(element.closest('details')).not.toBeNull()
+      }
     }
   })
 
-  it('says plainly that the skill-file angles are not in the brief', async () => {
+  it('has no angles section and nothing asking him to write one', async () => {
+    // Angles are optional context, never something to maintain: the seed has
+    // eight and the page says nothing about them.
     await renderBrief()
 
-    const heading = screen.getByRole('heading', { name: /from your skill file - not in the brief/i })
-    expect(heading).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /angles/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /add angle/i })).toBeNull()
+    expect(screen.queryByText(/hook generation has nothing to rotate/i)).toBeNull()
   })
 
-  it('warns that the brief is incomplete', async () => {
+  it('keeps everything else it parsed, folded into one line', async () => {
     await renderBrief()
-    expect(screen.getByText(/this brief looks incomplete/i)).toBeInTheDocument()
+
+    const fold = screen.getByText(/everything else from the documents/i)
+    expect(fold).toBeInTheDocument()
+    // Folded: the summary is one line, and the rows are inside a closed
+    // details element.
+    expect(fold.closest('details')).not.toHaveAttribute('open')
   })
 
-  it('renders a missing field as "not saved yet" rather than blank or guessed', async () => {
+  it('keeps the wall of never-do rules folded until asked for', async () => {
     await renderBrief()
 
-    // submission_url is one of the SPEC section 12 blanks.
-    const label = screen.getByText('submission url')
-    const row = label.closest('div')
-    expect(row).not.toBeNull()
-    expect(within(row!).getByText('not saved yet')).toBeInTheDocument()
+    const summary = screen.getByText(/never do - \d+/i)
+    expect(summary.closest('details')).not.toHaveAttribute('open')
   })
 })
 
-describe('fixing what the parser missed', () => {
-  it('lets a blank field be filled in by hand, as user entered', async () => {
-    const user = userEvent.setup()
+describe('the numbers that decide the day', () => {
+  it('shows the rate, the posts owed per day, and what that pays', async () => {
     await renderBrief()
 
-    // The label sits in the row's text block; the Edit button is its sibling,
-    // so the row itself is one level up.
-    const row = screen.getByText('submission url').closest('div')!.parentElement!
-    await user.click(within(row).getByRole('button', { name: 'Edit' }))
-
-    await user.type(screen.getByLabelText(/submission url/i), 'https://sideshift.app/submit')
-    await user.click(screen.getByRole('button', { name: 'Save' }))
-
-    await waitFor(async () => {
-      const fields = await adapter.listCampaignFields(INFLOW_CAMPAIGN_ID)
-      const saved = fields.find((f) => f.field_key === 'submission_url')
-      expect(saved?.field_value).toBe('https://sideshift.app/submit')
-      // His word for it, never a document's.
-      expect(saved?.source).toBe('user_entered')
-    })
-  })
-
-  it('confirms an unreviewed field in place, and fills the pay figure with it', async () => {
-    await adapter.setCampaignField({
-      campaign_id: INFLOW_CAMPAIGN_ID,
-      field_key: 'pay_per_video_cents',
-      field_value: '2000',
-      source: 'parsed_unreviewed',
-      source_quote: '$20.00 per approved deliverable',
-      source_document_id: null,
-    })
-
-    const user = userEvent.setup()
-    await renderBrief()
-
-    await user.click(screen.getAllByRole('button', { name: 'Confirm' })[0])
-
-    await waitFor(async () => {
-      const campaign = await adapter.getCampaign(INFLOW_CAMPAIGN_ID)
-      expect(campaign?.pay_per_video_cents).toBe(2000)
-    })
+    // Inflow: $35 a post, one a day - so $35 a day, twice over on the strip.
+    expect(screen.getByLabelText('per post')).toHaveTextContent('$35.00')
+    expect(screen.getByLabelText('posts/day')).toHaveTextContent('1')
+    expect(screen.getByText('per day').parentElement).toHaveTextContent('$35.00')
   })
 
   it('lets the daily quota be set - no document ever states it', async () => {
     const user = userEvent.setup()
     await renderBrief()
 
-    const row = screen.getByText('posts owed per day').closest('div')!.parentElement!
-    await user.click(within(row).getByRole('button', { name: 'Edit' }))
-
-    const input = screen.getByLabelText('posts owed per day')
+    await user.click(screen.getByLabelText('posts/day'))
+    const input = screen.getByLabelText('posts/day')
     await user.clear(input)
-    await user.type(input, '2')
+    await user.type(input, '4')
     await user.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(async () => {
-      const campaign = await adapter.getCampaign(INFLOW_CAMPAIGN_ID)
-      expect(campaign?.daily_post_quota).toBe(2)
+      expect((await adapter.getCampaign(INFLOW_CAMPAIGN_ID))?.daily_post_quota).toBe(4)
     })
   })
 
-  it('keeps the wall of rules folded away until asked for', async () => {
-    await renderBrief()
-
-    const summary = screen.getByText(/never do - \d+ rules?/i)
-    // The rules are in the DOM for search and for screen readers, but the
-    // section is shut: opening the page onto paragraphs of them is what makes
-    // it unreadable.
-    const details = summary.closest('details')
-    expect(details).not.toBeNull()
-    expect(details).not.toHaveAttribute('open')
-  })
-})
-
-describe('the account box', () => {
-  it('does not warn when the seed already carries a handle', async () => {
-    // Inflow's seed sets handle_tiktok and handle_instagram (user_entered).
-    await renderBrief()
-    expect(screen.queryByText(/no @ handle saved yet/i)).toBeNull()
-  })
-
-  it('warns when no platform handle is saved at all', async () => {
-    // A blank campaign with none of the seed's account fields.
-    const campaign = await adapter.createCampaign({
-      name: 'No handle yet',
-      company: null,
-      default_setup: 'face',
-      approval_mode: 'none',
-      pay_per_video_cents: null,
-      cycle_size: null,
-    })
-    render(
-      <DataContext.Provider value={adapter}>
-        <MemoryRouter initialEntries={[`/campaigns/${campaign.id}`]}>
-          <Routes>
-            <Route path="/campaigns/:campaignId" element={<Campaign />} />
-          </Routes>
-        </MemoryRouter>
-      </DataContext.Provider>,
-    )
-    await screen.findByRole('heading', { name: 'No handle yet' })
-    expect(screen.getByText(/no @ handle saved yet/i)).toBeInTheDocument()
-  })
-
-  it('masks the password behind Show/Hide and never shows it by default', async () => {
+  it('recalculates what a day pays from the rate and the quota alone', async () => {
     const user = userEvent.setup()
     await renderBrief()
 
-    const row = screen.getByText('Password').closest('div')!.parentElement!
-    await user.click(within(row).getByRole('button', { name: 'Edit' }))
-
-    const input = screen.getByLabelText('Password')
-    expect(input).toHaveAttribute('type', 'password')
-
-    await user.type(input, 'hunter2')
-    await user.click(within(row).getByRole('button', { name: 'Show' }))
-    expect(input).toHaveAttribute('type', 'text')
-
+    await user.click(screen.getByLabelText('posts/day'))
+    const input = screen.getByLabelText('posts/day')
+    await user.clear(input)
+    await user.type(input, '3')
     await user.click(screen.getByRole('button', { name: 'Save' }))
 
-    // The edit form closes only once the save (and the reload after it) has
-    // actually landed, so waiting for it gone is waiting for the write too.
-    await waitFor(() => expect(screen.queryByLabelText('Password')).toBeNull())
+    // 3 x $35. Nothing about the platform list enters into it.
+    await waitFor(() => {
+      expect(screen.getByText('$105.00')).toBeInTheDocument()
+    })
+  })
 
+  it('saves a rate typed in dollars as integer cents, and keeps the field in step', async () => {
+    const user = userEvent.setup()
+    await renderBrief()
+
+    await user.click(screen.getByLabelText('per post'))
+    const input = screen.getByLabelText('per post')
+    await user.clear(input)
+    await user.type(input, '42.50')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(async () => {
+      expect((await adapter.getCampaign(INFLOW_CAMPAIGN_ID))?.pay_per_video_cents).toBe(4250)
+    })
     const fields = await adapter.listCampaignFields(INFLOW_CAMPAIGN_ID)
-    expect(fields.find((f) => f.field_key === 'account_password')?.field_value).toBe('hunter2')
-
-    // Back to the resting view: hidden again, not the raw password.
-    expect(screen.queryByText('hunter2')).toBeNull()
-    expect(screen.getByText((text) => text.includes('••••••••'))).toBeInTheDocument()
-  })
-
-  it('keeps account fields out of the everything-else lists below', async () => {
-    await renderBrief()
-
-    // handle_tiktok/handle_instagram live in the Account box only - listing
-    // them again under Saved would be the same fact told twice.
-    expect(screen.queryByText('handle tiktok')).toBeNull()
-    expect(screen.queryByText('handle instagram')).toBeNull()
+    expect(fields.find((f) => f.field_key === 'pay_per_video_cents')?.field_value).toBe('4250')
   })
 })
 
-// The two editors that did not exist. Without a setup the fitting algorithm
-// has no honest cost for a video and drops it silently, so a campaign added by
-// hand could never produce a session list at all. And editing_style is in
-// NEVER_PARSED_FIELDS, so the parser will not write it - yet the brief page
-// could only edit field rows that already existed, which made the EDIT
-// screen's "add it on the brief page" an instruction nobody could follow.
-describe('how you make it', () => {
-  it('sets the default setup, which is what makes a campaign plannable', async () => {
+describe('hooks and ideas', () => {
+  it('stays folded, and says how many are in there', async () => {
+    await renderBrief()
+
+    const summary = screen.getByText(/hooks & ideas/i)
+    expect(summary.closest('details')).not.toHaveAttribute('open')
+  })
+
+  it('takes a dump of several ideas at once, split on blank lines', async () => {
     const user = userEvent.setup()
     await renderBrief()
 
-    await user.click(screen.getByRole('button', { name: 'screen' }))
-
-    await waitFor(async () => {
-      const campaign = await adapter.getCampaign(INFLOW_CAMPAIGN_ID)
-      expect(campaign?.default_setup).toBe('screen')
-    })
-  })
-
-  it('says plainly when no setup is set, because nothing will schedule', async () => {
-    const campaign = await adapter.createCampaign({
-      name: 'No setup yet',
-      company: null,
-      default_setup: null,
-      approval_mode: 'none',
-      pay_per_video_cents: null,
-      cycle_size: null,
-    })
-    render(
-      <DataContext.Provider value={adapter}>
-        <MemoryRouter initialEntries={[`/campaigns/${campaign.id}`]}>
-          <Routes>
-            <Route path="/campaigns/:campaignId" element={<Campaign />} />
-          </Routes>
-        </MemoryRouter>
-      </DataContext.Provider>,
-    )
-    await screen.findByRole('heading', { name: 'No setup yet' })
-
-    // Dogfooding a real ten-campaign run found this warning was flatly wrong:
-    // a campaign with no default_setup films fine through the console, since
-    // it only matters to the optional auto-planner.
-    expect(screen.getByText(/or plan it for me.*will skip this campaign/i)).toBeInTheDocument()
-  })
-
-  it('lets the editing style be written by hand, as his own words', async () => {
-    const user = userEvent.setup()
-    await renderBrief()
-
-    const row = screen.getByText('Editing style').closest('div')!.parentElement!
-    await user.click(within(row).getByRole('button', { name: 'Edit' }))
-
-    await user.type(screen.getByLabelText('Editing style'), 'Hard cuts, captions bottom third.')
-    await user.click(screen.getByRole('button', { name: 'Save' }))
-
-    await waitFor(async () => {
-      const fields = await adapter.listCampaignFields(INFLOW_CAMPAIGN_ID)
-      const saved = fields.find((f) => f.field_key === 'editing_style')
-      expect(saved?.field_value).toBe('Hard cuts, captions bottom third.')
-      // No document states an editing style, so it can only ever be his.
-      expect(saved?.source).toBe('user_entered')
-    })
-  })
-})
-
-describe('hooks', () => {
-  it('saves a hook he typed, marked as his and not a model\u2019s', async () => {
-    const user = userEvent.setup()
-    await renderBrief()
-
+    await user.click(screen.getByText(/hooks & ideas/i))
     await user.type(
-      screen.getByLabelText('New hook'),
-      'Your account froze the month you finally had a good month.',
+      screen.getByLabelText('Hooks and ideas'),
+      'POV: your payout is frozen{enter}{enter}Format: screen recording, then talk over it',
     )
-    await user.click(screen.getByRole('button', { name: 'Add hook' }))
+    await user.click(screen.getByRole('button', { name: 'Save to this brief' }))
 
     await waitFor(async () => {
       const hooks = await adapter.listCampaignHooks(INFLOW_CAMPAIGN_ID)
-      expect(hooks).toHaveLength(1)
-      expect(hooks[0].body).toBe('Your account froze the month you finally had a good month.')
-      // The constraint that keeps the two apart: a hook he wrote cannot claim
-      // a model produced it.
-      expect(hooks[0].source).toBe('user_entered')
-      expect(hooks[0].model).toBeNull()
+      expect(hooks.map((h) => h.body)).toEqual([
+        'POV: your payout is frozen',
+        'Format: screen recording, then talk over it',
+      ])
+      // His words, never a model's.
+      expect(hooks.every((h) => h.source === 'user_entered' && h.model === null)).toBe(true)
     })
   })
 
-  it('ties a hook to an angle, so the family is visible while filming', async () => {
+  it('deletes one without touching the others', async () => {
+    for (const body of ['Keep this one', 'Delete this one']) {
+      await adapter.addCampaignHook({
+        campaign_id: INFLOW_CAMPAIGN_ID,
+        angle_id: null,
+        body,
+        outline: null,
+        source: 'user_entered',
+        model: null,
+        generated_at: null,
+        used_at: null,
+      })
+    }
+
     const user = userEvent.setup()
     await renderBrief()
+    await user.click(screen.getByText(/hooks & ideas/i))
 
-    await user.type(screen.getByLabelText('New hook'), 'The sale clears in 3 seconds.')
-    await user.selectOptions(
-      screen.getByLabelText('Angle'),
-      screen.getByRole('option', { name: 'B. Waiting for your own money' }),
-    )
-    await user.click(screen.getByRole('button', { name: 'Add hook' }))
+    await user.click(await screen.findByRole('button', { name: /Delete hook: Delete this one/ }))
 
     await waitFor(async () => {
-      const [hook] = await adapter.listCampaignHooks(INFLOW_CAMPAIGN_ID)
-      expect(hook.angle_id).not.toBeNull()
+      const hooks = await adapter.listCampaignHooks(INFLOW_CAMPAIGN_ID)
+      expect(hooks.map((h) => h.body)).toEqual(['Keep this one'])
     })
-    // The hook line carries the angle and its family, so alternating FEAR and
-    // GREED is visible while filming rather than something to remember.
-    expect(
-      await screen.findByText(/B\. Waiting for your own money - fear - you wrote this/i),
-    ).toBeInTheDocument()
   })
 })
 
-describe('angles', () => {
-  it('shows the gap plainly when a campaign has none, instead of an empty section', async () => {
-    const campaign = await adapter.createCampaign({
-      name: 'No angles yet',
-      company: null,
-      default_setup: 'face',
-      approval_mode: 'none',
-      pay_per_video_cents: null,
-      cycle_size: null,
-    })
-    render(
-      <DataContext.Provider value={adapter}>
-        <MemoryRouter initialEntries={[`/campaigns/${campaign.id}`]}>
-          <Routes>
-            <Route path="/campaigns/:campaignId" element={<Campaign />} />
-          </Routes>
-        </MemoryRouter>
-      </DataContext.Provider>,
-    )
-    await screen.findByRole('heading', { name: 'No angles yet' })
+describe('the platforms it posts to', () => {
+  it('replaces the old handle and login fields entirely', async () => {
+    await renderBrief()
 
-    expect(screen.getByText(/no angles saved yet/i)).toBeInTheDocument()
-    expect(screen.getByLabelText('Angle label')).toBeInTheDocument()
+    expect(screen.getByText('Platforms')).toBeInTheDocument()
+    // The campaign-level login is gone: a login belongs to one account.
+    expect(screen.queryByLabelText(/^Email$/)).toBeNull()
+    expect(screen.queryByText(/♪ TikTok/)).toBeNull()
+    expect(screen.queryByText(/▣ Instagram/)).toBeNull()
   })
 
-  it('lets an angle be added by hand, verified by default', async () => {
-    const user = userEvent.setup()
-    const campaign = await adapter.createCampaign({
-      name: 'No angles yet',
-      company: null,
-      default_setup: 'face',
-      approval_mode: 'none',
-      pay_per_video_cents: null,
-      cycle_size: null,
-    })
-    render(
-      <DataContext.Provider value={adapter}>
-        <MemoryRouter initialEntries={[`/campaigns/${campaign.id}`]}>
-          <Routes>
-            <Route path="/campaigns/:campaignId" element={<Campaign />} />
-          </Routes>
-        </MemoryRouter>
-      </DataContext.Provider>,
-    )
-    await screen.findByRole('heading', { name: 'No angles yet' })
-
-    await user.type(screen.getByLabelText('Angle label'), 'A. Frozen funds')
-    await user.type(screen.getByLabelText('Family'), 'fear')
-    await user.click(screen.getByRole('button', { name: 'Add angle' }))
-
-    await waitFor(async () => {
-      const angles = await adapter.listCampaignAngles(campaign.id)
-      expect(angles).toHaveLength(1)
-      expect(angles[0].label).toBe('A. Frozen funds')
-      expect(angles[0].family).toBe('fear')
-      // Typed in from the real brief - the same standing as a confirmed field.
-      expect(angles[0].is_verified).toBe(true)
-    })
-  })
-
-  it('can be marked not-from-the-brief when it is background context', async () => {
+  it('adds a platform with its own handle, email and password', async () => {
     const user = userEvent.setup()
     await renderBrief()
 
-    const before = await adapter.listCampaignAngles(INFLOW_CAMPAIGN_ID)
-
-    // A label distinct from anything the seed already carries, so this test
-    // cannot pass against a pre-existing row.
-    await user.type(screen.getByLabelText('Angle label'), 'Brand new skill-file angle')
-    await user.click(screen.getByLabelText(/really in the brief/i))
-    await user.click(screen.getByRole('button', { name: 'Add angle' }))
+    await user.click(within(screen.getByText('Platforms').closest('div')!).getByRole('button', { name: 'Add' }))
+    await user.click(screen.getByRole('button', { name: 'Facebook' }))
 
     await waitFor(async () => {
-      const angles = await adapter.listCampaignAngles(INFLOW_CAMPAIGN_ID)
-      expect(angles).toHaveLength(before.length + 1)
-      const added = angles.find((a) => a.label === 'Brand new skill-file angle')
-      expect(added?.is_verified).toBe(false)
+      const accounts = await adapter.listCampaignAccounts(INFLOW_CAMPAIGN_ID)
+      expect(accounts.map((a) => a.platform)).toContain('Facebook')
+    })
+
+    await user.type(screen.getByLabelText('Facebook handle'), '@michael')
+    await user.tab()
+
+    await waitFor(async () => {
+      const accounts = await adapter.listCampaignAccounts(INFLOW_CAMPAIGN_ID)
+      expect(accounts.find((a) => a.platform === 'Facebook')?.handle).toBe('@michael')
+    })
+  })
+})
+
+describe('unreviewed parsed fields', () => {
+  it('renders amber until confirmed, and confirms in place', async () => {
+    // CLAUDE.md's non-negotiable: a parsed field is amber until he has looked
+    // at it. That survives the trim for the fields still on the page.
+    await adapter.setCampaignField({
+      campaign_id: INFLOW_CAMPAIGN_ID,
+      field_key: 'audience',
+      field_value: 'Store owners 25-45',
+      source: 'parsed_unreviewed',
+      source_quote: 'Store owners 25-45',
+      source_document_id: null,
+    })
+
+    const user = userEvent.setup()
+    await renderBrief()
+
+    const value = screen.getByText('Store owners 25-45')
+    expect(value).toHaveClass('text-state-waiting')
+
+    await user.click(screen.getByRole('button', { name: 'Confirm' }))
+
+    await waitFor(async () => {
+      const fields = await adapter.listCampaignFields(INFLOW_CAMPAIGN_ID)
+      expect(fields.find((f) => f.field_key === 'audience')?.confirmed_at).not.toBeNull()
     })
   })
 })

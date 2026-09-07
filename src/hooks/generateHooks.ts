@@ -6,7 +6,14 @@
 // isAvailable() therefore wants both a configured client and
 // VITE_GENERATE_HOOKS_DEPLOYED. Flip the flag when it goes live, not this file.
 
-import type { Campaign, CampaignAngle, CampaignField, CampaignRule, DataAdapter } from '../data'
+import type {
+  Campaign,
+  CampaignAngle,
+  CampaignField,
+  CampaignHook,
+  CampaignRule,
+  DataAdapter,
+} from '../data'
 import { getSupabaseClient } from '../sync/auth'
 import {
   type GenerateHooksResult,
@@ -81,9 +88,18 @@ export interface BuildContextInput {
   fields: readonly CampaignField[]
   rules: readonly CampaignRule[]
   angles: readonly CampaignAngle[]
+  /** The campaign's saved hooks. The ones he typed are the creative material
+   *  the generator builds from; the ones it generated before are not, or each
+   *  batch would be a copy of the last. */
+  hooks: readonly CampaignHook[]
   lastFamily: string | null
   count: number
 }
+
+/** How much of his dumped material to send. Enough to carry the campaign's
+ *  voice and formats, capped so a year of accumulated ideas cannot push the
+ *  request past what the model will read. */
+const MAX_REFERENCE_ENTRIES = 40
 
 /** Everything the generator gets, assembled from stored rows only. */
 export function buildContext(input: BuildContextInput): HookContext {
@@ -96,6 +112,11 @@ export function buildContext(input: BuildContextInput): HookContext {
     structure: fieldValue(input.fields, 'structure'),
     rules: input.rules.map((rule) => rule.body),
     angles: toHookAngles(input.angles),
+    referenceMaterial: input.hooks
+      .filter((hook) => hook.source === 'user_entered')
+      .map((hook) => hook.body.trim())
+      .filter((body) => body !== '')
+      .slice(0, MAX_REFERENCE_ENTRIES),
     lastFamily: input.lastFamily,
     count: input.count,
   }

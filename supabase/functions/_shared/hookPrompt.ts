@@ -28,7 +28,16 @@ export interface HookContext {
   structure: string | null
   /** The never-do list. Passed as hard constraints, not as advice. */
   rules: string[]
+  /** Angles, when the campaign has any. Optional in every sense: most briefs
+   *  never name one, nothing asks him to invent them, and generation works
+   *  the same with an empty list - it simply has no families to rotate. */
   angles: HookAngle[]
+  /** What he dumped into the brief's Hooks & ideas box: hooks, video ideas,
+   *  formats, concepts, viral references. This is the most valuable thing in
+   *  the request - it is the campaign's own creative material in his own
+   *  words - so it is given as the material to build from, not as a list to
+   *  copy. */
+  referenceMaterial: string[]
   /** The family of the angle used most recently, so the next batch can lean
    *  the other way. Null when nothing has been filmed yet. */
   lastFamily: string | null
@@ -91,9 +100,10 @@ Rules that override everything else:
 1. Work only from the campaign material given to you. Every claim in a hook must be supported by the PRODUCT section. Do not add a statistic, a price, a percentage, a guarantee or a feature that is not stated there. If the material is thin, write fewer and simpler hooks and say so in warnings - a hook that invents a fact is worse than no hook, because it reaches a brand as though the creator said it.
 2. The NEVER DO list is absolute. A hook that breaks any of those rules is unusable, whatever else is good about it.
 3. One angle per hook. Never blend two storylines into one line.
-4. Each hook names the angle it belongs to by its id, chosen from the ANGLES given. Never invent an angle id. Use null only if a hook genuinely belongs to none of them.
-5. Write the way the VOICE section describes. Spoken, not written: contractions, plain words, no marketing cadence, no "unlock", no "game-changer", no rhetorical question stacking.
-6. Do not number them, do not add hashtags, do not write the caption. The hook only.
+4. If a MATERIAL section is given, it is the creator's own hooks, video ideas, formats and concepts for this campaign. Build from it: take its angles of attack, its formats and its phrasing as the starting point, and write new lines in that vein. Do not simply reword a line that is already there, and do not ignore it in favour of something generic - it is the most specific thing you have been given about what works for this campaign.
+5. Each hook names the angle it belongs to by its id, chosen from the ANGLES given. Never invent an angle id. Use null if a hook belongs to none of them, and always use null when no angles are given - angles are optional and their absence is not a problem to solve.
+6. Write the way the VOICE section describes. Spoken, not written: contractions, plain words, no marketing cadence, no "unlock", no "game-changer", no rhetorical question stacking.
+7. Do not number them, do not add hashtags, do not write the caption. The hook only.
 
 Call the return_hooks tool exactly once with your hooks. Do not explain yourself outside the tool call.`
 
@@ -126,9 +136,20 @@ export function buildHookRequest(context: HookContext): string {
   else for (const rule of context.rules) lines.push(`- ${rule}`)
   lines.push('')
 
-  lines.push('ANGLES - pick one per hook, by id')
+  // His own material, given the most prominent place after the product facts:
+  // it is the one part of the request that says what actually works for this
+  // campaign rather than what the brand says about itself.
+  lines.push('MATERIAL - his own hooks, ideas and formats for this campaign. Build from these.')
+  if (context.referenceMaterial.length === 0) {
+    lines.push('(none saved - work from the sections above)')
+  } else {
+    for (const entry of context.referenceMaterial) lines.push(`- ${entry}`)
+  }
+  lines.push('')
+
+  lines.push('ANGLES - optional. Pick one per hook by id where they exist')
   if (context.angles.length === 0) {
-    lines.push(absent)
+    lines.push('(none saved - leave every angle_id empty, this is normal)')
   } else {
     for (const angle of context.angles) {
       const family = angle.family === null ? '' : ` [${angle.family}]`

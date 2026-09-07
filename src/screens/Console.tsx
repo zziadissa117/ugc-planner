@@ -139,16 +139,19 @@ export function Console({
     setError(null)
     setWarnings([])
     try {
-      const [fieldRows, ruleRows, angleRows] = await Promise.all([
+      const [fieldRows, ruleRows, angleRows, hookRows] = await Promise.all([
         data.listCampaignFields(campaign.id),
         data.listCampaignRules(campaign.id),
         data.listCampaignAngles(campaign.id),
+        data.listCampaignHooks(campaign.id),
       ])
       const context = buildContext({
         campaign,
         fields: fieldRows,
         rules: ruleRows,
         angles: angleRows,
+        // What he dumped into the brief is what this builds from.
+        hooks: hookRows,
         lastFamily,
         // Enough for the evening he planned, with a couple spare so a hook he
         // does not like is not the end of the list.

@@ -29,7 +29,7 @@ test.describe('offline (Phase 10 acceptance check)', () => {
 
     // The NOW screen's header renders a live clock and the day's tally - both
     // require the local store to have actually opened, not just a blank shell.
-    await expect(page.getByText(/posted$/)).toBeVisible()
+    await expect(page.getByText(/posted today/)).toBeVisible()
   })
 
   test('every screen still renders with the network off', async ({ page, context }) => {
@@ -38,7 +38,6 @@ test.describe('offline (Phase 10 acceptance check)', () => {
     await page.reload()
 
     const screens: Array<[string, string | RegExp]> = [
-      ['/tick-off', 'Tick them off'],
       ['/post', 'Post'],
       ['/campaigns', 'Briefs'],
       ['/campaigns/new', 'New campaign'],
@@ -65,9 +64,10 @@ test.describe('offline (Phase 10 acceptance check)', () => {
     await page.getByRole('button', { name: 'Review it' }).click()
     await expect(page.getByRole('heading', { name: 'Review' })).toBeVisible()
 
-    // No document ever states a handle - Save stays disabled without one, so
-    // this fills the one thing the paste-JSON path never provides.
-    await page.getByLabel('TikTok @').fill('@offline-e2e')
+    // No document ever states a handle, so it is typed here - but nothing is
+    // gated on it any more: Save works either way.
+    await page.getByRole('button', { name: 'TikTok' }).click()
+    await page.getByLabel('TikTok handle').fill('@offline-e2e')
 
     // No network round trip to wait on - the write is local-first and the
     // screen navigates as soon as it lands.

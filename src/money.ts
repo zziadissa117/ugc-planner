@@ -1,278 +1,85 @@
-// Money. SPEC section 10.
+// What the work pays.
 //
-// Three figures that are never summed into one, and a fourth state that is not
-// a figure at all.
+// One formula, in his words: "$ per post x posts per day". $35 a post and one
+// post a day is $35 a day. Three platforms does not make it $105, and a
+// backlog of old videos marked posted in one sitting does not make it $455 -
+// both of those were real figures this screen showed, and both came from
+// counting something other than the campaign's own two numbers.
 //
-//   DOCUMENTED    posted videos times the rate each locked in at. Earned.
-//   EXPECTED      bonus payout times a probability the user typed. Not earned,
-//                 and $0 until he judges something himself.
-//   USER ENTERED  bonus money actually logged as received. Earned, and known
-//                 only because he said so.
-//   UNPRICED      posted videos with no rate snapshot. Not a figure - a count.
-//                 These are posts whose pay is unknown, not posts worth zero,
-//                 and folding them in either direction would be a lie.
+// So earnings are derived from the campaign row alone:
 //
-// There is no total here on purpose. Adding accrued base pay to a probability-
-// weighted guess to money already banked produces a number that is not true in
-// any sense, and it is the number a person would most want to believe.
+//     day   = pay_per_video_cents x daily_post_quota
+//     week  = day x 7
+//     month = day x 30
+//
+// Nothing here reads the account list, the video list or the post list. There
+// is no path by which a UI element, a duplicated row or a busy afternoon can
+// change what a day is worth.
 //
 // Everything is integer cents. Division happens only at the display edge.
 
-import type { BonusClaim, BonusTier, Campaign, CampaignField, Video } from './data'
+import type { Campaign } from './data'
 
-/** The rate he says his carried-over posts were paid at.
- *
- *  Read only once he has confirmed it. It is never derived from the campaign's
- *  current rate: today's rate is a fact about today, and using it here would
- *  turn a guess into earnings history that nothing afterwards could flag as
- *  unchecked. Unset means unknown, and unknown stays blank. */
-export const OPENING_BALANCE_RATE_KEY = 'opening_balance_rate_cents'
-
-function confirmedOpeningRate(fields: readonly CampaignField[]): number | null {
-  const field = fields.find((f) => f.field_key === OPENING_BALANCE_RATE_KEY)
-  if (!field || field.confirmed_at === null || field.field_value === null) return null
-
-  const cents = Number(field.field_value)
-  // Money is integer cents. Anything else is not a rate we will show.
-  if (!Number.isInteger(cents) || cents < 0) return null
-  return cents
-}
-
-export interface CampaignMoney {
-  campaign: Campaign
-
-  /** DOCUMENTED. Posted videos times their own locked rate. */
-  documentedCents: number
-  pricedPostedCount: number
-
-  /** The fourth state: posted, but the rate was unknown at the time. */
-  unpricedPostedCount: number
-  /** True when the campaign now has a rate, so those posts can be priced. */
-  canBackfill: boolean
-
-  /** EXPECTED. Zero until he types a probability. */
-  expectedBonusCents: number
-  /** USER ENTERED. Only what was logged as received. */
-  receivedBonusCents: number
-
-  /** Posts carried in from before the app existed. A count, and money only if
-   *  he has told us what they paid - see openingBalanceCents. */
-  openingPostCount: number
-
-  /** The rate he confirmed for those carried-over posts, or null if he has not
-   *  said. Never derived from the campaign's current rate. */
-  openingBalanceRateCents: number | null
-
-  /** openingPostCount times that rate, or null while the rate is unknown.
-   *
-   *  Documented in the same sense as the per-video total - he stated it - but
-   *  kept as its own figure rather than added to it. The per-video total is
-   *  built from rates this app watched being locked in; this one is his
-   *  recollection of what happened before it existed. Both are honest; they
-   *  are not the same kind of honest. */
-  openingBalanceCents: number | null
-  /** Posts this app has actually seen happen. */
-  postedInAppCount: number
-
-  /** Where the payment cycle stands - the opening balance counts toward it. */
-  cyclePosition: number
-  cycleSize: number | null
-  completedCycles: number
-  postsIntoCurrentCycle: number
-  /** Inflow pays only when a cycle completes. Until then base pay is accrued,
-   *  not payable. */
-  isPayable: boolean
-}
-
-export function summariseCampaignMoney(
-  campaign: Campaign,
-  videos: readonly Video[],
-  tiers: readonly BonusTier[],
-  claims: readonly BonusClaim[],
-  fields: readonly CampaignField[] = [],
-): CampaignMoney {
-  const mine = videos.filter((v) => v.campaign_id === campaign.id)
-  const posted = mine.filter((v) => v.phase === 'posted')
-
-  const priced = posted.filter((v) => v.rate_snapshot_cents !== null)
-  const documentedCents = priced.reduce((sum, v) => sum + (v.rate_snapshot_cents ?? 0), 0)
-  const unpricedPostedCount = posted.length - priced.length
-
-  const myTiers = tiers.filter((t) => t.campaign_id === campaign.id)
-  const tierById = new Map(myTiers.map((t) => [t.id, t]))
-  const videoIds = new Set(mine.map((v) => v.id))
-  const myClaims = claims.filter((c) => videoIds.has(c.video_id) && tierById.has(c.bonus_tier_id))
-
-  // EXPECTED. Rounded to whole cents, because money is integer cents and a
-  // probability is not.
-  const expectedBonusCents = myClaims.reduce((sum, claim) => {
-    const tier = tierById.get(claim.bonus_tier_id)
-    return sum + (tier ? Math.round(tier.payout_cents * claim.probability) : 0)
-  }, 0)
-
-  // USER ENTERED. received_at is required alongside the amount, so a row
-  // without one cannot exist.
-  const receivedBonusCents = myClaims.reduce((sum, claim) => sum + (claim.received_cents ?? 0), 0)
-
-  const postedInAppCount = posted.length
-  const cyclePosition = campaign.opening_post_count + postedInAppCount
-  const cycleSize = campaign.cycle_size
-
-  const completedCycles = cycleSize === null ? 0 : Math.floor(cyclePosition / cycleSize)
-  const postsIntoCurrentCycle = cycleSize === null ? cyclePosition : cyclePosition % cycleSize
-
-  const openingBalanceRateCents = confirmedOpeningRate(
-    fields.filter((f) => f.campaign_id === campaign.id),
-  )
-
-  return {
-    campaign,
-    documentedCents,
-    pricedPostedCount: priced.length,
-    unpricedPostedCount,
-    canBackfill: unpricedPostedCount > 0 && campaign.pay_per_video_cents !== null,
-    expectedBonusCents,
-    receivedBonusCents,
-    openingPostCount: campaign.opening_post_count,
-    openingBalanceRateCents,
-    openingBalanceCents:
-      openingBalanceRateCents === null
-        ? null
-        : campaign.opening_post_count * openingBalanceRateCents,
-    postedInAppCount,
-    cyclePosition,
-    cycleSize,
-    completedCycles,
-    postsIntoCurrentCycle,
-    // No cycle size means nothing gates payment, so there is nothing to wait
-    // for. With one, pay arrives only when a cycle closes.
-    isPayable: cycleSize === null ? true : completedCycles > 0,
-  }
-}
-
-export function summariseAllMoney(
-  campaigns: readonly Campaign[],
-  videos: readonly Video[],
-  tiers: readonly BonusTier[],
-  claims: readonly BonusClaim[],
-  fields: readonly CampaignField[] = [],
-): CampaignMoney[] {
-  return campaigns.map((campaign) =>
-    summariseCampaignMoney(campaign, videos, tiers, claims, fields),
-  )
-}
-
-/** Totals per figure, across campaigns. Each figure is only ever added to more
- *  of its own kind - there is deliberately no function here that combines
- *  them, because there is no honest way to. */
-export interface MoneyTotals {
-  documentedCents: number
-  expectedBonusCents: number
-  receivedBonusCents: number
-  unpricedPostedCount: number
-}
-
-export function totalMoney(summaries: readonly CampaignMoney[]): MoneyTotals {
-  return summaries.reduce<MoneyTotals>(
-    (totals, s) => ({
-      documentedCents: totals.documentedCents + s.documentedCents,
-      expectedBonusCents: totals.expectedBonusCents + s.expectedBonusCents,
-      receivedBonusCents: totals.receivedBonusCents + s.receivedBonusCents,
-      unpricedPostedCount: totals.unpricedPostedCount + s.unpricedPostedCount,
-    }),
-    { documentedCents: 0, expectedBonusCents: 0, receivedBonusCents: 0, unpricedPostedCount: 0 },
-  )
-}
-
-// --- Pay by day / week / month -------------------------------------------
-//
-// He asked for the cycle tracking and the opening balance to go: "just track
-// how much it pays by day, week, month to motivate me". These three numbers
-// answer that directly, from the same posted-and-priced videos as
-// documentedCents above, just bucketed by when each one was posted rather
-// than summed since the beginning of time.
-//
-// "This week" is the current calendar week (Monday start), and "this month"
-// the current calendar month - not a rolling 7 or 30 days - because those are
-// the buckets a person actually means by the words.
+/** Days used for the week and month figures. Fixed rather than calendar-aware
+ *  on purpose: this is what the work pays at his current quota, not a ledger
+ *  of a particular month, so "a month" is thirty days of it. */
+export const DAYS_PER_WEEK = 7
+export const DAYS_PER_MONTH = 30
 
 export interface PeriodEarnings {
-  todayCents: number
+  dayCents: number
   weekCents: number
   monthCents: number
 }
 
-function startOfLocalDay(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate())
+/** What one day of this campaign pays, or null when it has no rate saved.
+ *
+ *  Null rather than zero: a campaign whose rate nobody has typed yet pays an
+ *  unknown amount, and showing $0.00 would be a claim about his earnings
+ *  rather than a gap in what the app was told. */
+export function dailyEarningsCents(campaign: Campaign): number | null {
+  if (campaign.pay_per_video_cents === null) return null
+  return campaign.pay_per_video_cents * campaign.daily_post_quota
 }
 
-function startOfWeek(date: Date): Date {
-  const day = startOfLocalDay(date)
-  // getDay() is 0 (Sunday) through 6 (Saturday); this walks back to Monday.
-  const sinceMonday = (day.getDay() + 6) % 7
-  day.setDate(day.getDate() - sinceMonday)
-  return day
-}
-
-function startOfMonth(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), 1)
-}
-
-export function summariseCampaignPeriodEarnings(
-  campaign: Campaign,
-  videos: readonly Video[],
-  now: Date = new Date(),
-): PeriodEarnings {
-  const today = startOfLocalDay(now)
-  const weekStart = startOfWeek(now)
-  const monthStart = startOfMonth(now)
-
-  const mine = videos.filter(
-    (v) =>
-      v.campaign_id === campaign.id &&
-      v.phase === 'posted' &&
-      v.posted_at !== null &&
-      v.rate_snapshot_cents !== null,
-  )
-
-  let todayCents = 0
-  let weekCents = 0
-  let monthCents = 0
-  for (const video of mine) {
-    const postedAt = new Date(video.posted_at as string)
-    const cents = video.rate_snapshot_cents ?? 0
-    if (postedAt >= today) todayCents += cents
-    if (postedAt >= weekStart) weekCents += cents
-    if (postedAt >= monthStart) monthCents += cents
+export function periodsFor(dayCents: number): PeriodEarnings {
+  return {
+    dayCents,
+    weekCents: dayCents * DAYS_PER_WEEK,
+    monthCents: dayCents * DAYS_PER_MONTH,
   }
-
-  return { todayCents, weekCents, monthCents }
 }
 
-export function totalPeriodEarnings(
-  campaigns: readonly Campaign[],
-  videos: readonly Video[],
-  now: Date = new Date(),
-): PeriodEarnings {
-  return campaigns.reduce<PeriodEarnings>(
-    (totals, campaign) => {
-      const p = summariseCampaignPeriodEarnings(campaign, videos, now)
-      return {
-        todayCents: totals.todayCents + p.todayCents,
-        weekCents: totals.weekCents + p.weekCents,
-        monthCents: totals.monthCents + p.monthCents,
-      }
-    },
-    { todayCents: 0, weekCents: 0, monthCents: 0 },
-  )
+export function campaignEarnings(campaign: Campaign): PeriodEarnings | null {
+  const day = dailyEarningsCents(campaign)
+  return day === null ? null : periodsFor(day)
+}
+
+/** Every campaign that has a rate, added together. Campaigns without one are
+ *  left out rather than counted as zero, and the screen says how many. */
+export function totalEarnings(campaigns: readonly Campaign[]): PeriodEarnings {
+  const day = campaigns.reduce((sum, campaign) => sum + (dailyEarningsCents(campaign) ?? 0), 0)
+  return periodsFor(day)
+}
+
+export function campaignsWithoutRate(campaigns: readonly Campaign[]): Campaign[] {
+  return campaigns.filter((campaign) => campaign.pay_per_video_cents === null)
 }
 
 /** A fixed approximation, not a live rate - the app is local-first and works
  *  fully offline, so this deliberately does not fetch one. It is labelled as
- *  approximate everywhere it is shown for exactly that reason; update this
- *  constant by hand if it drifts far from the real rate. */
+ *  approximate everywhere it is shown; update this constant by hand if it
+ *  drifts far from the real rate. */
 export const USD_TO_CAD_RATE = 1.37
 
 export function toCadCents(usdCents: number): number {
   return Math.round(usdCents * USD_TO_CAD_RATE)
+}
+
+/** Integer cents in, a readable figure out. The division happens at the edge,
+ *  for display only - storage is always integer cents. */
+export function formatCents(cents: number): string {
+  const sign = cents < 0 ? '-' : ''
+  const absolute = Math.abs(cents)
+  return `${sign}$${Math.floor(absolute / 100)}.${String(absolute % 100).padStart(2, '0')}`
 }

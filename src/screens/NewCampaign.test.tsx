@@ -167,13 +167,6 @@ describe('the review screen', () => {
     await screen.findByRole('heading', { name: 'Review' })
   }
 
-  /** No document ever states a handle - typing one in is what the "no
-   *  campaigns without a @" rule actually gates on. */
-  async function fillHandle(user: ReturnType<typeof userEvent.setup>) {
-    await user.click(screen.getByLabelText('TikTok @'))
-    await user.paste('@creator')
-  }
-
   it('renders a parsed field amber and unreviewed until it is tapped', async () => {
     const user = userEvent.setup()
     await reachReview(user)
@@ -248,7 +241,6 @@ describe('the review screen', () => {
     await reachReview(user)
 
     await user.click(within(screen.getByRole('list', { name: 'Parsed fields' })).getByRole('button'))
-    await fillHandle(user)
     await user.click(screen.getByRole('button', { name: 'Save campaign' }))
 
     // The campaign row appears before its fields do, so waiting on the row
@@ -274,78 +266,97 @@ describe('the review screen', () => {
   })
 })
 
-describe('no campaigns without a @', () => {
+describe('where the campaign posts', () => {
   async function reachReview(user: ReturnType<typeof userEvent.setup>) {
     renderDropBox()
-    await paste(user, 'Parsed JSON', JSON.stringify({ campaign: { name: 'No handle yet' } }))
+    await paste(user, 'Parsed JSON', JSON.stringify({ campaign: { name: 'Fresh campaign' } }))
     await user.click(screen.getByRole('button', { name: 'Review it' }))
     await screen.findByRole('heading', { name: 'Review' })
   }
 
-  it('refuses to save with no TikTok or Instagram handle', async () => {
+  it('saves without a platform rather than refusing at the last step', async () => {
+    // The old screen would not save a campaign with no @ on it. Being blocked
+    // at the end of a long parse is worse than a campaign he finishes on the
+    // brief page a minute later.
     const user = userEvent.setup()
     await reachReview(user)
-
-    expect(screen.getByRole('button', { name: 'Save campaign' })).toBeDisabled()
-    expect(screen.getByText(/add a tiktok or instagram @ above/i)).toBeInTheDocument()
-  })
-
-  it('enables saving once either handle is filled in', async () => {
-    const user = userEvent.setup()
-    await reachReview(user)
-
-    await user.click(screen.getByLabelText('Instagram @'))
-    await user.paste('@creator')
 
     expect(screen.getByRole('button', { name: 'Save campaign' })).not.toBeDisabled()
+    await user.click(screen.getByRole('button', { name: 'Save campaign' }))
+
+    await waitFor(async () => {
+      expect(await adapter.listCampaigns()).toHaveLength(1)
+    })
   })
 
-  it('saves the handle, email and password as user entered, with no quote', async () => {
+  it('makes one account per platform picked, each with its own login', async () => {
     const user = userEvent.setup()
     await reachReview(user)
 
-    await user.click(screen.getByLabelText('TikTok @'))
-    await user.paste('@creator')
-    await user.click(screen.getByLabelText('Email'))
-    await user.paste('creator@example.com')
-    await user.click(screen.getByLabelText('Password'))
+    await user.click(screen.getByRole('button', { name: 'Instagram' }))
+    await user.click(screen.getByRole('button', { name: 'YouTube' }))
+
+    await user.click(screen.getByLabelText('Instagram handle'))
+    await user.paste('@creator.ig')
+    await user.click(screen.getByLabelText('Instagram email'))
+    await user.paste('ig@example.com')
+    await user.click(screen.getByLabelText('Instagram password'))
     await user.paste('hunter2')
+    await user.click(screen.getByLabelText('YouTube handle'))
+    await user.paste('@creator.yt')
+
     await user.click(screen.getByRole('button', { name: 'Save campaign' }))
 
-    // Wait for the LAST thing the save writes, not the first. The campaign row
-    // lands before the account fields, so waiting on the campaign let the
-    // assertions below race a half-written save - which is what made this test
-    // flaky. account_password is the final key in ACCOUNT_FIELD_KEYS, so its
-    // arrival means the whole sequence is done.
     await waitFor(async () => {
       const [saved] = await adapter.listCampaigns()
       expect(saved).toBeDefined()
-      const written = await adapter.listCampaignFields(saved.id)
-      expect(written.find((f) => f.field_key === 'account_password')?.field_value).toBe('hunter2')
+      expect(await adapter.listCampaignAccounts(saved.id)).toHaveLength(2)
     })
 
-    const [campaign] = await adapter.listCampaigns()
-    const fields = await adapter.listCampaignFields(campaign.id)
-
-    const handle = fields.find((f) => f.field_key === 'handle_tiktok')
-    expect(handle?.field_value).toBe('@creator')
-    expect(handle?.source).toBe('user_entered')
-    expect(handle?.source_quote).toBeNull()
-
-    expect(fields.find((f) => f.field_key === 'account_email')?.field_value).toBe(
-      'creator@example.com',
-    )
-    expect(fields.find((f) => f.field_key === 'account_password')?.field_value).toBe('hunter2')
+    const [saved] = await adapter.listCampaigns()
+    const accounts = await adapter.listCampaignAccounts(saved.id)
+    const instagram = accounts.find((a) => a.platform === 'Instagram')
+    expect(instagram?.handle).toBe('@creator.ig')
+    expect(instagram?.email).toBe('ig@example.com')
+    expect(instagram?.password).toBe('hunter2')
+    // The other platform keeps its own row, with nothing borrowed from the
+    // first: one login per account, never one per campaign.
+    const youtube = accounts.find((a) => a.platform === 'YouTube')
+    expect(youtube?.handle).toBe('@creator.yt')
+    expect(youtube?.email).toBeNull()
   })
 
-  it('keeps the password hidden on the review screen until Show is tapped', async () => {
+  it('un-picking a platform takes its fields away again', async () => {
     const user = userEvent.setup()
     await reachReview(user)
 
-    const input = screen.getByLabelText('Password')
-    expect(input).toHaveAttribute('type', 'password')
+    await user.click(screen.getByRole('button', { name: 'TikTok' }))
+    expect(screen.getByLabelText('TikTok handle')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Show' }))
-    expect(input).toHaveAttribute('type', 'text')
+    await user.click(screen.getByRole('button', { name: 'TikTok' }))
+    expect(screen.queryByLabelText('TikTok handle')).toBeNull()
+  })
+
+  it('asks how many posts a day, because no document states it', async () => {
+    const user = userEvent.setup()
+    await reachReview(user)
+
+    const quota = screen.getByLabelText('Posts owed per day')
+    await user.clear(quota)
+    await user.type(quota, '4')
+    await user.click(screen.getByRole('button', { name: 'Save campaign' }))
+
+    await waitFor(async () => {
+      const [saved] = await adapter.listCampaigns()
+      expect(saved?.daily_post_quota).toBe(4)
+    })
+  })
+
+  it('keeps each password hidden as it is typed', async () => {
+    const user = userEvent.setup()
+    await reachReview(user)
+
+    await user.click(screen.getByRole('button', { name: 'TikTok' }))
+    expect(screen.getByLabelText('TikTok password')).toHaveAttribute('type', 'password')
   })
 })

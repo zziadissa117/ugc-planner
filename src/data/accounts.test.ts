@@ -1,9 +1,10 @@
-// Accounts, and the daily demand that comes off them.
+// Accounts, and the daily demand that is deliberately NOT derived from them.
 //
-// The rule that matters here is that one video is cross-posted to every
-// account and is still ONE deliverable - contractual for Inflow, and what he
-// described for Vertus. So demand is the MAX of posts_per_day across ready
-// accounts, never the sum. Summing would double the work he actually owes.
+// One video cross-posted to every account is still ONE deliverable, so the
+// number of platforms must never change what a day owes. Demand used to be
+// read as the maximum posts_per_day across ready accounts, which got the
+// arithmetic right by accident and the model wrong: the account list decided
+// the obligation. It is the campaign's own daily_post_quota, full stop.
 
 import 'fake-indexeddb/auto'
 import { IDBFactory } from 'fake-indexeddb'
@@ -88,69 +89,53 @@ describe('accounts', () => {
 })
 
 describe('what a campaign owes per day', () => {
-  it('takes the biggest per-account figure, not the sum', async () => {
-    const campaign = await makeCampaign()
-    for (const platform of ['TikTok', 'Instagram']) {
+  it('owes its quota, whatever the platform count', async () => {
+    // Inflow: one post a day, on Instagram, TikTok and YouTube. That is ONE
+    // deliverable with three destinations - the exact case that used to come
+    // out as three.
+    const campaign = await makeCampaign({ daily_post_quota: 1 })
+    for (const platform of ['TikTok', 'Instagram', 'YouTube']) {
       const account = await adapter.addCampaignAccount({
         campaign_id: campaign.id,
         platform,
         handle: '@michael.financier',
-        posts_per_day: 1,
       })
       await adapter.updateCampaignAccount(account.id, { status: 'ready' })
     }
 
-    const accounts = await adapter.listCampaignAccounts()
-    // Inflow: 1 on TikTok and 1 on Instagram is ONE video, posted twice.
-    expect(dailyVideoDemand(campaign, accounts)).toBe(1)
+    expect(dailyVideoDemand(campaign)).toBe(1)
+    expect(await ensureTodaysQuota(adapter)).toBe(1)
   })
 
-  it('handles two a day to two platforms as two videos, not four', async () => {
-    const campaign = await makeCampaign({ name: 'Vertus' })
-    for (const platform of ['YouTube', 'Instagram']) {
-      const account = await adapter.addCampaignAccount({
-        campaign_id: campaign.id,
-        platform,
-        handle: '@vertus',
-        posts_per_day: 2,
-      })
-      await adapter.updateCampaignAccount(account.id, { status: 'ready' })
-    }
+  it('owes four when the campaign says four, on one platform or three', async () => {
+    const campaign = await makeCampaign({ name: 'Vertus', daily_post_quota: 4 })
+    await adapter.addCampaignAccount({ campaign_id: campaign.id, platform: 'Instagram', handle: '@v' })
 
-    expect(dailyVideoDemand(campaign, await adapter.listCampaignAccounts())).toBe(2)
+    expect(dailyVideoDemand(campaign)).toBe(4)
+    expect(await ensureTodaysQuota(adapter)).toBe(4)
   })
 
-  it('owes nothing while every account is still warming up', async () => {
-    const campaign = await makeCampaign()
+  it('still owes its quota while its accounts are new or warming up', async () => {
+    // Warm-up is his own tracking, not a gate on the day's work: an account
+    // he has not marked ready does not make the campaign owe nothing.
+    const campaign = await makeCampaign({ daily_post_quota: 2 })
     await adapter.addCampaignAccount({
       campaign_id: campaign.id,
       platform: 'TikTok',
       handle: '@new',
-      posts_per_day: 1,
     })
 
-    // A campaign still warming up belongs on the warm-up screen, not in the
-    // day's quota.
-    expect(dailyVideoDemand(campaign, await adapter.listCampaignAccounts())).toBe(0)
+    expect(dailyVideoDemand(campaign)).toBe(2)
+    expect(await ensureTodaysQuota(adapter)).toBe(2)
+  })
+
+  it('owes nothing when the quota is zero', async () => {
+    await makeCampaign({ daily_post_quota: 0 })
     expect(await ensureTodaysQuota(adapter)).toBe(0)
   })
 
-  it('falls back to the old quota until a campaign has accounts', async () => {
-    // A device that has not run the accounts derivation yet still owes what it
-    // did before, rather than silently owing nothing.
-    const campaign = await makeCampaign({ daily_post_quota: 3 })
-    expect(dailyVideoDemand(campaign, [])).toBe(3)
-  })
-
   it('raises one video per unit of demand, and stops', async () => {
-    const campaign = await makeCampaign()
-    const account = await adapter.addCampaignAccount({
-      campaign_id: campaign.id,
-      platform: 'TikTok',
-      handle: '@ready',
-      posts_per_day: 2,
-    })
-    await adapter.updateCampaignAccount(account.id, { status: 'ready' })
+    await makeCampaign({ daily_post_quota: 2 })
 
     expect(await ensureTodaysQuota(adapter)).toBe(2)
     // Idempotent within the day: running again owes nothing more.

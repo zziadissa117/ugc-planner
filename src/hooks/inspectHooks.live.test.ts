@@ -42,6 +42,7 @@ const CONTEXT: HookContext = {
     { id: 'angle-rate', label: 'E. The real rate', body: 'An advertised 2.5-2.9% becomes well past 4% once international cards, conversion and chargebacks stack.', family: 'greed' },
     { id: 'angle-user', label: 'F. You use it too', body: 'Speak as an actual user, not as an ad.', family: 'greed' },
   ],
+  referenceMaterial: [],
   lastFamily: 'fear',
   count: 6,
 }

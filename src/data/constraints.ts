@@ -245,7 +245,7 @@ export function assertCampaignAngle(row: CampaignAngle): void {
 
 export function assertCampaignAccount(row: CampaignAccount): void {
   const t: TableName = 'campaign_accounts'
-  text(t, 'id', row.id, { nullable: false }); text(t, 'user_id', row.user_id, { nullable: false }); text(t, 'campaign_id', row.campaign_id, { nullable: false }); text(t, 'platform', row.platform, { nullable: false }); text(t, 'handle', row.handle, { nullable: true })
+  text(t, 'id', row.id, { nullable: false }); text(t, 'user_id', row.user_id, { nullable: false }); text(t, 'campaign_id', row.campaign_id, { nullable: false }); text(t, 'platform', row.platform, { nullable: false }); text(t, 'handle', row.handle, { nullable: true }); text(t, 'email', row.email, { nullable: true }); text(t, 'password', row.password, { nullable: true })
   integer(t, 'posts_per_day', row.posts_per_day, { min: 0, nullable: false }); isEnum(t, 'status', row.status, ['new', 'warming', 'ready'], false); boolean(t, 'is_active', row.is_active); integer(t, 'sort_order', row.sort_order, { nullable: false }); timestamp(t, 'created_at', row.created_at, { nullable: false }); timestamp(t, 'updated_at', row.updated_at, { nullable: false })
 }
 

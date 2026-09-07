@@ -1,13 +1,18 @@
-// The posting checklist.
+// The posting grid.
 //
-// A row is now an account, not a video: he asked for "very simply the
-// campaigns platforms and check off if i posted in them for the day". The
-// rule worth pinning underneath that is unchanged - a video is only posted,
-// and the rate only snapshotted, once every ready account has a post against
-// it, not on the first checkbox ticked.
+// The three bugs this replaces, all from real use:
+//
+//   - "Inflow" appearing three times, one card per unposted video, and cards
+//     vanishing as they were ticked.
+//   - "Nothing ready to post", because he had not pressed FILMED IT inside
+//     the app for work he had already filmed, edited and posted elsewhere.
+//   - Being held at "1 of 4" because only one video existed in the app.
+//
+// So: one campaign, one row per platform, one box per deliverable owed today,
+// and never a refusal.
 
 import 'fake-indexeddb/auto'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { IDBFactory } from 'fake-indexeddb'
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -29,45 +34,32 @@ beforeEach(async () => {
   await db.open()
 })
 
-async function setUp(postsPerDay = 1): Promise<{ campaign: Campaign; accounts: CampaignAccount[] }> {
+/** Inflow as it really is: $35 a post, one post a day, three platforms. */
+async function setUp(
+  quota = 1,
+  platforms = ['TikTok', 'Instagram', 'YouTube'],
+): Promise<{ campaign: Campaign; accounts: CampaignAccount[] }> {
   const campaign = await adapter.createCampaign({
     name: 'Inflow',
     company: 'Inflowpay',
     default_setup: 'face',
     approval_mode: 'none',
-    daily_post_quota: 1,
+    daily_post_quota: quota,
     pay_per_video_cents: 3500,
     cycle_size: null,
   })
 
   const accounts: CampaignAccount[] = []
-  for (const platform of ['TikTok', 'Instagram']) {
+  for (const platform of platforms) {
     const account = await adapter.addCampaignAccount({
       campaign_id: campaign.id,
       platform,
       handle: '@michael.financier',
-      posts_per_day: postsPerDay,
     })
     accounts.push(await adapter.updateCampaignAccount(account.id, { status: 'ready' }))
   }
 
   return { campaign, accounts }
-}
-
-async function addEditedVideo(campaignId: string) {
-  const video = await adapter.createVideo({
-    campaign_id: campaignId,
-    setup: 'face',
-    angle_id: null,
-    script: null,
-    blocked_reason: null,
-    owed_for_date: null,
-    rate_snapshot_cents: null,
-    posted_at: null,
-  })
-  await adapter.advanceVideoPhase(video.id, { session: 'film' })
-  await adapter.advanceVideoPhase(video.id, { session: 'edit' })
-  return video
 }
 
 function renderScreen() {
@@ -80,110 +72,235 @@ function renderScreen() {
   )
 }
 
-describe('the posting checklist', () => {
-  it('lists one row per ready account, with the handle to post from', async () => {
-    await setUp()
-    await addEditedVideo((await adapter.listCampaigns())[0].id)
+async function boxes(platform: string) {
+  const row = (await screen.findByText(platform)).closest('li')!
+  return within(row)
+    .getAllByRole('button')
+    .filter((button) => button.getAttribute('aria-label')?.includes('post '))
+}
+
+describe('the posting grid', () => {
+  it('shows one campaign and one row per platform, never one per video', async () => {
+    const { campaign } = await setUp()
+    // Two videos already finished. The old screen drew a card each and the
+    // campaign name three times over.
+    for (let i = 0; i < 2; i++) {
+      const video = await adapter.createVideo({
+        campaign_id: campaign.id,
+        setup: 'face',
+        angle_id: null,
+        script: null,
+        blocked_reason: null,
+        owed_for_date: null,
+        rate_snapshot_cents: null,
+        posted_at: null,
+      })
+      await adapter.advanceVideoPhase(video.id, { session: 'film' })
+      await adapter.advanceVideoPhase(video.id, { session: 'edit' })
+    }
+
     renderScreen()
 
-    expect(await screen.findByRole('button', { name: /TikTok/ })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Instagram/ })).toBeInTheDocument()
-    expect(screen.getAllByText('@michael.financier')).toHaveLength(2)
+    expect(await screen.findAllByRole('heading', { name: 'Inflow' })).toHaveLength(1)
+    for (const platform of ['TikTok', 'Instagram', 'YouTube']) {
+      expect(screen.getByText(platform)).toBeInTheDocument()
+    }
+    // One box per platform, because one post a day is owed.
+    expect(await boxes('TikTok')).toHaveLength(1)
   })
 
-  it('checking a platform posts to it and, once every account is checked, marks the video posted', async () => {
+  it('ticks each platform independently, and none of them disappear', async () => {
     const user = userEvent.setup()
     const { campaign } = await setUp()
-    await addEditedVideo(campaign.id)
     renderScreen()
 
-    await user.click(await screen.findByRole('button', { name: /TikTok/ }))
-
-    // One of two accounts done. Not posted, and nothing earned yet.
-    await waitFor(async () => {
-      const [video] = await adapter.listVideos({ campaignId: campaign.id })
-      expect(video.phase).toBe('edited')
-    })
-
-    await user.click(screen.getByRole('button', { name: /Instagram/ }))
+    const [tiktok] = await boxes('TikTok')
+    await user.click(tiktok)
 
     await waitFor(async () => {
-      const [video] = await adapter.listVideos({ campaignId: campaign.id })
-      expect(video.phase).toBe('posted')
-      // The rate is snapshotted on posting: this is the moment it is earned.
-      expect(video.rate_snapshot_cents).toBe(3500)
+      const videos = await adapter.listVideos({ campaignId: campaign.id })
+      const posts = (await Promise.all(videos.map((v) => adapter.listVideoPosts(v.id)))).flat()
+      expect(posts.map((p) => p.platform)).toEqual(['TikTok'])
     })
+
+    // The other two are still there, still unticked.
+    await waitFor(async () => {
+      expect((await boxes('TikTok'))[0]).toHaveAttribute('aria-pressed', 'true')
+    })
+    expect((await boxes('Instagram'))[0]).toHaveAttribute('aria-pressed', 'false')
+    expect((await boxes('YouTube'))[0]).toHaveAttribute('aria-pressed', 'false')
   })
 
-  it('unchecking takes the post back, and the video with it if it had gone out', async () => {
+  it('counts one deliverable however many platforms it went to', async () => {
     const user = userEvent.setup()
     const { campaign } = await setUp()
-    await addEditedVideo(campaign.id)
     renderScreen()
 
-    await user.click(await screen.findByRole('button', { name: /TikTok/ }))
-    await user.click(screen.getByRole('button', { name: /Instagram/ }))
+    for (const platform of ['TikTok', 'Instagram', 'YouTube']) {
+      await user.click((await boxes(platform))[0])
+      await waitFor(async () => {
+        expect((await boxes(platform))[0]).toHaveAttribute('aria-pressed', 'true')
+      })
+    }
+
+    // One video, posted three times. Not three videos, and not three payments.
+    const posted = (await adapter.listVideos({ campaignId: campaign.id })).filter(
+      (v) => v.phase === 'posted',
+    )
+    expect(posted).toHaveLength(1)
+    expect(posted[0].rate_snapshot_cents).toBe(3500)
+    expect(await adapter.listVideoPosts(posted[0].id)).toHaveLength(3)
+    expect(screen.getByText('1 of 1 today')).toBeInTheDocument()
+  })
+
+  it('marks a post without anything having been filmed in the app', async () => {
+    // He filmed it on his phone, edited it elsewhere and posted it. The app
+    // was never told, and has no business refusing to record it.
+    const user = userEvent.setup()
+    const { campaign } = await setUp()
+    expect(await adapter.listVideos({ campaignId: campaign.id })).toHaveLength(0)
+
+    renderScreen()
+    await user.click((await boxes('Instagram'))[0])
+
     await waitFor(async () => {
-      const [video] = await adapter.listVideos({ campaignId: campaign.id })
-      expect(video.phase).toBe('posted')
+      const posted = (await adapter.listVideos({ campaignId: campaign.id })).filter(
+        (v) => v.phase === 'posted',
+      )
+      expect(posted).toHaveLength(1)
+    })
+    expect(screen.queryByText(/nothing ready to post/i)).toBeNull()
+  })
+
+  it('lets him mark all four when four are owed and one was filmed', async () => {
+    const user = userEvent.setup()
+    const { campaign } = await setUp(4, ['Instagram'])
+    const filmed = await adapter.createVideo({
+      campaign_id: campaign.id,
+      setup: 'face',
+      angle_id: null,
+      script: null,
+      blocked_reason: null,
+      owed_for_date: null,
+      rate_snapshot_cents: null,
+      posted_at: null,
+    })
+    await adapter.advanceVideoPhase(filmed.id, { session: 'film' })
+
+    renderScreen()
+    expect(await boxes('Instagram')).toHaveLength(4)
+
+    for (let i = 0; i < 4; i++) {
+      const all = await boxes('Instagram')
+      await user.click(all[i])
+      await waitFor(async () => {
+        expect((await boxes('Instagram'))[i]).toHaveAttribute('aria-pressed', 'true')
+      })
+    }
+
+    await waitFor(() => {
+      expect(screen.getByText('4 of 4 today')).toBeInTheDocument()
+    })
+    const posted = (await adapter.listVideos({ campaignId: campaign.id })).filter(
+      (v) => v.phase === 'posted',
+    )
+    expect(posted).toHaveLength(4)
+  })
+
+  it('takes a post back, and the deliverable with it once nothing is left', async () => {
+    const user = userEvent.setup()
+    const { campaign } = await setUp(1, ['Instagram'])
+    renderScreen()
+
+    await user.click((await boxes('Instagram'))[0])
+    await waitFor(async () => {
+      const posted = (await adapter.listVideos({ campaignId: campaign.id })).filter(
+        (v) => v.phase === 'posted',
+      )
+      expect(posted).toHaveLength(1)
     })
 
-    // He mis-tapped. It is no longer everywhere it needs to be.
-    await user.click(screen.getByRole('button', { name: /Instagram/ }))
-
+    await user.click((await boxes('Instagram'))[0])
     await waitFor(async () => {
-      const [video] = await adapter.listVideos({ campaignId: campaign.id })
-      expect(video.phase).not.toBe('posted')
-      expect(video.rate_snapshot_cents).toBeNull()
+      const posted = (await adapter.listVideos({ campaignId: campaign.id })).filter(
+        (v) => v.phase === 'posted',
+      )
+      // Un-earned along with it: the rate goes when the last post does.
+      expect(posted).toHaveLength(0)
     })
   })
 
-  it('never offers an account that is not ready to post from', async () => {
-    const { campaign, accounts } = await setUp()
-    await addEditedVideo(campaign.id)
+  it('keeps a deliverable posted while it is still up somewhere else', async () => {
+    const user = userEvent.setup()
+    const { campaign } = await setUp(1, ['Instagram', 'TikTok'])
+    renderScreen()
+
+    await user.click((await boxes('Instagram'))[0])
+    await waitFor(async () => {
+      expect((await boxes('Instagram'))[0]).toHaveAttribute('aria-pressed', 'true')
+    })
+    await user.click((await boxes('TikTok'))[0])
+    await waitFor(async () => {
+      expect((await boxes('TikTok'))[0]).toHaveAttribute('aria-pressed', 'true')
+    })
+
+    await user.click((await boxes('TikTok'))[0])
+
+    await waitFor(async () => {
+      const posted = (await adapter.listVideos({ campaignId: campaign.id })).filter(
+        (v) => v.phase === 'posted',
+      )
+      // Still out on Instagram, so still posted.
+      expect(posted).toHaveLength(1)
+    })
+  })
+
+  it('allows an extra post beyond what is owed', async () => {
+    const user = userEvent.setup()
+    await setUp(1, ['Instagram'])
+    renderScreen()
+
+    // The day's one post first, so the next tap really is an extra one.
+    await user.click((await boxes('Instagram'))[0])
+    await waitFor(async () => {
+      expect((await boxes('Instagram'))[0]).toHaveAttribute('aria-pressed', 'true')
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Instagram extra post' }))
+
+    await waitFor(async () => {
+      expect(await boxes('Instagram')).toHaveLength(2)
+    })
+    // Over-delivery reads as over-delivery, not as a broken denominator.
+    expect(screen.getByText('2 of 1 today')).toBeInTheDocument()
+  })
+
+  it('shows an account that is still warming up rather than hiding the platform', async () => {
+    const { accounts } = await setUp(1, ['Instagram', 'TikTok'])
     await adapter.updateCampaignAccount(accounts[0].id, { status: 'warming' })
     renderScreen()
 
-    await screen.findByRole('button', { name: /Instagram/ })
-    expect(screen.queryByRole('button', { name: /TikTok/ })).toBeNull()
+    expect(await screen.findByText('Instagram')).toBeInTheDocument()
+    expect(screen.getByText('TikTok')).toBeInTheDocument()
+    expect(screen.getByText('warming')).toBeInTheDocument()
   })
 
-  it('says nothing is ready to post when there is no edited stock yet', async () => {
-    await setUp()
-    renderScreen()
-
-    const row = await screen.findByRole('button', { name: /TikTok/ })
-    expect(row).toBeDisabled()
-    expect(row).toHaveTextContent(/nothing ready to post/i)
-  })
-
-  it('shows a counter, not a checkbox, for an account needing more than one a day', async () => {
-    const user = userEvent.setup()
-    const { campaign } = await setUp(2)
-    await addEditedVideo(campaign.id)
-    await addEditedVideo(campaign.id)
-    renderScreen()
-
-    expect(await screen.findAllByText('0 of 2 today')).toHaveLength(2)
-
-    const plusButtons = screen.getAllByRole('button', { name: '+' })
-    await user.click(plusButtons[0])
-
-    await waitFor(() => {
-      expect(screen.getAllByText('1 of 2 today')).toHaveLength(1)
+  it('clears the next day, and yesterday does not fill today in', async () => {
+    const { campaign, accounts } = await setUp(1, ['Instagram'])
+    const video = await adapter.createVideo({
+      campaign_id: campaign.id,
+      setup: 'face',
+      angle_id: null,
+      script: null,
+      blocked_reason: null,
+      owed_for_date: null,
+      rate_snapshot_cents: null,
+      posted_at: null,
     })
-  })
-
-  it('resets the next day, so a fresh checkbox draws from the remaining backlog', async () => {
-    const { campaign, accounts } = await setUp()
-    const video = await addEditedVideo(campaign.id)
-    await addEditedVideo(campaign.id)
-
-    // Posted yesterday, so the checkbox has something to disagree with today.
     await adapter.addVideoPost({
       video_id: video.id,
       account_id: accounts[0].id,
-      platform: accounts[0].platform,
+      platform: 'Instagram',
       url: null,
       view_count: null,
       view_count_entered_at: null,
@@ -192,8 +309,7 @@ describe('the posting checklist', () => {
 
     renderScreen()
 
-    // Yesterday's post does not count today.
-    const row = await screen.findByRole('button', { name: /TikTok/ })
-    expect(row).toHaveAttribute('aria-pressed', 'false')
+    expect((await boxes('Instagram'))[0]).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByText('0 of 1 today')).toBeInTheDocument()
   })
 })

@@ -4,12 +4,11 @@ import { NavLink, Outlet } from 'react-router-dom'
 import { ensureSeeded } from './data/seed'
 import { useData } from './data/useData'
 
-/** The tabs worth a permanent slot. SHOOT and the tick-off list are reached
- *  from NOW, because both only make sense once he has said what he is doing.
+/** Five tabs, and nothing behind any of them that has to be planned first.
  *
- *  POST is permanent even though it is a kind of session: what is owed today
- *  is the one thing he checks without having decided to work first, and it is
- *  the daily habit the rest of the app feeds. */
+ *  POST is permanent: what is owed today is the one thing he checks without
+ *  having decided to work first, and it is the daily habit the rest of the
+ *  app feeds. */
 const TABS = [
   { to: '/', label: 'NOW', end: true },
   { to: '/post', label: 'POST', end: false },
@@ -41,7 +40,7 @@ export function App() {
 
   return (
     <div className="flex min-h-dvh flex-col bg-ink text-text">
-      <main className="flex-1 px-4 pt-6 pb-4">{ready ? <Outlet /> : null}</main>
+      <main className="flex-1 px-3 pb-3 pt-4">{ready ? <Outlet /> : null}</main>
 
       <nav
         className="sticky bottom-0 border-t border-edge bg-surface"

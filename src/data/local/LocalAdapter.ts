@@ -859,6 +859,8 @@ export class LocalAdapter implements DataAdapter {
       campaign_id: account.campaign_id,
       platform: account.platform,
       handle: account.handle,
+      email: account.email ?? null,
+      password: account.password ?? null,
       posts_per_day: account.posts_per_day ?? 0,
       // New until he says otherwise: an account nobody has warmed up is not
       // one to post brand content from.
@@ -997,6 +999,21 @@ export class LocalAdapter implements DataAdapter {
       this.enqueue(tx, 'campaign_hooks', row.id, 'insert', row)
     })
     return row
+  }
+
+  /** Deletes a hook outright.
+   *
+   *  Hooks are the one thing on the brief page that is genuinely disposable:
+   *  a line he did not like, or a generated batch he has finished with. There
+   *  is no history to preserve - a hook is not an event, it is material - so
+   *  this is a real delete rather than the soft delete accounts use. */
+  async deleteCampaignHook(id: string): Promise<void> {
+    await this.tx([this.db.campaign_hooks, this.db._outbox], async (tx) => {
+      const existing = (await tx.table('campaign_hooks').get(id)) as CampaignHook | undefined
+      if (!existing) return
+      await tx.table('campaign_hooks').delete(id)
+      this.enqueue(tx, 'campaign_hooks', id, 'delete', existing)
+    })
   }
 
   async setHookUsed(id: string, used: boolean): Promise<CampaignHook> {

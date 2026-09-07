@@ -99,6 +99,11 @@ function readContext(body: unknown): HookContext | string {
 
   const angles = Array.isArray(raw.angles) ? raw.angles : []
   const rules = Array.isArray(raw.rules) ? raw.rules.filter((r) => typeof r === 'string') : []
+  // His own hooks and ideas. Absent is normal - an older client does not send
+  // them at all - so this defaults to empty rather than refusing the request.
+  const referenceMaterial = Array.isArray(raw.referenceMaterial)
+    ? (raw.referenceMaterial.filter((entry) => typeof entry === 'string') as string[])
+    : []
 
   return {
     campaignName: raw.campaignName,
@@ -117,6 +122,7 @@ function readContext(body: unknown): HookContext | string {
         family: typeof a.family === 'string' ? a.family : null,
       }
     }),
+    referenceMaterial,
     lastFamily: typeof raw.lastFamily === 'string' ? raw.lastFamily : null,
     // Capped rather than refused: asking for 50 is a slip, not an error worth
     // failing his session over.

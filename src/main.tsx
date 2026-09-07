@@ -12,24 +12,22 @@ import { NewCampaign } from './screens/NewCampaign'
 import { NotFound } from './screens/NotFound'
 import { Now } from './screens/Now'
 import { Settings } from './screens/Settings'
-import { Shoot } from './screens/Shoot'
 import { Posting } from './screens/Posting'
 import { UpdateCampaign } from './screens/UpdateCampaign'
-import { TickOff } from './screens/TickOff'
-import { SessionProvider } from './session/SessionProvider'
 import { AuthProvider } from './sync'
 
+// The planner, the teleprompter and the separate tick-off list are gone. All
+// three existed to answer "what should tonight look like" - a question he
+// never asked the app; he asked it for a target, a scoreboard and a way to
+// record what actually went out. Posting lives at /post and nowhere else, so
+// there is exactly one place that can say a thing was posted.
 const router = createBrowserRouter([
   {
     path: '/',
     element: <App />,
     children: [
       { index: true, element: <Now /> },
-      // Reachable without choosing a session type or a window: ticking off what
-      // is already done must never require planning anything first.
-      { path: 'tick-off', element: <TickOff /> },
       { path: 'post', element: <Posting /> },
-      { path: 'shoot', element: <Shoot /> },
       { path: 'campaigns', element: <Campaigns /> },
       { path: 'campaigns/new', element: <NewCampaign /> },
       { path: 'campaigns/:campaignId', element: <Campaign /> },
@@ -45,9 +43,7 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <DataProvider>
       <AuthProvider>
-        <SessionProvider>
-          <RouterProvider router={router} />
-        </SessionProvider>
+        <RouterProvider router={router} />
       </AuthProvider>
     </DataProvider>
   </StrictMode>,

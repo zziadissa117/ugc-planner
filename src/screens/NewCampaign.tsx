@@ -1,10 +1,10 @@
 import { useCallback, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import { KNOWN_PLATFORMS } from '../components/AccountsEditor'
 import { DocumentInput, type Upload } from '../components/DocumentInput'
 import { fieldLabel } from '../components/fieldLabel'
 import { ReadingProgress } from '../components/ReadingProgress'
-import { ACCOUNT_FIELD_KEYS, saveFieldValue } from '../data/campaignFields'
 import { useData } from '../data/useData'
 import {
   NEVER_PARSED_FIELDS,
@@ -17,21 +17,28 @@ import {
 } from '../parser'
 import { EdgeFunctionParser } from '../parser/edgeFunction'
 
-/** No document ever states a handle, an email or a password
- *  (NEVER_PARSED_FIELDS) - this is always typed by hand, on this screen,
- *  before a campaign can be saved at all. */
-type AccountDraft = Record<(typeof ACCOUNT_FIELD_KEYS)[number], string>
-
-const BLANK_ACCOUNT: AccountDraft = {
-  platforms: '',
-  handle_tiktok: '',
-  handle_instagram: '',
-  account_email: '',
-  account_password: '',
+/** One platform this campaign will post to. No document ever states a handle,
+ *  an email or a password (NEVER_PARSED_FIELDS), so these are typed here and
+ *  become campaign_accounts rows - one per platform, each with its own login,
+ *  rather than one set of credentials smeared across the campaign. */
+interface PlatformDraft {
+  platform: string
+  handle: string
+  email: string
+  password: string
 }
 
-function hasHandle(account: AccountDraft): boolean {
-  return account.handle_tiktok.trim() !== '' || account.handle_instagram.trim() !== ''
+function blankPlatform(platform: string): PlatformDraft {
+  return { platform, handle: '', email: '', password: '' }
+}
+
+/** Platforms a brief mentioned, matched against the ones the app knows. The
+ *  parser is allowed to state platforms; it is not allowed to invent one, so
+ *  anything it says that is not recognised is simply not pre-selected. */
+function platformsFromBrief(stated: string | null): string[] {
+  if (stated === null) return []
+  const lower = stated.toLowerCase()
+  return KNOWN_PLATFORMS.filter((name) => lower.includes(name.toLowerCase()))
 }
 
 export function NewCampaign() {
@@ -48,7 +55,11 @@ export function NewCampaign() {
   const [review, setReview] = useState<ParseResult | null>(null)
   const [rejected, setRejected] = useState<string[]>([])
   const [confirmed, setConfirmed] = useState<Set<string>>(new Set())
-  const [account, setAccount] = useState<AccountDraft>(BLANK_ACCOUNT)
+  const [platforms, setPlatforms] = useState<PlatformDraft[]>([])
+  /** Paid deliverables a day. No document states it, and without it the
+   *  campaign owes nothing and pays nothing - so it is asked for here, with
+   *  one a day as the starting point rather than a guess at his contract. */
+  const [quota, setQuota] = useState('1')
 
   const briefText = brief.text.trim() === '' ? null : brief.text
   const contractText = contract.text.trim() === '' ? null : contract.text
@@ -98,12 +109,12 @@ export function NewCampaign() {
       setReview(verified.result)
       setRejected(verified.rejected)
       setConfirmed(new Set())
-      // 'platforms' is the one account field a document sometimes states
-      // (docs/EDGE_FUNCTION.md); the rest never arrive parsed and start blank.
-      setAccount({
-        ...BLANK_ACCOUNT,
-        platforms: verified.result.fields.platforms?.value ?? '',
-      })
+      // 'platforms' is the one account fact a document sometimes states
+      // (docs/EDGE_FUNCTION.md), so the ones it names are pre-selected. The
+      // handles and logins never arrive parsed and start blank.
+      setPlatforms(
+        platformsFromBrief(verified.result.fields.platforms?.value ?? null).map(blankPlatform),
+      )
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught))
     } finally {
@@ -112,7 +123,7 @@ export function NewCampaign() {
   }, [briefText, contractText, edgeParser, json, useServer])
 
   const save = useCallback(async () => {
-    if (!review || !hasHandle(account)) return
+    if (!review) return
     setBusy(true)
     try {
       const campaign = await applyParseResult(data, {
@@ -124,12 +135,24 @@ export function NewCampaign() {
         contractFilename: contract.filename,
       })
 
-      // The account block is typed here, not parsed, so it goes straight in
-      // as user_entered rather than through the confirm-a-quote path the rest
-      // of the fields use - there is no quote to confirm.
-      for (const key of ACCOUNT_FIELD_KEYS) {
-        const value = account[key].trim()
-        if (value !== '') await saveFieldValue(data, campaign.id, key, value)
+      const owed = Number(quota)
+      if (Number.isInteger(owed) && owed >= 0) {
+        await data.updateCampaign(campaign.id, { daily_post_quota: owed })
+      }
+
+      // One row per platform, each carrying its own login. Typed here, never
+      // parsed, so nothing is confirmed against a quote.
+      let order = 0
+      for (const draft of platforms) {
+        await data.addCampaignAccount({
+          campaign_id: campaign.id,
+          platform: draft.platform,
+          handle: draft.handle.trim() === '' ? null : draft.handle.trim(),
+          email: draft.email.trim() === '' ? null : draft.email.trim(),
+          password: draft.password === '' ? null : draft.password,
+          status: 'new',
+          sort_order: order++,
+        })
       }
 
       void navigate(`/campaigns/${campaign.id}`)
@@ -138,7 +161,18 @@ export function NewCampaign() {
     } finally {
       setBusy(false)
     }
-  }, [account, brief.filename, briefText, confirmed, contract.filename, contractText, data, navigate, review])
+  }, [
+    brief.filename,
+    briefText,
+    confirmed,
+    contract.filename,
+    contractText,
+    data,
+    navigate,
+    platforms,
+    quota,
+    review,
+  ])
 
   if (review) {
     return (
@@ -158,8 +192,10 @@ export function NewCampaign() {
         onSave={() => void save()}
         busy={busy}
         error={error}
-        account={account}
-        onAccountChange={setAccount}
+        platforms={platforms}
+        onPlatformsChange={setPlatforms}
+        quota={quota}
+        onQuotaChange={setQuota}
       />
     )
   }
@@ -217,8 +253,10 @@ function Review({
   onSave,
   busy,
   error,
-  account,
-  onAccountChange,
+  platforms,
+  onPlatformsChange,
+  quota,
+  onQuotaChange,
 }: {
   result: ParseResult
   rejected: readonly string[]
@@ -228,8 +266,10 @@ function Review({
   onSave: () => void
   busy: boolean
   error: string | null
-  account: AccountDraft
-  onAccountChange: (next: AccountDraft) => void
+  platforms: PlatformDraft[]
+  onPlatformsChange: (next: PlatformDraft[]) => void
+  quota: string
+  onQuotaChange: (next: string) => void
 }) {
   const entries = Object.entries(result.fields).sort(([a], [b]) => a.localeCompare(b))
   const found = entries.filter(([, field]) => field.value !== null)
@@ -242,7 +282,12 @@ function Review({
         <p className="text-state-later">{result.campaign.name}</p>
       </header>
 
-      <AccountEntry account={account} onChange={onAccountChange} />
+      <PlatformEntry
+        platforms={platforms}
+        onChange={onPlatformsChange}
+        quota={quota}
+        onQuotaChange={onQuotaChange}
+      />
 
       {result.brief_is_incomplete ? (
         <p className="rounded-lg border border-state-waiting/40 bg-state-waiting/10 px-4 py-3 text-state-waiting">
@@ -345,113 +390,122 @@ function Review({
         <button
           type="button"
           onClick={onSave}
-          disabled={busy || !hasHandle(account)}
+          disabled={busy}
           className="min-h-tap flex-1 rounded-lg border border-state-now bg-surface-raised px-4 font-semibold text-state-now active:bg-surface disabled:opacity-60"
         >
           Save campaign
         </button>
       </div>
-      {!hasHandle(account) ? (
-        <p className="text-right text-sm text-state-blocked">
-          Add a TikTok or Instagram @ above before saving.
-        </p>
-      ) : null}
     </section>
   )
 }
 
-/** The account this campaign posts from, typed by hand before it can be
- *  saved at all - no document ever states a handle, an email or a password
- *  (NEVER_PARSED_FIELDS), so there is nothing to parse here and nothing to
- *  confirm against a quote. At least one @ is required: a campaign with
- *  nothing to log into and post from is not a working campaign yet. */
-function AccountEntry({
-  account,
+/** Where this campaign posts, and how much it owes a day.
+ *
+ *  Platforms are picked, not typed, and each carries its own handle, email and
+ *  password on one line. Nothing here blocks saving: a campaign with no
+ *  platform yet is a campaign he can add one to on the brief page, and being
+ *  refused at the last step of a long parse is worse than an incomplete row. */
+function PlatformEntry({
+  platforms,
   onChange,
+  quota,
+  onQuotaChange,
 }: {
-  account: AccountDraft
-  onChange: (next: AccountDraft) => void
+  platforms: PlatformDraft[]
+  onChange: (next: PlatformDraft[]) => void
+  quota: string
+  onQuotaChange: (next: string) => void
 }) {
-  const [showPassword, setShowPassword] = useState(false)
-  const set = (key: keyof AccountDraft) => (value: string) => onChange({ ...account, [key]: value })
+  const chosen = new Set(platforms.map((p) => p.platform))
+
+  const toggle = (name: string) => {
+    onChange(
+      chosen.has(name)
+        ? platforms.filter((p) => p.platform !== name)
+        : [...platforms, blankPlatform(name)],
+    )
+  }
+
+  const set = (platform: string, key: keyof PlatformDraft) => (value: string) =>
+    onChange(platforms.map((p) => (p.platform === platform ? { ...p, [key]: value } : p)))
 
   return (
-    <div className="rounded-lg border border-edge bg-surface p-4">
-      <h2 className="text-lg font-semibold text-text">Account</h2>
-      <p className="mt-1 text-sm text-state-later">
-        No document ever states a handle, an email or a password - type them in. At least one @ is
-        required before this campaign can be saved.
-      </p>
-
-      <div className="mt-3 flex flex-col gap-3">
-        <AccountInput label="Platform" value={account.platforms} onChange={set('platforms')} />
-        <AccountInput
-          label="TikTok @"
-          value={account.handle_tiktok}
-          onChange={set('handle_tiktok')}
-        />
-        <AccountInput
-          label="Instagram @"
-          value={account.handle_instagram}
-          onChange={set('handle_instagram')}
-        />
-        <AccountInput
-          label="Email"
-          type="email"
-          value={account.account_email}
-          onChange={set('account_email')}
-        />
-        <div>
-          <label htmlFor="new-account-password" className="text-sm text-state-later">
-            Password
-          </label>
-          <div className="mt-1 flex gap-2">
-            <input
-              id="new-account-password"
-              value={account.account_password}
-              onChange={(event) => set('account_password')(event.target.value)}
-              type={showPassword ? 'text' : 'password'}
-              autoComplete="new-password"
-              className="min-h-tap w-full rounded-lg border border-edge bg-surface-raised px-3 text-text"
-            />
-            <button
-              type="button"
-              onClick={() => setShowPassword((current) => !current)}
-              className="min-h-tap shrink-0 rounded-lg border border-edge px-3 text-sm font-semibold text-state-later active:bg-surface-raised"
-            >
-              {showPassword ? 'Hide' : 'Show'}
-            </button>
-          </div>
-        </div>
+    <div className="rounded-lg border border-edge bg-surface p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-state-later">
+          Where it posts
+        </h2>
+        <label className="flex items-center gap-2 text-sm text-state-later">
+          posts owed per day
+          <input
+            value={quota}
+            onChange={(event) => onQuotaChange(event.target.value)}
+            aria-label="Posts owed per day"
+            inputMode="numeric"
+            className="min-h-tap w-16 rounded-md border border-edge bg-surface-raised px-2 text-text"
+          />
+        </label>
       </div>
-    </div>
-  )
-}
 
-function AccountInput({
-  label,
-  value,
-  onChange,
-  type = 'text',
-}: {
-  label: string
-  value: string
-  onChange: (value: string) => void
-  type?: string
-}) {
-  const id = `new-account-${label}`
-  return (
-    <div>
-      <label htmlFor={id} className="text-sm text-state-later">
-        {label}
-      </label>
-      <input
-        id={id}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        type={type}
-        className="mt-1 min-h-tap w-full rounded-lg border border-edge bg-surface-raised px-3 text-text"
-      />
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {KNOWN_PLATFORMS.map((name) => (
+          <button
+            key={name}
+            type="button"
+            onClick={() => toggle(name)}
+            aria-pressed={chosen.has(name)}
+            className={[
+              'min-h-tap rounded-md border px-3 text-sm font-semibold active:bg-surface',
+              chosen.has(name)
+                ? 'border-state-now bg-surface-raised text-state-now'
+                : 'border-edge bg-surface text-state-later',
+            ].join(' ')}
+          >
+            {name}
+          </button>
+        ))}
+      </div>
+
+      {platforms.length > 0 ? (
+        <ul className="mt-2 flex flex-col gap-1.5">
+          {platforms.map((draft) => (
+            <li key={draft.platform} className="flex flex-wrap items-center gap-1.5">
+              <span className="w-20 shrink-0 text-sm font-semibold text-text">
+                {draft.platform}
+              </span>
+              <input
+                value={draft.handle}
+                onChange={(event) => set(draft.platform, 'handle')(event.target.value)}
+                aria-label={`${draft.platform} handle`}
+                placeholder="@handle"
+                className="min-h-tap w-28 min-w-0 flex-1 rounded-md border border-edge bg-surface-raised px-2 text-sm text-text placeholder:text-state-later"
+              />
+              <input
+                value={draft.email}
+                onChange={(event) => set(draft.platform, 'email')(event.target.value)}
+                aria-label={`${draft.platform} email`}
+                placeholder="email"
+                autoComplete="off"
+                className="min-h-tap w-32 min-w-0 flex-1 rounded-md border border-edge bg-surface-raised px-2 text-sm text-text placeholder:text-state-later"
+              />
+              <input
+                value={draft.password}
+                onChange={(event) => set(draft.platform, 'password')(event.target.value)}
+                type="password"
+                aria-label={`${draft.platform} password`}
+                placeholder="password"
+                autoComplete="new-password"
+                className="min-h-tap w-28 min-w-0 flex-1 rounded-md border border-edge bg-surface-raised px-2 text-sm text-text placeholder:text-state-later"
+              />
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-2 text-sm text-state-later">
+          None picked yet. You can add them on the brief afterwards.
+        </p>
+      )}
     </div>
   )
 }

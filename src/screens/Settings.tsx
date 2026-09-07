@@ -138,9 +138,8 @@ export function Settings() {
         {status.kind === 'busy' ? <p className="mt-3 text-state-later">Working...</p> : null}
       </details>
 
-      <p className="text-state-later">
-        Time estimates and the setup switch cost are only used by the optional planner, and are
-        left at their defaults. The reset buttons are not built.
+      <p className="text-sm text-state-later">
+        The reset buttons are not built. Nothing else here needs setting.
       </p>
     </section>
   )

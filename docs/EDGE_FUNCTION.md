@@ -167,14 +167,26 @@ that kept `SupabaseAdapter` out of the design (`docs/SYNC.md`).
 ## What it is allowed to work from
 
 Only the campaign's own stored material: `product_facts`, `audience`, `tone`,
-`structure`, the `campaign_rules` never-do list, and the angles the campaign's
-own brief documents. Angles with `is_verified = false` are **not** sent - those
-come from the user's skill file, and SPEC section 11 says the two sources must
-never be merged into one list.
+`structure`, the `campaign_rules` never-do list, the campaign's own hooks and
+ideas, and any angles its brief documents.
+
+**`referenceMaterial` is the important one.** It carries what he dumped into
+the brief's Hooks & ideas box - hooks, video ideas, formats, concepts, viral
+references, in his own words - and the prompt tells the model to build from it
+rather than reword it or ignore it. It is the only part of the request that
+says what actually works for this campaign, as opposed to what the brand says
+about itself. Only `source = 'user_entered'` hooks are sent: feeding generated
+ones back in would make each batch a copy of the last. Capped at 40 entries.
+
+**Angles are optional.** Most campaigns have none, nothing in the app asks him
+to create one, and generation works identically without them - the prompt says
+so in as many words, so their absence is not treated as a problem to solve.
+Angles with `is_verified = false` are **not** sent: those come from the user's
+skill file, and SPEC section 11 says the two sources must never be merged.
 
 A section with nothing behind it is sent as `(not saved yet)` rather than
-omitted or filled in, the same rule `src/chatgpt.ts` follows. The prompt says
-that thin material means fewer and simpler hooks, not invented ones.
+omitted or filled in. The prompt says that thin material means fewer and
+simpler hooks, not invented ones.
 
 ## The rules the prompt holds
 
@@ -182,9 +194,11 @@ that thin material means fewer and simpler hooks, not invented ones.
    price, percentage, guarantee or feature.
 2. The never-do list is absolute.
 3. One angle per hook.
-4. Angle ids are chosen from the list given, never invented.
+4. Build from the MATERIAL section where there is one.
+5. Angle ids are chosen from the list given, never invented, and left empty
+   when the campaign has no angles.
 
-Rule 4 is also enforced after the fact: `dropUnknownAngles` clears any
+Rule 5 is also enforced after the fact: `dropUnknownAngles` clears any
 `angle_id` the campaign does not have. A tool schema is a hint, not an enforced
 type, and an id pointing at nothing would fail the foreign key on insert.
 Reassigning it to some other angle would be worse - a hook filed under a

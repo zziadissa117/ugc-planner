@@ -21,13 +21,16 @@ ask the database instead:
 select version, name from supabase_migrations.schema_migrations order by version;
 ```
 
-As of 2026-09-06 the live project (`uykuoibqdxmpbbrsmyad`) has run 0001 and 0003
-through 0006, plus 0008.
+As of 2026-09-07 the live project (`uykuoibqdxmpbbrsmyad`) has run 0001, 0003
+through 0006, 0008 and 0009.
 
-**0007 is deliberately unapplied.** It drops `campaigns.daily_post_quota`, which
-the shipped UI still reads. It goes last, once the accounts editor has replaced
-every reader and has been right in use for a while - a column that has stopped
-being read can be brought back, and a dropped one cannot.
+**0007 was deleted, not deferred.** It dropped `campaigns.daily_post_quota` on
+the theory that `campaign_accounts.posts_per_day` had replaced it. That turned
+out to be backwards: a campaign posting one video to three platforms owes one
+deliverable, not three, and deriving demand from the account list let the
+number of platforms multiply both the day's obligation and the day's earnings.
+`daily_post_quota` is now the single source of both and is never dropped. It
+was never applied anywhere, so deleting the file left nothing behind.
 
 ## Writing a new one
 

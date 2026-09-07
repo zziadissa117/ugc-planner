@@ -30,6 +30,10 @@ const CONTEXT: client.HookContext = {
   structure: 'Hook, then the problem, then what fixed it.',
   rules: ['Never name a competitor.', 'Never mix more than one angle into a video.'],
   angles: ANGLES,
+  referenceMaterial: [
+    'POV: your payout is frozen the week rent is due',
+    'Format: screen recording of the dashboard, then talk over it',
+  ],
   lastFamily: 'fear',
   count: 5,
 }
@@ -120,5 +124,32 @@ describe('what the model is allowed to see', () => {
 
   it('asks for the number he actually set', () => {
     expect(client.buildHookRequest({ ...CONTEXT, count: 9 })).toContain('Write 9 hooks.')
+  })
+
+  it('gives the generator the material he dumped into the brief', () => {
+    // The whole point of the Hooks & ideas box: he pastes what works for the
+    // campaign, and generation builds from that rather than from the brand's
+    // description of itself.
+    const request = client.buildHookRequest(CONTEXT)
+
+    expect(request).toContain('MATERIAL')
+    expect(request).toContain('POV: your payout is frozen the week rent is due')
+    expect(request).toContain('Format: screen recording of the dashboard, then talk over it')
+  })
+
+  it('works with no angles at all, and says their absence is normal', () => {
+    // Angles are optional and nothing in the app asks him to create one, so a
+    // campaign without any must generate exactly as well as one with them.
+    const request = client.buildHookRequest({ ...CONTEXT, angles: [], lastFamily: null })
+
+    expect(request).toContain('this is normal')
+    expect(request).toContain('Write 5 hooks.')
+    // No rotation line, because there are no families to alternate between.
+    expect(request).not.toContain('ROTATION')
+  })
+
+  it('says so plainly when he has dumped nothing in yet', () => {
+    const request = client.buildHookRequest({ ...CONTEXT, referenceMaterial: [] })
+    expect(request).toContain('none saved - work from the sections above')
   })
 })

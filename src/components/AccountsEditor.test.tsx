@@ -1,9 +1,10 @@
-// A real ten-campaign dogfooding pass found this the hard way: nothing here
-// stopped "Instagram & Youtube" being saved as a single account with no
-// handle, because Platform is deliberately free text - a new platform must
-// never need a migration. That left a real campaign with one malformed
-// account instead of two real ones, each demanding a handle the app then had
-// nowhere to render.
+// Picking platforms, and the login that belongs to each one.
+//
+// A real ten-campaign pass found the reason this is a picker rather than a
+// text box: a live campaign held one account called "Instagram & Youtube"
+// with no handle - two platforms in one row, which the posting grid could
+// only draw as a single line and no handle could describe. Picking from a
+// list makes that shape unrepresentable.
 
 import 'fake-indexeddb/auto'
 import { render, screen, waitFor } from '@testing-library/react'
@@ -41,72 +42,154 @@ function renderEditor() {
   render(<AccountsEditor data={adapter} campaignId={campaignId} />)
 }
 
-describe('adding an account', () => {
-  it('refuses a platform that is really two platforms typed together', async () => {
+describe('picking platforms', () => {
+  it('keeps the add controls out of the way until asked for', async () => {
     const user = userEvent.setup()
     renderEditor()
 
-    for (const combined of ['Instagram & Youtube', 'TikTok, Instagram', 'IG/TikTok', 'TikTok and Instagram']) {
-      await user.clear(screen.getByLabelText('Platform'))
-      await user.type(screen.getByLabelText('Platform'), combined)
-      await user.click(screen.getByRole('button', { name: 'Add account' }))
-      expect(await screen.findByText(/more than one platform/i)).toBeInTheDocument()
-    }
+    expect(screen.queryByRole('button', { name: 'Instagram' })).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+    expect(screen.getByRole('button', { name: 'Instagram' })).toBeInTheDocument()
 
-    // None of the rejected attempts ever reached the store.
-    expect(await adapter.listCampaignAccounts(campaignId)).toHaveLength(0)
+    await user.click(screen.getByRole('button', { name: 'Done' }))
+    expect(screen.queryByRole('button', { name: 'Instagram' })).toBeNull()
   })
 
-  it('saves two separate platforms as two separate accounts', async () => {
+  it('adds each platform as its own account', async () => {
     const user = userEvent.setup()
     renderEditor()
 
-    await user.type(screen.getByLabelText('Platform'), 'Instagram')
-    await user.type(screen.getByLabelText('Handle'), '@vertus.ig')
-    await user.click(screen.getByRole('button', { name: 'Add account' }))
-    // "Instagram" also names a quick-pick button that exists from the start,
-    // so waiting for that text is not proof the add landed - wait on the
-    // store itself instead, or the second add below can race the first
-    // account's own field reset and get its typed text wiped out under it.
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+    await user.click(screen.getByRole('button', { name: 'Instagram' }))
     await waitFor(async () => {
       expect(await adapter.listCampaignAccounts(campaignId)).toHaveLength(1)
     })
 
-    await user.type(screen.getByLabelText('Platform'), 'YouTube')
-    await user.type(screen.getByLabelText('Handle'), '@vertus.yt')
-    await user.click(screen.getByRole('button', { name: 'Add account' }))
+    await user.click(screen.getByRole('button', { name: 'YouTube' }))
     await waitFor(async () => {
       expect(await adapter.listCampaignAccounts(campaignId)).toHaveLength(2)
     })
 
     const accounts = await adapter.listCampaignAccounts(campaignId)
     expect(accounts.map((a) => a.platform).sort()).toEqual(['Instagram', 'YouTube'])
-    expect(accounts.every((a) => a.handle !== null)).toBe(true)
   })
 
-  it('still allows a platform name that only happens to contain "and"-like text, case aside', async () => {
-    // The guard is deliberately about separators, not about being clever - a
-    // real platform name should never collide with it in practice, but the
-    // word-boundary match on "and" must not fire on part of a longer word.
+  it('cannot produce one account holding two platforms', async () => {
     const user = userEvent.setup()
     renderEditor()
+    await user.click(screen.getByRole('button', { name: 'Add' }))
 
-    await user.type(screen.getByLabelText('Platform'), 'Bandcamp')
-    await user.click(screen.getByRole('button', { name: 'Add account' }))
-
+    // The only free-text way in is the "other platform" box, and what it
+    // makes is still a single row - there is no control that turns one entry
+    // into "Instagram & Youtube" across two of them.
+    await user.click(screen.getByRole('button', { name: 'Instagram' }))
     await waitFor(async () => {
       expect(await adapter.listCampaignAccounts(campaignId)).toHaveLength(1)
     })
-    expect(screen.queryByText(/more than one platform/i)).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'YouTube' }))
+    await waitFor(async () => {
+      expect(await adapter.listCampaignAccounts(campaignId)).toHaveLength(2)
+    })
+
+    const accounts = await adapter.listCampaignAccounts(campaignId)
+    for (const account of accounts) {
+      expect(account.platform).not.toMatch(/[,&/]| and /i)
+    }
   })
 
-  it('warns when every saved account has no handle', async () => {
+  it('will not add the same platform twice', async () => {
     const user = userEvent.setup()
     renderEditor()
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+    await user.click(screen.getByRole('button', { name: 'Instagram' }))
 
-    await user.type(screen.getByLabelText('Platform'), 'Instagram')
-    await user.click(screen.getByRole('button', { name: 'Add account' }))
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Instagram ✓' })).toBeDisabled()
+    })
+    expect(await adapter.listCampaignAccounts(campaignId)).toHaveLength(1)
+  })
 
-    expect(await screen.findByText(/no @ handle saved on any account/i)).toBeInTheDocument()
+  it('takes a platform that is not on the list, one at a time', async () => {
+    const user = userEvent.setup()
+    renderEditor()
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+
+    await user.type(screen.getByLabelText('Other platform'), 'Threads')
+    // The header toggle reads "Done" while the panel is open, so this is the
+    // add-a-custom-platform button and nothing else.
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+
+    await waitFor(async () => {
+      const accounts = await adapter.listCampaignAccounts(campaignId)
+      expect(accounts.map((a) => a.platform)).toEqual(['Threads'])
+    })
+  })
+})
+
+describe('the login for each platform', () => {
+  it('saves handle, email and password against that one account', async () => {
+    const user = userEvent.setup()
+    renderEditor()
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+    await user.click(screen.getByRole('button', { name: 'Instagram' }))
+    await waitFor(async () => {
+      expect(await adapter.listCampaignAccounts(campaignId)).toHaveLength(1)
+    })
+
+    await user.type(screen.getByLabelText('Instagram handle'), '@vertus.ig')
+    await user.type(screen.getByLabelText('Instagram email'), 'ig@example.com')
+    await user.type(screen.getByLabelText('Instagram password'), 'hunter2')
+    await user.tab()
+
+    await waitFor(async () => {
+      const [account] = await adapter.listCampaignAccounts(campaignId)
+      expect(account.handle).toBe('@vertus.ig')
+      expect(account.email).toBe('ig@example.com')
+      expect(account.password).toBe('hunter2')
+    })
+  })
+
+  it('hides the password until Show is tapped', async () => {
+    const user = userEvent.setup()
+    renderEditor()
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+    await user.click(screen.getByRole('button', { name: 'TikTok' }))
+
+    const password = await screen.findByLabelText('TikTok password')
+    expect(password).toHaveAttribute('type', 'password')
+
+    await user.click(screen.getByRole('button', { name: 'Show' }))
+    expect(screen.getByLabelText('TikTok password')).toHaveAttribute('type', 'text')
+  })
+
+  it('keeps two campaigns posting to the same platform on separate logins', async () => {
+    // One creator, several accounts per platform: the login belongs to the
+    // account, never to the platform and never to the creator.
+    const other = await adapter.createCampaign({
+      name: 'Inflow',
+      company: null,
+      default_setup: 'face',
+      approval_mode: 'none',
+      pay_per_video_cents: 3500,
+      cycle_size: null,
+    })
+    await adapter.addCampaignAccount({
+      campaign_id: other.id,
+      platform: 'Instagram',
+      handle: '@michael.financier',
+      email: 'inflow@example.com',
+      password: 'one',
+    })
+    await adapter.addCampaignAccount({
+      campaign_id: campaignId,
+      platform: 'Instagram',
+      handle: '@vertus.ig',
+      email: 'vertus@example.com',
+      password: 'two',
+    })
+
+    const mine = await adapter.listCampaignAccounts(campaignId)
+    expect(mine).toHaveLength(1)
+    expect(mine[0].email).toBe('vertus@example.com')
   })
 })

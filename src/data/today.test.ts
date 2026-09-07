@@ -21,7 +21,9 @@ beforeEach(async () => {
 })
 
 async function summary() {
-  return summariseToday(await adapter.listCampaigns(), await adapter.listVideos())
+  const videos = await adapter.listVideos()
+  const posts = (await Promise.all(videos.map((v) => adapter.listVideoPosts(v.id)))).flat()
+  return summariseToday(await adapter.listCampaigns(), videos, posts)
 }
 
 describe("today's quota", () => {
@@ -89,13 +91,58 @@ describe('runway', () => {
     expect((await summary()).runwayDays).toBe(0)
   })
 
-  it('counts posts made today against the day owed', async () => {
+  it('counts a deliverable once, however many platforms it went out on', async () => {
+    // "19 of 6 posted" came from counting phase changes: a backlog cleared in
+    // one sitting all landed on the same day. The count is deliverables that
+    // actually went out - one video with three destinations is one.
     await ensureTodaysQuota(adapter)
     const [video] = await adapter.listVideos()
+
+    // The seed gives Inflow TikTok and Instagram; YouTube is the third.
+    await adapter.addCampaignAccount({
+      campaign_id: INFLOW_CAMPAIGN_ID,
+      platform: 'YouTube',
+      handle: '@michael.financier',
+    })
+    const accounts = await adapter.listCampaignAccounts(INFLOW_CAMPAIGN_ID)
+    expect(accounts).toHaveLength(3)
+    for (const account of accounts) {
+      await adapter.addVideoPost({
+        video_id: video.id,
+        account_id: account.id,
+        platform: account.platform,
+        url: null,
+        view_count: null,
+        view_count_entered_at: null,
+      })
+    }
     await adapter.markVideoPosted(video.id, { session: 'post' })
 
     const s = await summary()
     expect(s.posted).toBe(1)
+    expect(s.owed).toBe(1)
+  })
+
+  it('does not count a backlog of old videos marked posted today', async () => {
+    // Each of these is a phase change with no post behind it - exactly the
+    // shape of the twelve that once read as a day's work.
+    await ensureTodaysQuota(adapter)
+    for (let i = 0; i < 12; i++) {
+      const video = await adapter.createVideo({
+        campaign_id: INFLOW_CAMPAIGN_ID,
+        setup: 'face',
+        angle_id: null,
+        script: null,
+        blocked_reason: null,
+        owed_for_date: null,
+        rate_snapshot_cents: null,
+        posted_at: null,
+      })
+      await adapter.markVideoPosted(video.id, { session: 'post' })
+    }
+
+    const s = await summary()
+    expect(s.posted).toBe(0)
     expect(s.owed).toBe(1)
   })
 })

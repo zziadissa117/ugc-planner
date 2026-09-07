@@ -1,16 +1,28 @@
-// Today's obligation, and what is banked against it.
+// Today's obligation, and what has been done against it.
 //
-// SPEC section 3: a task is one video, not a campaign. A campaign with a quota
-// of 2 produces two independent tasks, so video 1 can be ticked off while
-// video 2 is still outstanding - never a per-campaign counter.
+// The one rule this file exists to hold: a campaign's daily obligation is a
+// number on the CAMPAIGN, and the platforms it posts to are destinations for
+// that obligation - never a multiplier on it.
 //
-// So the daily quota has to exist as rows, not as a number computed on the
-// fly. These are derived from each campaign's own daily_post_quota, which came
-// from the user or a document; nothing here invents an obligation.
+// It briefly worked the other way round: demand was read as the maximum
+// posts_per_day across a campaign's accounts, which meant the account list
+// silently decided how much work was owed, and adding a third platform to a
+// campaign that owes one video a day could change the arithmetic underneath
+// both the obligation and the money. `campaigns.daily_post_quota` is the
+// single source of truth, and nothing derives a quota from the account list.
 
 import type { DataAdapter } from './DataAdapter'
 import { localToday } from './index'
-import type { Campaign, CampaignAccount, Video } from './schema'
+import type { Campaign, Video, VideoPost } from './schema'
+
+/** Paid deliverables this campaign owes per day.
+ *
+ *  One video cross-posted to Instagram, TikTok and YouTube is ONE deliverable
+ *  - Inflow's contract says so and he confirmed the same for the others - so
+ *  this never looks at how many accounts the campaign has. */
+export function dailyVideoDemand(campaign: Campaign): number {
+  return campaign.daily_post_quota
+}
 
 /** Creates the video rows owed for `date` that do not exist yet, one per unit
  *  of each active campaign's daily quota.
@@ -21,42 +33,15 @@ import type { Campaign, CampaignAccount, Video } from './schema'
  *  flight.
  *
  *  Returns how many rows it created. */
-/** Videos a campaign owes per day: the MAX of posts_per_day across the
- *  accounts that are ready to post, never the sum.
- *
- *  One video is cross-posted to every account and is still one deliverable -
- *  contractual for Inflow, and what he described for Vertus ("2 on yt 2 on ig"
- *  is two videos, each going to both). Summing would double the work.
- *
- *  Only `ready` accounts count. A campaign still warming up raises no daily
- *  obligation: it belongs on the warm-up screen, not in the day's quota.
- *
- *  Falls back to campaigns.daily_post_quota while a campaign has no accounts
- *  yet, so a device that has not run the v4 derivation still owes what it did
- *  before. That column is otherwise no longer read. */
-export function dailyVideoDemand(
-  campaign: Campaign,
-  accounts: readonly CampaignAccount[],
-): number {
-  const mine = accounts.filter(
-    (account) => account.campaign_id === campaign.id && account.is_active,
-  )
-  if (mine.length === 0) return campaign.daily_post_quota
-
-  const ready = mine.filter((account) => account.status === 'ready')
-  return ready.reduce((most, account) => Math.max(most, account.posts_per_day), 0)
-}
-
 export async function ensureTodaysQuota(
   adapter: DataAdapter,
   date: string = localToday(),
 ): Promise<number> {
   const campaigns = await adapter.listCampaigns()
-  const accounts = await adapter.listCampaignAccounts()
   let created = 0
 
   for (const campaign of campaigns) {
-    const demand = dailyVideoDemand(campaign, accounts)
+    const demand = dailyVideoDemand(campaign)
     if (demand <= 0) continue
 
     const existing = await adapter.listVideos({ campaignId: campaign.id, owedForDate: date })
@@ -82,46 +67,48 @@ export async function ensureTodaysQuota(
   return created
 }
 
+/** Deliverables that actually went out on `date`, across all campaigns.
+ *
+ *  Counted from video_posts - the row written when a platform is ticked -
+ *  and de-duplicated by video, because one deliverable posted to three
+ *  platforms is one deliverable done, not three. Counting phase changes
+ *  instead is what produced "19 of 6 posted": a backlog of old videos being
+ *  marked posted in one sitting all landed on the same day and inflated the
+ *  numerator past the day's actual obligation. */
+export function deliverablesPostedOn(
+  posts: readonly VideoPost[],
+  date: string = localToday(),
+): Set<string> {
+  const videoIds = new Set<string>()
+  for (const post of posts) {
+    if (localToday(new Date(post.posted_at)) === date) videoIds.add(post.video_id)
+  }
+  return videoIds
+}
+
 export interface TodaySummary {
-  /** Posts made today. */
+  /** Deliverables posted today. */
   posted: number
-  /** Posts owed today, summed across active campaigns. */
+  /** Deliverables owed today, summed across active campaigns. */
   owed: number
-  /** Videos edited and unposted - supply already banked, ready to go out.
-   *  This counted `approved` until that phase was removed; nothing could ever
-   *  reach it, so runway was permanently 0. */
+  /** Videos edited and unposted - supply already banked, ready to go out. */
   postReadyCount: number
   /** Days of posting banked: ready stock divided by the daily obligation.
    *  Null when nothing is owed daily, because "days of posts" means nothing
    *  without a per-day figure to divide by. */
   runwayDays: number | null
-  /** Videos filmed but not yet edited. The usual binding constraint. */
+  /** Videos filmed but not yet edited. */
   editBacklog: number
 }
 
 export function summariseToday(
   campaigns: readonly Campaign[],
   videos: readonly Video[],
+  posts: readonly VideoPost[] = [],
   date: string = localToday(),
-  accounts: readonly CampaignAccount[] = [],
 ): TodaySummary {
-  const owed = campaigns.reduce((sum, c) => sum + dailyVideoDemand(c, accounts), 0)
-
-  // Counted by when the post actually happened, not by the day it was owed
-  // for: posting today clears today's obligation even if the row was raised
-  // yesterday.
-  //
-  // `posted_at` is stored as a UTC ISO timestamp, and `date` is a LOCAL
-  // calendar day (from localToday()). Slicing the ISO string used to compare
-  // a UTC date against a local one directly - they agree only when the two
-  // happen to be on the same calendar day, which is false for hours every
-  // evening in any timezone west of UTC. A video posted five minutes ago
-  // would silently not count as posted "today" until well past local
-  // midnight. Parsing it back through localToday() compares local day to
-  // local day, which is the only comparison that means what it says.
-  const posted = videos.filter(
-    (v) => v.phase === 'posted' && v.posted_at !== null && localToday(new Date(v.posted_at)) === date,
-  ).length
+  const owed = campaigns.reduce((sum, c) => sum + dailyVideoDemand(c), 0)
+  const posted = deliverablesPostedOn(posts, date).size
 
   const postReadyCount = videos.filter((v) => v.phase === 'edited').length
   const editBacklog = videos.filter((v) => v.phase === 'filmed').length

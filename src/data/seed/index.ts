@@ -101,6 +101,22 @@ export async function ensureSeeded(adapter: DataAdapter): Promise<boolean> {
     })
   }
 
+  // Where it posts, as rows rather than as the `platforms` and `handle_*`
+  // fields the seed also carries. Those fields describe the campaign; these
+  // are what the posting grid draws and what a handle actually belongs to.
+  // Nothing is invented: both the platforms and the handle come from the
+  // fields above, and no email or password is guessed.
+  let order = 0
+  for (const platform of ['TikTok', 'Instagram']) {
+    await adapter.addCampaignAccount({
+      campaign_id: INFLOW_CAMPAIGN_ID,
+      platform,
+      handle: '@michael.financier',
+      status: 'ready',
+      sort_order: order++,
+    })
+  }
+
   for (const rule of INFLOW_RULES) {
     await adapter.addCampaignRule({
       id: rule.id,

@@ -33,37 +33,34 @@ binding constraint is usually edit throughput, not filming.
 
 ---
 
-## 2. Sessions
+## 2. Sessions - almost none left
 
-The first question on the landing screen is which kind of session this is:
+> Rewritten. This section used to open with a four-way session chooser (FILM /
+> EDIT / POST / WARM-UP), a window length, and a planner that packed an
+> evening. All of it is gone: he asked for a target and a scoreboard, and each
+> of those was a decision standing between him and the camera.
 
-```
-FILM   |   EDIT   |   POST   |   WARM-UP
-```
+There are two things the app asks him to start, and one of them is optional:
 
-- **FILM** - create new videos. Setup batching matters most here.
-- **EDIT** - work the filmed-but-unedited backlog.
-- **POST** - submit approved videos, post what is cleared, tick off what is done.
-  Usually short.
-- **WARM-UP** - niche content with no brand mention at all, for campaigns still
-  in warm-up. Never counts toward a paid quota, never gets a brand script,
-  brand hashtag or submission step.
+- **FILM** - pick a campaign, set a goal (a number of videos), work the
+  console. No window length, no clock. The console shows the campaign summary,
+  the hooks he generates or dumped, the can-say/never-do columns and a counter.
+- **WARM-UP** - only when an account is set `new` or `warming`. Shows one
+  account with its platform, handle and a fixed countdown, and records a
+  completed session. Two promote it to `ready` and it leaves the list. It
+  creates no videos.
 
-The second question is how long: 30 / 60 / 90 / 120 minutes plus a free-type box.
+**Editing is not a session.** A filmed video becomes edited with one tap on the
+home screen (`N filmed, ready to edit` + `Mark edited`), oldest first. No goal,
+no timer, no campaign picker.
 
-**Then which campaign, and how many.** FILM and EDIT ask for a campaign and a
-goal - a number of videos - and open a console against them. This reverses what
-this section originally said; see section 8.
+**Posting is not a session either.** It has its own permanent tab, and is
+described in section 6.
 
-**WARM-UP is not a filming session.** It lists the accounts set `new` or
-`warming`, shows one at a time with its platform, handle and a countdown, and
-records a completed session. Two of them promote the account to `ready`, and it
-leaves the list. It creates no videos.
-
-**Runway** is the number of days of posting already banked - videos sitting in
-`approved`, unposted. Show it as one small line. If runway is under 3 days and
-the edit backlog is non-empty, nudge toward an EDIT session with a single line
-of text. Not a modal.
+**Runway** is the number of days of posting already banked - videos sitting at
+`edited`, unposted. One small line on the home screen, nothing more. The old
+"nudge toward an EDIT session" line is gone: a sentence with no action attached
+to it is noise.
 
 ---
 
@@ -76,15 +73,24 @@ outstanding. Never a per-campaign counter.
 One piece of content posted to two platforms is **one** video. This is
 contractual for Inflow.
 
-Phase chains, decided by the campaign's `approval_mode`:
+**How many a day is a fact about the campaign, not about its accounts.**
+`campaigns.daily_post_quota` is the only source, and platforms are where a
+deliverable goes. Reading demand off the account list made three platforms
+mean three deliverables, three obligations and three payments.
+
+One phase chain, for every campaign and kind:
 
 ```
-none:              to_film -> filmed -> edited -> posted
-video:             to_film -> filmed -> edited -> submitted -> approved -> posted
-script_and_video:  awaiting_script_approval -> to_film -> ... -> approved -> posted
-brand_scripted:    awaiting_brief -> to_film -> filmed -> edited -> submitted -> posted
-warm-up video:     to_film -> filmed -> edited -> posted   (never submits)
+to_film -> filmed -> edited -> posted
 ```
+
+`approval_mode` still records what the contract requires and no longer decides
+anything: a brand's approval happens in SideShift and WhatsApp, and the app is
+never told. The `video_phase` enum keeps its retired values because Postgres
+cannot drop one without rewriting the append-only history.
+
+**A video reaches `posted` the moment it goes out on its first platform**, and
+comes back out only when its last `video_post` is removed.
 
 `blocked_reason` is orthogonal to phase. A missing handle blocks posting, not
 filming - model what each missing thing actually blocks, and never let a missing
@@ -99,85 +105,95 @@ filmed video does not evaporate because the date changed. History never resets.
 
 Almost nothing on it, in this order:
 
-1. Current time, large.
-2. Today's date and `X of Y posted`.
-3. One small line: `N days of posts banked`.
-4. Session type row.
-5. `How long tonight?`
-6. A button: `Already posted some? Tick them off`.
-
-Once a session type and length are chosen:
-
-```
-3 of 9                              $175 . ~1h 12m left
-[####------------------------------------]
-
-(v) CAMPAIGN A          posted                    $35
-(v) CAMPAIGN A  2/2     posted                    $35
-( ) CAMPAIGN B          do this one               $35
-( ) CAMPAIGN C          face to camera            $25
-( ) CAMPAIGN D          waiting on their approval $35
-
-[ START - CAMPAIGN B ]
-```
-
-Tapping any row advances that video one phase. Tap again to undo. One tap, big
-target - this is the most important interaction in the app.
-
-Done rows **stay in the list, in place, and turn green**. Never remove them: he
-needs to see what he has done, and rows that vanish shift the ones below out
-from under his thumb mid-tap.
+1. Current time, large, with today's date under it.
+2. `X of Y posted today` on the right, plus `Nd banked`.
+   - **X counts deliverables that actually went out today** - videos with a
+     `video_post` dated today, de-duplicated by video. It used to count phase
+     changes, which is how a backlog cleared in one sitting produced
+     "19 of 6 posted".
+   - **Y is the sum of `daily_post_quota` across campaigns.** Never derived
+     from how many platforms a campaign posts to.
+3. `N filmed, ready to edit` and a `Mark edited` button, only when there is a
+   backlog.
+4. Two buttons: `FILM` and `POST`.
+5. `Warm up N accounts`, only when something is set `new` or `warming`.
 
 ---
 
-## 5. Screen: SHOOT - superseded by the console
+## 5. Screen: SHOOT - removed
 
-> The console (`src/screens/Console.tsx`) is the main screen for FILM and EDIT
-> now: everything visible at once, because he works on a laptop with the phone
-> as the camera. SHOOT survives for when he wants a full script in large type
-> and nothing else. What this section rules out - phase diagrams, difficulty
-> ratings, take counters, statistics - still applies to both.
-
-## 5a. Screen: SHOOT
-
-One video at a time, stripped to almost nothing:
-
-```
-CAMPAIGN NAME                                     $35
-- - - o - - - - -                    (progress dots)
-
-[ the script, large and readable, or a paste box ]
-
-[        FILMED IT        ]
-
-[read brief] [copy for chatgpt] [skip] [stop]
-```
-
-No phase diagrams, no difficulty ratings, no statistics, no take counters. The
-script is the most readable text on the screen - he reads it off a phone propped
-next to a camera.
-
-He writes scripts elsewhere. Give a paste box per video that saves what he puts
-in and shows it teleprompter-style once saved.
-
-In an EDIT session the button reads `EDITED IT`; in POST, `POSTED IT`.
+The teleprompter is gone, along with `src/chatgpt.ts` and the script-paste box.
+"Remove the Plan feature completely. I don't understand the workflow and it
+does not make sense for how I work." Do not rebuild it.
 
 ---
 
-## 6. Screen: tick-off list
+## 6. Screen: POST
 
-Reached from NOW without picking a session type or window. Every video owed
-today, sorted alphabetically by campaign, each tappable to mark posted. Must not
-require planning anything first.
+A permanent tab, and the only place in the app that can say something was
+posted. Per campaign:
+
+```
+Inflow                                        1 of 1 today · $35.00 each
+  TikTok     @michael.financier               [x]  [+]
+  Instagram  @michael.financier               [ ]  [+]
+  YouTube    michael.financier                [ ]  [+]
+```
+
+- **Rows are accounts, columns are deliverables owed today.** A campaign owing
+  one post a day across three platforms is one campaign, three rows, one box
+  each. Not three campaigns, and not three payments.
+- **Each box is independent.** Ticking one never changes, hides or reorders
+  another.
+- **A column is one deliverable.** Ticking three platforms in the same column
+  writes three `video_posts` against the same video, which is earned once. It
+  is posted from the first tick and un-earned only when the last one is
+  removed.
+- **Nothing is gated on filming.** A tick with no video behind it takes the
+  oldest unposted stock, or creates a row. There is no state in which the
+  screen refuses.
+- **`+` adds an extra deliverable** beyond the quota, so over-delivering is
+  representable rather than impossible.
+- **It clears at midnight by construction**: a box is checked when a post for
+  that account is dated today, so nothing has to run to reset it.
+- Accounts still `new` or `warming` are shown with a small tag, not hidden.
+  Warm-up is a caution, never a block on recording what he did.
 
 ---
 
 ## 7. Screen: campaigns and the drop box
 
-A list of campaigns, each opening a brief page: what it is, how it is filmed,
-what it pays, approval route, the structure, the angles, and the never-do list
-in red. Each brief page has a `copy brief for ChatGPT` button producing one
-clean paste-ready block - product, hard rules, structure, voice guide.
+A list of campaigns, each showing its platforms and what it pays a day, and
+each opening a brief page.
+
+### The brief page
+
+Rewritten to hold only what answers a question he has while making a video.
+"If this information does not directly help me understand what video to make,
+what hook to use, what platform to post on, or what the campaign requires,
+remove it from the main UI."
+
+Two columns on anything wider than a phone, because he reads it on a laptop:
+
+- **The strip**: `$ per post`, `posts/day`, and what that pays a day. All three
+  editable in place; the rate goes through the field row so provenance and the
+  campaign column move together.
+- **The brief**: exactly four fields - `product_facts`, `audience`, `tone`,
+  `structure`, labelled in plain words. Amber until confirmed, as always.
+- **Hooks & ideas**: folded by default, deletable one by one, and a box he
+  dumps hooks, video ideas, formats and concepts into (blank line between
+  entries). This is the material hook generation builds from.
+- **Platforms**: one row per account - platform, handle, email, password on a
+  single line, with the add controls collapsed behind `Add`.
+- **Never do**: folded.
+- **Everything else from the documents**: one folded line holding every other
+  parsed field, still editable. Trial dates, aspect ratios, wider-topic ratios,
+  warm-up prep, angle-family notes and the rest live here and nowhere else.
+
+Gone from this page: the angles section and its editor (angles are optional
+context, and nothing asks him to write one), `editing_style`, the default-setup
+picker, the campaign-level login box, the legacy `platforms`/`handle_tiktok`/
+`handle_instagram` fields, and the ChatGPT copy block.
 
 `+ New campaign` opens the drop box: two inputs, `BRIEF (.md)` and
 `CONTRACT (.md)`. Each accepts a dropped file, **tap-to-pick-file** (phones do
@@ -239,102 +255,51 @@ points at a section that is not present, set `brief_is_incomplete` and show:
 
 ---
 
-## 8. The fitting algorithm - now optional
+## 8. The fitting algorithm - removed
 
-> This is no longer the default path. It runs behind "Or plan it for me" on the
-> campaign picker, unchanged, for the evenings he does not want to choose. The
-> rule below that "he never picks a count" is the one thing here he explicitly
-> reversed: the console asks for a goal, because he asked it to.
->
-> One correction that applies wherever the algorithm still runs: a campaign
-> with no `default_setup` used to be dropped silently, because `stageMinutes`
-> returned null and nothing surfaced it. There is now a setup picker on the
-> brief page, which is what makes a campaign he added plannable at all.
-
-## 8a. The fitting algorithm, as it still works
-
-Runs **within the chosen session type**. A FILM session only considers videos
-needing filming.
-
-1. Score every eligible task. Weight roughly in this order: contracted work owed
-   today, approval-gated work (needs lead time, so it front-loads), pay per
-   video, pay per minute of production time, staying in the setup already in
-   use, bonus upside.
-2. **Pack contracted work first, on its own pass.** Fill leftover time with
-   no-quota work only. On a short evening not everything clears, so optional
-   work must never take a slot a paid video could have used.
-3. Group by setup, order groups to minimise switches. Charge
-   `user_settings.setup_switch_minutes` per switch and let that cost outweigh a
-   small gain in value.
-4. Time a task by its **remaining work in this session's stage only**, not the
-   whole pipeline.
-5. In a POST session, prioritise anything at risk: aging approved videos, and
-   the day's quota.
-6. **In a FILM or WARM-UP session, spend leftover time generating new supply.**
-   Today's already-owed rows are packed first, as above. Whatever session time
-   is left is then filled with *new* videos, created in priority order until the
-   window runs out.
-
-   He batches - roughly 7 videos a session - so a FILM session that could only
-   ever offer the one video owed today would be useless. New rows are created
-   with `owed_for_date = null`, which is what the schema means by supply built
-   ahead of demand: they are stock, not an obligation for any particular day.
-   Phase is the start of the campaign's chain, and `video_kind` follows the
-   campaign - `warm_up` in a WARM-UP session, `contracted` for a campaign with a
-   daily quota, `no_quota` otherwise.
-
-   **He never picks a count.** The algorithm fills the window: it keeps adding
-   supply, in the same setup-batched priority order as everything else and
-   charging the same switch cost, until the next video would not fit. Asking
-   "how many tonight?" would be one more thing to decide, and removing the
-   deciding is the entire point of the app.
-
-Keep the weights in one clearly named exported object with a comment per weight.
+Deleted with the planner (`src/fitting`, `src/session`). Nothing schedules an
+evening any more; he picks a campaign and a goal.
 
 ---
 
-## 9. Time estimates
+## 9. Time estimates - unused
 
-Per-setup starting estimates in minutes (film / edit / post), labelled **EST**:
-
-```
-face    12 / 15 / 5
-screen   8 / 12 / 5
-phone   10 / 12 / 5
-notalk   8 / 18 / 5
-```
-
-Setup switch cost: 10 minutes. All editable.
-
-Derive **MEASURED** values from `phase_events` once there are 2+ samples for a
-campaign at a stage. Never present an estimate as a measurement.
+The `time_estimates` table and its defaults still exist and still sync; nothing
+reads them since the planner was removed. Left in place rather than dropped:
+removing a table is a migration and ten files, and an unread table costs
+nothing. Do not build anything new on it.
 
 ---
 
-## 10. Money - pay by day, week, month
+## 10. Money - rate x posts per day
 
-> This used to be three figures (base earned, expected bonus, paid bonus)
-> plus cycle progress and a first-run opening balance. In real use that read
-> as a ledger he had to maintain rather than a reason to keep going, and the
-> cycle/opening-balance machinery was the part he said was "useless noise." He
-> asked directly for the opposite: "just track how much it pays by day, week,
-> month to motivate me." `src/money.ts` still computes the old three-figure,
-> never-summed breakdown (`summariseCampaignMoney`) for the one thing that
-> still needs it - flagging a posted video with no rate snapshot, which stays
-> a count, never a zero - but the screen no longer shows cycle position,
-> opening balance or "accrued" language.
+> Rewritten twice, both times because the screen showed a number that was not
+> true. First it was a three-figure ledger with cycle progress and an opening
+> balance - "too much noise". Then it summed what had actually been posted per
+> period, and a backlog cleared in one sitting read as **$455 earned today**.
+> A campaign paying $35 for one post a day across three platforms had also read
+> as **$105/day** while demand was derived from the account list.
 
-- **Today / this week / this month** - posted videos times
-  `rate_snapshot_cents`, bucketed by `posted_at` into the current calendar day,
-  the current calendar week (Monday start) and the current calendar month.
-  Shown per campaign and as a total across all of them.
+One formula, and nothing else on the screen:
+
+```
+day   = pay_per_video_cents x daily_post_quota
+week  = day x 7
+month = day x 30
+```
+
+- **Nothing here counts videos, posts or platforms.** There is no path by
+  which a duplicated row, an extra platform or a busy afternoon can change what
+  a day is worth. `src/money.ts` reads two columns off the campaign row.
+- **A campaign with no rate is left out and named**, never counted as zero: its
+  pay is unknown, not nothing.
 - **CAD conversion** - each figure also shows an approximate CAD amount,
-  clearly labelled `~$X CAD`, converted with a fixed constant
-  (`USD_TO_CAD_RATE` in `src/money.ts`) rather than a live rate: the app is
-  local-first and works fully offline, so nothing on this screen fetches
-  anything. It is an estimate, and is never presented as exact.
-- **Unpriced posted videos** are still flagged rather than counted as zero,
-  with the same backfill action as before once a rate exists to apply.
+  labelled `~$X CAD`, converted with a fixed constant (`USD_TO_CAD_RATE`)
+  rather than a live rate: the app is local-first and works fully offline, so
+  nothing on this screen fetches anything. It is an estimate and is never
+  presented as exact.
+- Week and month are seven and thirty days of the same rate - what the work
+  pays at his current quotas, not a ledger of a particular calendar month.
 
 ---
 

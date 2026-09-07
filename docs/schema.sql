@@ -67,8 +67,15 @@ create table campaigns (
   approval_mode     approval_mode not null default 'none',
   default_setup     setup_type,
 
-  -- Legacy quota. Superseded by campaign_accounts.posts_per_day; retained
-  -- temporarily so existing local installs can upgrade without data loss.
+  -- Paid deliverables owed per day. THE source of truth for what a day owes
+  -- and what a day is worth.
+  --
+  -- This was briefly demoted in favour of campaign_accounts.posts_per_day,
+  -- and that was wrong: a campaign posting one video to three platforms owes
+  -- ONE paid deliverable, not three, and reading the demand off the accounts
+  -- made the number of platforms silently multiply both the daily obligation
+  -- and the earnings. Accounts say WHERE a deliverable goes; this says HOW
+  -- MANY there are. Nothing derives a quota from the account list.
   daily_post_quota  integer not null default 0 check (daily_post_quota >= 0),
 
   -- Pay cycle. Null cycle_size means paid per post with no cycle.
@@ -89,12 +96,25 @@ create index on campaigns (user_id) where is_active;
 
 -- Where this campaign actually posts. A video may be cross-posted to each
 -- ready account, but is still one contractual deliverable.
+--
+-- email and password are the login for that one account, kept beside the
+-- handle because they are looked up together, at the moment of posting, and
+-- because one creator runs several accounts per platform across campaigns.
+-- They are stored as typed, in the clear: this is a single-user local-first
+-- app whose whole store is already readable to anyone holding the device, and
+-- pretending otherwise with reversible obfuscation would be worse than saying
+-- so plainly. No document ever states either (NEVER_PARSED_FIELDS).
 create table campaign_accounts (
   id            uuid primary key default gen_random_uuid(),
   user_id       uuid not null references auth.users(id) on delete cascade,
   campaign_id   uuid not null references campaigns(id) on delete cascade,
   platform      text not null,
   handle        text,
+  email         text default null,
+  password      text default null,
+  -- Retained for existing rows; the campaign's daily_post_quota is what the
+  -- app reads. An account does not carry its own quota: see the comment on
+  -- campaigns.daily_post_quota.
   posts_per_day integer not null default 0 check (posts_per_day >= 0),
   status        account_status not null default 'new',
   is_active     boolean not null default true,

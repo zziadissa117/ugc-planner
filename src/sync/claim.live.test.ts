@@ -19,7 +19,6 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { LocalDatabase } from '../data/local/db'
 import { LocalAdapter } from '../data/local/LocalAdapter'
-import { ensureSeeded, INFLOW_CAMPAIGN_ID } from '../data/seed'
 import { claimLocalRows, type AuthLike } from './claim'
 import { drainOutbox } from './engine'
 import { SupabaseSyncTarget } from './supabaseTarget'
@@ -51,15 +50,12 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  // Cascades cover everything hung off each campaign (videos, phase_events,
-  // campaign_fields, angles, rules, bonus tiers) - ensureSeeded's Inflow
-  // campaign included, which this test claims onto the account the same as
-  // everything else. user_settings is keyed by user_id directly and does not
-  // cascade from a campaign, so it is deleted separately. The auth.users row
-  // itself cannot be deleted from here - no admin key - and is left for manual
-  // cleanup, the same as the RLS live test.
+  // Cascades cover everything hung off the campaign (videos, phase_events,
+  // campaign_fields, angles, rules, bonus tiers). user_settings is keyed by
+  // user_id directly and does not cascade from a campaign, so it is deleted
+  // separately. The auth.users row itself cannot be deleted from here - no
+  // admin key - and is left for manual cleanup, the same as the RLS live test.
   if (campaignId) await client.from('campaigns').delete().eq('id', campaignId)
-  await client.from('campaigns').delete().eq('id', INFLOW_CAMPAIGN_ID)
   await client.from('user_settings').delete().eq('user_id', accountId)
   await client.auth.signOut()
 })
@@ -71,7 +67,10 @@ describe('claiming local rows against a real account', () => {
     adapter = new LocalAdapter(db, LOCAL_ID)
     await db.open()
 
-    await ensureSeeded(adapter)
+    // Deliberately NOT seeded. ensureSeeded writes Inflow under a fixed id
+    // shared by every install, so once one account holds that row no other
+    // account can ever push it - RLS refuses, correctly, and the rejection
+    // says nothing about the claim-and-drain path this test exists to check.
     const campaign = await adapter.createCampaign({
       name: 'Claim live test',
       company: null,
@@ -103,6 +102,9 @@ describe('claiming local rows against a real account', () => {
     const target = new SupabaseSyncTarget(client)
     const report = await drainOutbox(adapter, target, { batchSize: 1000 })
 
+    // The notes carry the server's own words when something is refused, so a
+    // failure here says which row and why rather than only "expected 0".
+    expect(report.notes).toEqual([])
     expect(report.rejected).toBe(0)
     expect(report.applied).toBeGreaterThan(0)
     expect(await adapter.listPendingWrites()).toEqual([])

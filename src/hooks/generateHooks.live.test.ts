@@ -46,6 +46,7 @@ const CONTEXT: HookContext = {
     { id: 'angle-waiting', label: 'B. Waiting for your own money', body: 'The sale clears in 3 seconds, the payout takes 7 days.', family: 'fear' },
     { id: 'angle-rate', label: 'E. The real rate', body: 'An advertised 2.5-2.9% becomes well past 4%.', family: 'greed' },
   ],
+  referenceMaterial: [],
   lastFamily: 'fear',
   count: 4,
 }
@@ -110,5 +111,56 @@ describe('the deployed generate-hooks function', () => {
 
     // "Escape" applies to fees, freezes and waiting - never to taxes.
     expect(all).not.toMatch(/(avoid|escape|dodge|skip|hide from)\s+(the\s+)?tax/)
+  })
+
+  it('builds from the material he dumped into the brief', async () => {
+    // The whole point of the Hooks & ideas box. The material below is
+    // deliberately unlike anything the campaign's own sections say, so a
+    // generator ignoring it produces nothing resembling these.
+    const withMaterial = {
+      ...CONTEXT,
+      count: 5,
+      referenceMaterial: [
+        'Sunday night, checking the payout dashboard with a coffee, talking straight to camera',
+        'The "my accountant called me" opener',
+        'Walking through the airport talking about getting paid while travelling',
+      ],
+    }
+
+    const { data, error } = await client.functions.invoke('generate-hooks', { body: withMaterial })
+    expect(error).toBeNull()
+
+    const result = data as GenerateHooksResult
+    expect(result.hooks.length).toBeGreaterThan(0)
+
+    const all = result.hooks.map((hook) => hook.body).join(' ').toLowerCase()
+    // At least one of the situations he supplied should be recognisable in
+    // what comes back. Any one of them is enough - this is checking the
+    // material reached the model at all, not scoring the writing.
+    const echoes = ['sunday', 'coffee', 'accountant', 'airport', 'travel', 'dashboard', 'payout']
+    expect(echoes.some((word) => all.includes(word))).toBe(true)
+  })
+
+  it('generates with no angles at all', async () => {
+    // Angles are optional and nothing in the app asks him to create one, so a
+    // campaign with none must generate exactly as well as one with them.
+    const noAngles = {
+      ...CONTEXT,
+      angles: [],
+      lastFamily: null,
+      referenceMaterial: ['POV: the payout finally lands and it is short again'],
+      count: 3,
+    }
+
+    const { data, error } = await client.functions.invoke('generate-hooks', { body: noAngles })
+    expect(error).toBeNull()
+
+    const result = data as GenerateHooksResult
+    expect(result.hooks.length).toBeGreaterThan(0)
+    for (const hook of result.hooks) {
+      expect(hook.body.trim()).not.toBe('')
+      // No angles were given, so none can be claimed.
+      expect(hook.angle_id).toBeNull()
+    }
   })
 })

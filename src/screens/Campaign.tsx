@@ -1,53 +1,71 @@
+// The brief: what this campaign is, where it posts, and what to say.
+//
+// This page used to be a metadata dashboard - trial dates, aspect ratios,
+// wider-topic ratios, warm-up prep notes, angle-family alternation, editing
+// style, two competing sets of handles - almost none of which answers a
+// question he has while making a video. It is now built around the only four
+// that do (what the product is, who it is for, how it sounds, how the video is
+// structured), the hooks he works from, the platforms he posts to, and the
+// never-do list. Everything else is still stored and still editable, folded
+// into one line at the bottom.
+//
+// Two columns on anything wider than a phone: he reads this on a laptop while
+// filming on his phone, and a single column of full-width cards made him
+// scroll past most of it.
+
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
 import { AccountsEditor } from '../components/AccountsEditor'
 import { EditableField } from '../components/EditableField'
-import { SETUP_TYPE_VALUES } from '../data'
 import type {
-  BonusTier,
   Campaign as CampaignRow,
-  CampaignAngle,
   CampaignField,
   CampaignHook,
   CampaignRule,
-  SetupType,
 } from '../data'
 import {
-  ACCOUNT_FIELD_KEYS,
   centsToDollarsInput,
   confirmFieldValue,
-  hasAccountHandle,
   parseCount,
+  parseDollarsToCents,
   saveFieldValue,
   virtualField,
 } from '../data/campaignFields'
 import { useData } from '../data/useData'
+import { dailyEarningsCents, formatCents } from '../money'
 
 interface Loaded {
   campaign: CampaignRow
   fields: CampaignField[]
-  angles: CampaignAngle[]
   rules: CampaignRule[]
-  tiers: BonusTier[]
 }
 
-/** Field keys surfaced in the Pay block, so they are not also repeated in the
- *  list below it. Seeing "pay per video: not saved yet" in one section and
- *  "pay per video cents: 3500, unreviewed" in another is the same fact told
- *  twice in two voices. */
-const PAY_FIELD_KEYS = ['pay_per_video_cents', 'cycle_size']
+/** The four that actually help him make the video. Everything else the parser
+ *  found is kept, and kept out of the way. */
+const BRIEF_KEYS = ['product_facts', 'audience', 'tone', 'structure'] as const
 
-/** Display names for the account block. Not fieldLabel()'s mechanical
- *  underscore-replace - these five are a fixed, known set, so the wording is
- *  chosen rather than derived. */
-const ACCOUNT_LABELS: Record<string, string> = {
-  platforms: 'Platform',
-  handle_tiktok: '♪ TikTok',
-  handle_instagram: '▣ Instagram',
-  account_email: 'Email',
-  account_password: 'Password',
+const BRIEF_LABELS: Record<string, string> = {
+  product_facts: 'What it is',
+  audience: 'Who it is for',
+  tone: 'How it sounds',
+  structure: 'How the video goes',
 }
+
+/** Keys that are now shown somewhere better, or are gone from the app
+ *  entirely, and must not reappear in the "everything else" fold. The
+ *  handles and login moved onto campaign_accounts, one per platform; editing
+ *  style was noise he asked to be rid of. */
+const RETIRED_KEYS = [
+  'platforms',
+  'handle_tiktok',
+  'handle_instagram',
+  'account_email',
+  'account_password',
+  'editing_style',
+  'pay_per_video_cents',
+  ...BRIEF_KEYS,
+]
 
 export function Campaign() {
   const { campaignId } = useParams()
@@ -60,13 +78,11 @@ export function Campaign() {
     const campaign = await data.getCampaign(campaignId)
     if (!campaign) return null
 
-    const [fields, angles, rules, tiers] = await Promise.all([
+    const [fields, rules] = await Promise.all([
       data.listCampaignFields(campaignId),
-      data.listCampaignAngles(campaignId),
       data.listCampaignRules(campaignId),
-      data.listBonusTiers(campaignId),
     ])
-    return { campaign, fields, angles, rules, tiers }
+    return { campaign, fields, rules }
   }, [campaignId, data])
 
   useEffect(() => {
@@ -116,479 +132,149 @@ export function Campaign() {
   if (missing) return <p className="text-state-later">No such campaign.</p>
   if (!loaded) return null
 
-  const { campaign, fields, angles, rules, tiers } = loaded
-
-  // The two sets are rendered from two queries against is_verified and are
-  // never concatenated. Merging them would produce a list of angles that no
-  // single source actually states.
-  const verifiedAngles = angles.filter((a) => a.is_verified)
-  const unverifiedAngles = angles.filter((a) => !a.is_verified)
-
+  const { campaign, fields, rules } = loaded
   const byKey = new Map(fields.map((f) => [f.field_key, f]))
-  const rest = [...fields]
-    .filter((f) => !PAY_FIELD_KEYS.includes(f.field_key) && !ACCOUNT_FIELD_KEYS.includes(f.field_key as never))
+  const rest = fields
+    .filter((f) => !RETIRED_KEYS.includes(f.field_key))
     .sort((a, b) => a.field_key.localeCompare(b.field_key))
 
-  const needsReview = rest.filter((f) => f.source === 'parsed_unreviewed')
-  const settled = rest.filter(
-    (f) => f.source === 'documented' || f.source === 'user_entered',
-  )
-  const blank = rest.filter((f) => f.source === 'missing')
+  const perDay = dailyEarningsCents(campaign)
 
   return (
-    <section className="mx-auto flex max-w-screen-sm flex-col gap-8">
-      <header>
-        <div className="flex items-baseline justify-between gap-3">
-          <h1 className="text-2xl font-semibold text-text">{campaign.name}</h1>
-          {/* The brief changes every couple of weeks - a new rate, a new
-              platform, a document full of hooks. This is how a newer document
-              gets merged in rather than creating a second campaign. */}
-          <Link
-            to={`/campaigns/${campaign.id}/update`}
-            className="shrink-0 rounded-lg border border-edge bg-surface px-3 py-1.5 text-sm font-semibold text-state-later active:bg-surface-raised"
-          >
-            Update from a new brief
-          </Link>
+    <section className="mx-auto flex max-w-4xl flex-col gap-3">
+      <header className="flex flex-wrap items-baseline justify-between gap-2">
+        <div className="min-w-0">
+          <h1 className="truncate text-xl font-semibold text-text">{campaign.name}</h1>
+          {campaign.company ? (
+            <p className="text-xs text-state-later">{campaign.company}</p>
+          ) : null}
         </div>
-        <p className="text-state-later">{campaign.company ?? 'company not saved yet'}</p>
-        <div className="mt-3">
-          <IdentityStrip
-            fields={fields}
-            campaign={campaign}
-            campaignId={campaign.id}
-            onSave={saveField}
-            onConfirm={confirmField}
-          />
-        </div>
+        <Link
+          to={`/campaigns/${campaign.id}/update`}
+          className="shrink-0 rounded-md border border-edge px-2 py-1 text-xs font-semibold text-state-later active:bg-surface-raised"
+        >
+          Update from a new brief
+        </Link>
       </header>
 
-      <AccountsEditor data={data} campaignId={campaign.id} onChanged={() => void refresh()} />
-
-      <LoginBox fields={fields} campaignId={campaign.id} onSave={saveField} onConfirm={confirmField} />
+      {/* The three numbers that decide what today owes and what it pays. */}
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-edge bg-surface px-3 py-2">
+        {/* Through the field row rather than straight at the column: the
+            provenance row and the column the app plans against have to move
+            together, or the screen ends up showing a confirmed rate beside
+            "not saved yet". */}
+        <Money
+          label="per post"
+          cents={campaign.pay_per_video_cents}
+          onSave={(cents) =>
+            saveField('pay_per_video_cents', cents === null ? null : String(cents))
+          }
+        />
+        <Count
+          label="posts/day"
+          value={campaign.daily_post_quota}
+          onSave={(next) => saveColumn({ daily_post_quota: next })}
+        />
+        <div className="ml-auto text-right">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-state-later">
+            per day
+          </p>
+          <p className="text-sm font-semibold tabular-nums text-text">
+            {perDay === null ? 'no rate yet' : formatCents(perDay)}
+          </p>
+        </div>
+      </div>
 
       {campaign.brief_is_incomplete ? (
-        <p className="rounded-lg border border-state-waiting/40 bg-state-waiting/10 px-4 py-3 text-state-waiting">
+        <p className="rounded-md border border-state-waiting/40 bg-state-waiting/10 px-3 py-1.5 text-sm text-state-waiting">
           This brief looks incomplete. Some rules may be missing.
         </p>
       ) : null}
 
-      {needsReview.length > 0 ? (
-        <p className="text-sm text-state-waiting">
-          {needsReview.length} {needsReview.length === 1 ? 'field was' : 'fields were'} read from
-          your documents and nobody has checked {needsReview.length === 1 ? 'it' : 'them'} yet.
-          Confirm what is right, edit what is not.
-        </p>
-      ) : null}
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="flex flex-col gap-3">
+          <div>
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-state-later">
+              The brief
+            </h2>
+            <div className="mt-1 flex flex-col divide-y divide-edge rounded-lg border border-edge bg-surface px-3 text-sm">
+              {BRIEF_KEYS.map((key) => (
+                <EditableField
+                  key={key}
+                  field={byKey.get(key) ?? virtualField(campaign.id, key)}
+                  label={BRIEF_LABELS[key]}
+                  onSave={(value) => saveField(key, value)}
+                  onConfirm={
+                    byKey.get(key)?.source === 'parsed_unreviewed'
+                      ? () => confirmField(key)
+                      : undefined
+                  }
+                />
+              ))}
+            </div>
+          </div>
 
-      <div>
-        <h2 className="text-lg font-semibold text-text">How you make it</h2>
-        <div className="mt-2 flex flex-col divide-y divide-edge">
-          {/* The setup drives every time estimate, and without it the planner
-              has no honest cost for a video and silently drops it - which is
-              why a campaign added by hand could never produce a session list.
-              No document states a setup, so it is his to pick. */}
-          <SetupPicker
-            value={campaign.default_setup}
-            onSave={(next) => saveColumn({ default_setup: next })}
-          />
-          <EditableField
-            field={byKey.get('editing_style') ?? virtualField(campaign.id, 'editing_style')}
-            label="Editing style"
-            onSave={(value) => saveField('editing_style', value)}
-          />
+          <HooksEditor campaignId={campaign.id} />
         </div>
-      </div>
 
-      <HooksEditor campaignId={campaign.id} angles={angles} />
+        <div className="flex flex-col gap-3">
+          <AccountsEditor data={data} campaignId={campaign.id} onChanged={() => void refresh()} />
 
-      <div>
-        <h2 className="text-lg font-semibold text-text">Pay</h2>
-        <div className="mt-2 flex flex-col divide-y divide-edge">
-          <PayRow
-            fieldKey="cycle_size"
-            field={byKey.get('cycle_size')}
-            fallbackValue={campaign.cycle_size === null ? null : String(campaign.cycle_size)}
-            onSave={saveField}
-            onConfirm={confirmField}
-          />
-
-          {/* Never in a document, so never parsed - his number or nothing.
-              SPEC section 7 and NEVER_PARSED_FIELDS. */}
-          <NumberRow
-            label="opening balance (posts carried over)"
-            value={campaign.opening_post_count}
-            onSave={(next) => saveColumn({ opening_post_count: next })}
-          />
-          <NumberRow
-            label="posts owed per day"
-            hint="No document states this. Set it yourself, or NOW has nothing to owe you."
-            value={campaign.daily_post_quota}
-            onSave={(next) => saveColumn({ daily_post_quota: next })}
-          />
-        </div>
-      </div>
-
-      {tiers.length > 0 ? (
-        <div>
-          <h2 className="text-lg font-semibold text-text">Bonuses</h2>
-          <ul className="mt-2 flex flex-col gap-2">
-            {tiers.map((tier) => (
-              <li key={tier.id} className="flex justify-between gap-4">
-                <span className="text-state-later">{tier.label}</span>
-                <span className="text-text">
-                  ${centsToDollarsInput(tier.payout_cents)}
-                  {tier.view_window_days === null
-                    ? null
-                    : ` - views within ${tier.view_window_days} days only`}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      <div>
-          <h2 className="text-lg font-semibold text-text">Angles</h2>
-          <p className="mt-1 text-sm text-state-later">One angle per video. Never mix storylines.</p>
-
-          {/* Two lists, each labelled by its own heading. They are built from
-              two separate filters on is_verified and are never concatenated:
-              the disagreement between the sources is information, and a merged
-              list would destroy it. */}
-          {verifiedAngles.length === 0 ? (
-            <p className="mt-3 text-sm font-semibold text-state-blocked">
-              No angles saved yet - hook generation has nothing to rotate against.
-            </p>
-          ) : (
-            <>
-              <h3
-                id="angles-from-brief"
-                className="mt-4 text-sm font-semibold uppercase tracking-wide text-state-later"
-              >
-                From the brief
-              </h3>
-              <ul aria-labelledby="angles-from-brief" className="mt-2 flex flex-col gap-3">
-                {verifiedAngles.map((angle) => (
-              <li key={angle.id}>
-                <p className="font-semibold text-text">
-                  {angle.label}
-                  {angle.family === null ? null : (
-                    <span className="ml-2 text-xs uppercase tracking-wide text-state-later">
-                      {angle.family}
-                    </span>
-                  )}
-                </p>
-                    {angle.body === null ? null : (
-                      <p className="text-sm text-state-later">{angle.body}</p>
-                    )}
+          {rules.length > 0 ? (
+            <details className="rounded-lg border border-edge bg-surface">
+              <summary className="flex min-h-tap cursor-pointer items-center px-3 text-sm font-semibold text-state-blocked">
+                Never do - {rules.length}
+              </summary>
+              <ul className="flex flex-col gap-2 border-t border-edge px-3 py-2">
+                {rules.map((rule) => (
+                  <li
+                    key={rule.id}
+                    className="border-l-2 border-state-blocked/50 pl-2 text-sm text-text"
+                  >
+                    {rule.body}
                   </li>
                 ))}
               </ul>
-            </>
-          )}
-
-          {unverifiedAngles.length > 0 ? (
-            <>
-              <h3
-                id="angles-from-skill-file"
-                className="mt-6 text-sm font-semibold uppercase tracking-wide text-state-waiting"
-              >
-                From your skill file - not in the brief
-              </h3>
-              <p className="mt-1 text-sm text-state-waiting">
-                The brief documents {verifiedAngles.length}. These {unverifiedAngles.length} appear
-                in it only as product context, never as named angles. They are kept apart on purpose
-                - there is no list of {verifiedAngles.length + unverifiedAngles.length}.
-              </p>
-              <ul aria-labelledby="angles-from-skill-file" className="mt-2 flex flex-col gap-3">
-                {unverifiedAngles.map((angle) => (
-                  <li key={angle.id}>
-                    <p className="font-semibold text-state-waiting">{angle.label}</p>
-                    {angle.body === null ? null : (
-                      <p className="text-sm text-state-later">{angle.body}</p>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </>
+            </details>
           ) : null}
 
-          <AngleEditor campaignId={campaign.id} onAdded={() => void refresh()} />
+          {rest.length > 0 ? (
+            <details className="rounded-lg border border-edge bg-surface">
+              <summary className="flex min-h-tap cursor-pointer items-center px-3 text-sm font-semibold text-state-later">
+                Everything else from the documents - {rest.length}
+              </summary>
+              <div className="flex flex-col divide-y divide-edge border-t border-edge px-3 py-1 text-sm">
+                {rest.map((field) => (
+                  <EditableField
+                    key={field.id}
+                    field={field}
+                    onSave={(value) => saveField(field.field_key, value)}
+                    onConfirm={
+                      field.source === 'parsed_unreviewed'
+                        ? () => confirmField(field.field_key)
+                        : undefined
+                    }
+                  />
+                ))}
+              </div>
+            </details>
+          ) : null}
         </div>
-
-      {rules.length > 0 ? (
-        <details className="rounded-lg border border-edge">
-          {/* Folded by default. These run to whole paragraphs each, and a
-              screen that opens onto a wall of them is a screen he stops
-              reading - which defeats the point of having them at all. */}
-          <summary className="flex min-h-tap cursor-pointer items-center px-4 font-semibold text-state-blocked">
-            Never do - {rules.length} {rules.length === 1 ? 'rule' : 'rules'}
-          </summary>
-          <ul className="flex flex-col gap-3 border-t border-edge px-4 py-3">
-            {rules.map((rule) => (
-              <li key={rule.id} className="border-l-2 border-state-blocked/50 pl-3">
-                <ClampedText text={rule.body} />
-              </li>
-            ))}
-          </ul>
-        </details>
-      ) : null}
-
-      {needsReview.length > 0 ? (
-        <div>
-          <h2 className="text-lg font-semibold text-state-waiting">Needs your review</h2>
-          <div className="mt-2 flex flex-col divide-y divide-edge">
-            {needsReview.map((field) => (
-              <EditableField
-                key={field.id}
-                field={field}
-                onSave={(value) => saveField(field.field_key, value)}
-                onConfirm={() => confirmField(field.field_key)}
-              />
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      {settled.length > 0 ? (
-        <div>
-          <h2 className="text-lg font-semibold text-text">Saved</h2>
-          <div className="mt-2 flex flex-col divide-y divide-edge">
-            {settled.map((field) => (
-              <EditableField
-                key={field.id}
-                field={field}
-                onSave={(value) => saveField(field.field_key, value)}
-              />
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      {blank.length > 0 ? (
-        <details className="rounded-lg border border-edge">
-          <summary className="flex min-h-tap cursor-pointer items-center px-4 font-semibold text-state-later">
-            Not saved yet - {blank.length}
-          </summary>
-          <p className="px-4 text-sm text-state-later">
-            No document stated these and nothing was guessed. Fill in any that matter.
-          </p>
-          <div className="mt-2 flex flex-col divide-y divide-edge px-4 pb-3">
-            {blank.map((field) => (
-              <EditableField
-                key={field.id}
-                field={field}
-                onSave={(value) => saveField(field.field_key, value)}
-              />
-            ))}
-          </div>
-        </details>
-      ) : null}
+      </div>
     </section>
   )
 }
 
-/** Platform, both handles and the pay figure, as one compact row right under
- *  the title - the three facts he needs before he can post at all, read at a
- *  glance instead of hunted through three separate sections. No document ever
- *  states a handle (NEVER_PARSED_FIELDS), so these are his to fill in, and a
- *  campaign with no handle saved at all is flagged in the open here rather
- *  than waiting to be noticed at post time, when the pipeline is what stalls. */
-function IdentityStrip({
-  fields,
-  campaign,
-  campaignId,
-  onSave,
-  onConfirm,
-}: {
-  fields: CampaignField[]
-  campaign: CampaignRow
-  campaignId: string
-  onSave: (fieldKey: string, value: string | null) => Promise<void>
-  onConfirm: (fieldKey: string) => Promise<void>
-}) {
-  const byKey = new Map(fields.map((f) => [f.field_key, f]))
-  const needsHandle = !hasAccountHandle(fields)
-  const identityKeys = ['platforms', 'handle_tiktok', 'handle_instagram'] as const
-
-  return (
-    <div>
-      <div className="flex flex-wrap items-center gap-2">
-        {identityKeys.map((fieldKey) => (
-          <EditableField
-            key={fieldKey}
-            compact
-            field={byKey.get(fieldKey) ?? virtualField(campaignId, fieldKey)}
-            label={ACCOUNT_LABELS[fieldKey]}
-            onSave={(value) => onSave(fieldKey, value)}
-            onConfirm={
-              byKey.get(fieldKey)?.source === 'parsed_unreviewed'
-                ? () => onConfirm(fieldKey)
-                : undefined
-            }
-          />
-        ))}
-        <PayRow
-          compact
-          label="Pay"
-          fieldKey="pay_per_video_cents"
-          field={byKey.get('pay_per_video_cents')}
-          fallbackValue={
-            campaign.pay_per_video_cents === null
-              ? null
-              : `$${centsToDollarsInput(campaign.pay_per_video_cents)}`
-          }
-          onSave={onSave}
-          onConfirm={onConfirm}
-        />
-      </div>
-
-      {needsHandle ? (
-        <p className="mt-2 text-sm font-semibold text-state-blocked">
-          No @ handle saved yet - required before this campaign can post.
-        </p>
-      ) : null}
-    </div>
-  )
-}
-
-/** Email and password, together in one small box - the login, as opposed to
- *  the identity strip above it, because these two are typed once and then
- *  looked up rather than glanced at, and don't need the same prominence as
- *  the @ handle. */
-function LoginBox({
-  fields,
-  campaignId,
-  onSave,
-  onConfirm,
-}: {
-  fields: CampaignField[]
-  campaignId: string
-  onSave: (fieldKey: string, value: string | null) => Promise<void>
-  onConfirm: (fieldKey: string) => Promise<void>
-}) {
-  const byKey = new Map(fields.map((f) => [f.field_key, f]))
-  const loginKeys = ['account_email', 'account_password'] as const
-
-  return (
-    <div className="inline-flex flex-wrap items-center gap-2 self-start rounded-lg border border-edge bg-surface p-2">
-      {loginKeys.map((fieldKey) => (
-        <EditableField
-          key={fieldKey}
-          compact
-          mask={fieldKey === 'account_password'}
-          field={byKey.get(fieldKey) ?? virtualField(campaignId, fieldKey)}
-          label={ACCOUNT_LABELS[fieldKey]}
-          onSave={(value) => onSave(fieldKey, value)}
-          onConfirm={
-            byKey.get(fieldKey)?.source === 'parsed_unreviewed'
-              ? () => onConfirm(fieldKey)
-              : undefined
-          }
-        />
-      ))}
-    </div>
-  )
-}
-
-/** Adds an angle by hand.
+/** Hooks, ideas, formats - whatever he wants the generator to work from.
  *
- *  The parser never extracts angles - it was never asked to, and doing so
- *  reliably would mean judging which paragraphs of a brief are "an angle"
- *  rather than reading a fact off it, which is a different kind of claim than
- *  the parser makes anywhere else. So a campaign the parser created has none
- *  until he adds them here, and hook generation has nothing to rotate against
- *  until then.
- *
- *  is_verified defaults to true: an angle typed in here is one he read off
- *  the real brief, the same standing as a parsed field he confirmed - not a
- *  skill-file guess. He can mark it false if it genuinely is not from the
- *  brief. */
-function AngleEditor({ campaignId, onAdded }: { campaignId: string; onAdded: () => void }) {
-  const data = useData()
-  const [label, setLabel] = useState("")
-  const [body, setBody] = useState("")
-  const [family, setFamily] = useState("")
-  const [fromBrief, setFromBrief] = useState(true)
-  const [busy, setBusy] = useState(false)
-
-  async function add() {
-    if (label.trim() === "") return
-    setBusy(true)
-    try {
-      await data.addCampaignAngle({
-        campaign_id: campaignId,
-        label: label.trim(),
-        body: body.trim() === "" ? null : body.trim(),
-        family: family.trim() === "" ? null : family.trim(),
-        is_verified: fromBrief,
-        sort_order: 0,
-      })
-      setLabel("")
-      setBody("")
-      setFamily("")
-      onAdded()
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <div className="mt-3 rounded-lg border border-edge bg-surface p-3">
-      <p className="text-xs font-semibold uppercase tracking-wide text-state-later">Add an angle</p>
-      <input
-        value={label}
-        onChange={(event) => setLabel(event.target.value)}
-        aria-label="Angle label"
-        placeholder="Label, e.g. A. Frozen funds"
-        className="mt-2 min-h-tap w-full rounded-lg border border-edge bg-surface-raised px-3 text-text placeholder:text-state-later"
-      />
-      <textarea
-        value={body}
-        onChange={(event) => setBody(event.target.value)}
-        aria-label="Angle description"
-        placeholder="What the angle is, in a sentence (optional)."
-        className="mt-2 h-16 w-full resize-y rounded-lg border border-edge bg-surface-raised p-3 text-text placeholder:text-state-later"
-      />
-      <input
-        value={family}
-        onChange={(event) => setFamily(event.target.value)}
-        aria-label="Family"
-        placeholder="Family, e.g. fear or greed (optional)"
-        className="mt-2 min-h-tap w-full rounded-lg border border-edge bg-surface-raised px-3 text-text placeholder:text-state-later"
-      />
-      <label className="mt-2 flex items-center gap-2 text-sm text-state-later">
-        <input
-          type="checkbox"
-          checked={fromBrief}
-          onChange={(event) => setFromBrief(event.target.checked)}
-        />
-        This is really in the brief, not just background context
-      </label>
-      <button
-        type="button"
-        onClick={() => void add()}
-        disabled={busy || label.trim() === ""}
-        className="mt-2 min-h-tap w-full rounded-lg border border-edge bg-surface px-4 font-semibold text-text active:bg-surface-raised disabled:text-state-later"
-      >
-        Add angle
-      </button>
-    </div>
-  )
-}
-
-/** The hooks he works down in a FILM session.
- *
- *  Kept here rather than in campaign_fields: a field is a claim about a
- *  document and carries a quote that can be checked against it, and a hook is
- *  invented text that no document contains. What matters instead is who wrote
- *  it, which is what `source` records - so a line he typed can never be
- *  mistaken later for one a model produced. */
-function HooksEditor({ campaignId, angles }: { campaignId: string; angles: CampaignAngle[] }) {
+ *  Collapsed by default: this list runs long, and it is material he reaches
+ *  for while filming rather than something to read past on the way to the
+ *  rest of the brief. A blank line starts a new entry, so a whole page of
+ *  ideas can be pasted in at once. */
+function HooksEditor({ campaignId }: { campaignId: string }) {
   const data = useData()
   const [hooks, setHooks] = useState<CampaignHook[]>([])
-  const [body, setBody] = useState("")
-  const [angleId, setAngleId] = useState("")
+  const [body, setBody] = useState('')
   const [busy, setBusy] = useState(false)
 
   const reload = useCallback(async () => {
@@ -600,229 +286,172 @@ function HooksEditor({ campaignId, angles }: { campaignId: string; angles: Campa
   }, [reload])
 
   async function add() {
-    if (body.trim() === "") return
+    // Split on blank lines rather than every newline: a rough idea is often
+    // several lines, and one paste should not become twelve fragments.
+    const entries = body
+      .split(/\n\s*\n/)
+      .map((entry) => entry.trim())
+      .filter((entry) => entry !== '')
+    if (entries.length === 0) return
+
     setBusy(true)
     try {
-      await data.addCampaignHook({
-        campaign_id: campaignId,
-        angle_id: angleId === "" ? null : angleId,
-        body: body.trim(),
-        outline: null,
-        // His words. A model never wrote this, so it must not claim one did.
-        source: "user_entered",
-        model: null,
-        generated_at: null,
-        used_at: null,
-      })
-      setBody("")
+      for (const entry of entries) {
+        await data.addCampaignHook({
+          campaign_id: campaignId,
+          angle_id: null,
+          body: entry,
+          outline: null,
+          // His words. A model never wrote this, so it must not claim one did.
+          source: 'user_entered',
+          model: null,
+          generated_at: null,
+          used_at: null,
+        })
+      }
+      setBody('')
       await reload()
     } finally {
       setBusy(false)
     }
   }
 
-  const anglesById = new Map(angles.map((a) => [a.id, a]))
+  async function remove(id: string) {
+    await data.deleteCampaignHook(id)
+    await reload()
+  }
 
   return (
-    <div>
-      <h2 className="text-lg font-semibold text-text">Hooks</h2>
-      <p className="mt-1 text-sm text-state-later">
-        The openers you work down while filming. Nothing is written for you here.
-      </p>
+    <details className="rounded-lg border border-edge bg-surface">
+      <summary className="flex min-h-tap cursor-pointer items-center px-3 text-sm font-semibold text-text">
+        Hooks &amp; ideas - {hooks.length}
+      </summary>
 
-      {hooks.length > 0 ? (
-        <ul className="mt-3 flex flex-col gap-2">
-          {hooks.map((hook) => {
-            const angle = hook.angle_id === null ? undefined : anglesById.get(hook.angle_id)
-            return (
-              <li key={hook.id} className="rounded-lg border border-edge bg-surface px-3 py-2">
-                <p className={hook.used_at === null ? "text-text" : "text-state-later line-through"}>
+      <div className="border-t border-edge px-3 py-2">
+        {hooks.length > 0 ? (
+          <ul className="flex flex-col gap-1">
+            {hooks.map((hook) => (
+              <li key={hook.id} className="flex items-start gap-2">
+                <span
+                  className={`min-w-0 flex-1 whitespace-pre-wrap text-sm ${
+                    hook.used_at === null ? 'text-text' : 'text-state-later line-through'
+                  }`}
+                >
                   {hook.body}
-                </p>
-                <p className="text-xs uppercase tracking-wide text-state-later">
-                  {angle ? angle.label : "no angle"}
-                  {angle?.family ? " - " + angle.family : ""}
-                  {hook.source === "generated" ? " - generated" : " - you wrote this"}
-                </p>
+                  {hook.source === 'generated' ? (
+                    <span className="ml-2 text-[10px] uppercase tracking-wide text-state-later">
+                      generated
+                    </span>
+                  ) : null}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void remove(hook.id)}
+                  aria-label={`Delete hook: ${hook.body.slice(0, 40)}`}
+                  className="shrink-0 rounded px-1.5 text-state-later active:bg-surface-raised"
+                >
+                  ×
+                </button>
               </li>
-            )
-          })}
-        </ul>
-      ) : null}
+            ))}
+          </ul>
+        ) : null}
 
-      <div className="mt-3 flex flex-col gap-2">
         <textarea
           value={body}
           onChange={(event) => setBody(event.target.value)}
-          aria-label="New hook"
-          placeholder="Type a hook."
-          className="h-20 w-full resize-y rounded-lg border border-edge bg-surface p-3 text-text placeholder:text-state-later"
+          aria-label="Hooks and ideas"
+          placeholder="Dump hooks, video ideas, formats, concepts. Blank line between each. Generate Hooks builds from these."
+          className="mt-2 h-24 w-full resize-y rounded-md border border-edge bg-surface-raised p-2 text-sm text-text placeholder:text-state-later"
         />
-        {angles.length > 0 ? (
-          <select
-            value={angleId}
-            onChange={(event) => setAngleId(event.target.value)}
-            aria-label="Angle"
-            className="min-h-tap rounded-lg border border-edge bg-surface px-3 text-text"
-          >
-            <option value="">No angle</option>
-            {angles.map((angle) => (
-              <option key={angle.id} value={angle.id}>
-                {angle.label}
-              </option>
-            ))}
-          </select>
-        ) : null}
         <button
           type="button"
           onClick={() => void add()}
-          disabled={busy || body.trim() === ""}
-          className="min-h-tap rounded-lg border border-edge bg-surface px-4 font-semibold text-text active:bg-surface-raised disabled:text-state-later"
+          disabled={busy || body.trim() === ''}
+          className="mt-1.5 min-h-tap w-full rounded-md border border-edge px-3 text-sm font-semibold text-text active:bg-surface-raised disabled:text-state-later"
         >
-          Add hook
+          Save to this brief
         </button>
       </div>
-    </div>
+    </details>
   )
 }
 
-/** The filming setup this campaign defaults to.
- *
- *  Four buttons rather than a text field: it is an enum in the schema, and a
- *  typo here does not read as a typo - it reads as a campaign the planner
- *  quietly refuses to schedule, because stageMinutes returns null for a setup
- *  it does not recognise and the fitter drops anything it cannot cost. */
-function SetupPicker({
-  value,
-  onSave,
-}: {
-  value: SetupType | null
-  onSave: (next: SetupType) => Promise<void>
-}) {
-  const [busy, setBusy] = useState<SetupType | null>(null)
-
-  async function choose(setup: SetupType) {
-    setBusy(setup)
-    try {
-      await onSave(setup)
-    } finally {
-      setBusy(null)
-    }
-  }
-
-  return (
-    <div className="py-2">
-      <p className="text-sm text-state-later">default setup</p>
-      {value === null ? (
-        <p className="mt-1 text-sm font-semibold text-state-blocked">
-          Not set - "Or plan it for me" on the campaign picker will skip this campaign until it is.
-        </p>
-      ) : null}
-      <div className="mt-2 flex flex-wrap gap-2">
-        {SETUP_TYPE_VALUES.map((setup) => (
-          <button
-            key={setup}
-            type="button"
-            disabled={busy !== null}
-            onClick={() => void choose(setup)}
-            aria-pressed={value === setup}
-            className={[
-              'min-h-tap rounded-lg border px-4 font-semibold active:bg-surface-raised disabled:opacity-60',
-              value === setup
-                ? 'border-state-now bg-surface-raised text-state-now'
-                : 'border-edge bg-surface text-state-later',
-            ].join(' ')}
-          >
-            {setup}
-          </button>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-/** A pay figure. Backed by a parsed field where one exists - so it can be
- *  confirmed or corrected in place - and by the campaign column where the
- *  parser never produced a field at all. */
-function PayRow({
-  fieldKey,
-  field,
-  fallbackValue,
-  onSave,
-  onConfirm,
-  compact,
+/** A money figure on the campaign row, edited in place. */
+function Money({
   label,
+  cents,
+  onSave,
 }: {
-  fieldKey: string
-  field: CampaignField | undefined
-  fallbackValue: string | null
-  onSave: (fieldKey: string, value: string | null) => Promise<void>
-  onConfirm: (fieldKey: string) => Promise<void>
-  compact?: boolean
-  label?: string
+  label: string
+  cents: number | null
+  onSave: (cents: number | null) => Promise<void>
 }) {
-  if (field) {
-    return (
-      <EditableField
-        compact={compact}
-        label={label}
-        field={field}
-        onSave={(value) => onSave(fieldKey, value)}
-        onConfirm={
-          field.source === 'parsed_unreviewed' ? () => onConfirm(fieldKey) : undefined
-        }
-      />
-    )
-  }
-
   return (
-    <EditableField
-      compact={compact}
+    <InlineEdit
       label={label}
-      field={{
-        id: `virtual-${fieldKey}`,
-        user_id: '',
-        campaign_id: '',
-        field_key: fieldKey,
-        field_value: fallbackValue,
-        source: fallbackValue === null ? 'missing' : 'user_entered',
-        source_quote: null,
-        source_document_id: null,
-        confirmed_at: null,
-        updated_at: '',
-      }}
-      onSave={(value) => onSave(fieldKey, value)}
+      display={cents === null ? 'not set' : formatCents(cents)}
+      initial={cents === null ? '' : centsToDollarsInput(cents)}
+      parse={(raw) => (raw.trim() === '' ? null : parseDollarsToCents(raw))}
+      invalid="Enter an amount like 35 or 35.00."
+      onSave={onSave}
     />
   )
 }
 
-/** One of the counts no document ever states. */
-function NumberRow({
+/** A whole count on the campaign row, edited in place. */
+function Count({
   label,
-  hint,
   value,
   onSave,
 }: {
   label: string
-  hint?: string
   value: number
   onSave: (next: number) => Promise<void>
 }) {
+  return (
+    <InlineEdit
+      label={label}
+      display={String(value)}
+      initial={String(value)}
+      parse={(raw) => parseCount(raw)}
+      invalid="Enter a whole number."
+      onSave={(next) => onSave(next ?? 0)}
+    />
+  )
+}
+
+function InlineEdit({
+  label,
+  display,
+  initial,
+  parse,
+  invalid,
+  onSave,
+}: {
+  label: string
+  display: string
+  initial: string
+  parse: (raw: string) => number | null
+  invalid: string
+  onSave: (value: number | null) => Promise<void>
+}) {
   const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState('')
+  const [draft, setDraft] = useState(initial)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
   async function save() {
-    const parsed = parseCount(draft)
-    if (parsed === null) {
-      setError('Enter a whole number.')
+    const parsed = parse(draft)
+    if (parsed === null && draft.trim() !== '') {
+      setError(invalid)
       return
     }
     setBusy(true)
     try {
       await onSave(parsed)
       setEditing(false)
+      setError(null)
     } finally {
       setBusy(false)
     }
@@ -830,86 +459,46 @@ function NumberRow({
 
   if (editing) {
     return (
-      <div className="rounded-lg border border-state-now bg-surface p-3">
-        <label
-          htmlFor={`edit-${label}`}
-          className="text-xs font-semibold uppercase tracking-wide text-state-later"
-        >
-          {label}
-        </label>
+      <span className="inline-flex items-center gap-1">
         <input
-          id={`edit-${label}`}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
-          inputMode="numeric"
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') void save()
+            if (event.key === 'Escape') setEditing(false)
+          }}
+          aria-label={label}
+          inputMode="decimal"
           autoFocus
-          className="mt-2 min-h-tap w-full rounded-lg border border-edge bg-surface-raised px-3 text-text"
+          className="min-h-tap w-20 rounded-md border border-state-now bg-surface-raised px-2 text-sm text-text"
         />
-        {error ? <p className="mt-2 text-sm text-state-blocked">{error}</p> : null}
-        <div className="mt-3 flex gap-2">
-          <button
-            type="button"
-            onClick={() => void save()}
-            disabled={busy}
-            className="min-h-tap flex-1 rounded-lg border border-state-now bg-surface-raised px-4 font-semibold text-state-now active:bg-surface disabled:opacity-60"
-          >
-            Save
-          </button>
-          <button
-            type="button"
-            onClick={() => setEditing(false)}
-            className="min-h-tap flex-1 rounded-lg border border-edge bg-surface px-4 font-semibold text-state-later active:bg-surface-raised"
-          >
-            Cancel
-          </button>
-        </div>
-      </div>
+        <button
+          type="button"
+          onClick={() => void save()}
+          disabled={busy}
+          className="rounded-md border border-state-now px-2 py-1 text-xs font-semibold text-state-now active:bg-surface disabled:opacity-60"
+        >
+          Save
+        </button>
+        {error ? <span className="text-xs text-state-blocked">{error}</span> : null}
+      </span>
     )
   }
 
   return (
-    <div className="flex items-start justify-between gap-3 py-1">
-      <div className="min-w-0 flex-1">
-        <p className="text-sm text-state-later">{label}</p>
-        <p className="text-text">{value}</p>
-        {hint ? <p className="text-xs text-state-later">{hint}</p> : null}
-      </div>
-      <button
-        type="button"
-        onClick={() => {
-          setDraft(String(value))
-          setError(null)
-          setEditing(true)
-        }}
-        className="min-h-tap shrink-0 rounded-lg border border-edge px-3 text-sm font-semibold text-state-later active:bg-surface-raised"
-      >
-        Edit
-      </button>
-    </div>
+    <button
+      type="button"
+      aria-label={label}
+      onClick={() => {
+        setDraft(initial)
+        setEditing(true)
+      }}
+      className="rounded-md px-1 text-left active:bg-surface-raised"
+    >
+      <span className="block text-[10px] font-semibold uppercase tracking-wide text-state-later">
+        {label}
+      </span>
+      <span className="block text-sm font-semibold tabular-nums text-text">{display}</span>
+    </button>
   )
 }
-
-/** Long rule bodies, folded to a readable height until asked for. */
-function ClampedText({ text }: { text: string }) {
-  const [expanded, setExpanded] = useState(false)
-  const long = text.length > 160
-
-  if (!long) return <p className="text-sm text-text">{text}</p>
-
-  return (
-    <div>
-      <p className={`text-sm text-text ${expanded ? '' : 'line-clamp-2'}`}>{text}</p>
-      <button
-        type="button"
-        onClick={() => setExpanded((current) => !current)}
-        className="mt-1 text-xs font-semibold uppercase tracking-wide text-state-later"
-      >
-        {expanded ? 'Less' : 'More'}
-      </button>
-    </div>
-  )
-}
-
-// formatCents lived here; money display now goes through centsToDollarsInput
-// in src/data/campaignFields.ts so parsing and rendering agree on what a cent
-// is.

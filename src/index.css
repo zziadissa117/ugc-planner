@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 /* ---------------------------------------------------------------------------
-   Colour carries state only. Nothing here is decorative.
+   Colour carries state only.
 
      posted   green        - done, and it stays on screen to prove it
      now      bright white - do this one, right now
@@ -11,21 +11,31 @@
      blocked  red          - stopped, with the reason written in plain words
 
    Do not add a colour to this list without a state to attach it to.
+
+   The chrome - the page's own ground, the surfaces things sit on, the nav bar
+   - is a single cool near-black at several depths. It is deliberately not a
+   hue anyone could mistake for a signal: the five above are the only colours
+   that ever mean anything, and they read louder against it than they did
+   against flat grey. Depth, blur and glow are allowed to make the app feel
+   like something; they are never allowed to say something.
    --------------------------------------------------------------------------- */
 
 @theme {
-  --color-ink: #07090c;
-  --color-surface: #10141a;
-  --color-surface-raised: #191f28;
-  --color-edge: #262e3a;
+  --color-ink: #05070b;
+  --color-surface: #0d1117;
+  --color-surface-raised: #151b24;
+  --color-edge: #222b38;
+  /* A brighter hairline for the edge that catches the light - the top of a
+     raised surface, the ring around the thing in focus. */
+  --color-edge-lit: #33404f;
 
-  --color-state-posted: #35c46a;
+  --color-state-posted: #2fd472;
   --color-state-now: #ffffff;
-  --color-state-later: #7b8798;
-  --color-state-waiting: #e2a03f;
-  --color-state-blocked: #e2564d;
+  --color-state-later: #78859a;
+  --color-state-waiting: #f0a83c;
+  --color-state-blocked: #f2564c;
 
-  --color-text: #e8edf4;
+  --color-text: #eaeff7;
   --color-text-dim: #94a1b3;
 
   /* Nothing interactive is smaller than this. He taps in a hurry, one-handed,
@@ -50,6 +60,58 @@ body {
      double-tap-to-zoom. */
   touch-action: manipulation;
   overscroll-behavior-y: none;
+
+  /* Two very wide, very dim pools of light, fixed behind everything. They give
+     the black some depth on an OLED phone instead of reading as a dead panel.
+     No element sits on top of either one strongly enough for it to change how
+     that element reads. */
+  background-image:
+    radial-gradient(
+      80rem 40rem at 12% -10%,
+      color-mix(in oklab, var(--color-edge-lit) 26%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      60rem 34rem at 100% 8%,
+      color-mix(in oklab, var(--color-edge) 30%, transparent),
+      transparent 70%
+    );
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+}
+
+/* Numbers are the point of most of these screens - the count, the goal, the
+   money, the clock. Slab-like monospaced figures line up in a column and stop
+   the score jittering as it counts up. */
+.numeric {
+  font-family: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono",
+    Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* Every screen arrives rather than appearing. 160ms, once, on mount. */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.rise-in {
+  animation: rise-in 0.16s ease-out both;
+}
+
+/* A state colour, lit from behind. Used only where the colour already carries
+   the meaning: the tab you are on, the button that is the next thing to do. */
+.lit {
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, currentColor 24%, transparent),
+    0 0 18px -6px currentColor;
 }
 
 /* An indeterminate progress bar, for the one wait in the app that is a real
@@ -76,6 +138,10 @@ body {
     transform: none;
     width: 100%;
     opacity: 0.5;
+  }
+
+  .rise-in {
+    animation: none;
   }
 }
 

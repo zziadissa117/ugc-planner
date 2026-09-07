@@ -110,8 +110,16 @@ export function summariseToday(
   const owed = campaigns.reduce((sum, c) => sum + dailyVideoDemand(c), 0)
   const posted = deliverablesPostedOn(posts, date).size
 
-  const postReadyCount = videos.filter((v) => v.phase === 'edited').length
-  const editBacklog = videos.filter((v) => v.phase === 'filmed').length
+  // Only stock belonging to a campaign still on the books. A deleted campaign
+  // stops owing anything the moment it goes, so counting its half-finished
+  // videos as banked runway would report supply against demand that no longer
+  // exists - and its backlog would sit on the home screen asking to be edited
+  // for a campaign he has removed.
+  const live = new Set(campaigns.map((c) => c.id))
+  const mine = videos.filter((v) => live.has(v.campaign_id))
+
+  const postReadyCount = mine.filter((v) => v.phase === 'edited').length
+  const editBacklog = mine.filter((v) => v.phase === 'filmed').length
 
   return {
     posted,

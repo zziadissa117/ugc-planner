@@ -129,6 +129,20 @@ export interface DataAdapter {
    *  backfillUnpricedVideos for exactly what that does and does not touch. */
   updateCampaign(id: string, patch: Partial<Omit<Campaign, 'id' | 'user_id'>>): Promise<Campaign>
 
+  /** Takes a campaign off every screen, for good.
+   *
+   *  `is_active: false`, the same soft delete as deleteCampaignAccount, and
+   *  for the same two reasons. Its videos carry phase_events, and that log is
+   *  append-only: a real delete would cascade through it and rewrite the
+   *  history that explains every figure the app has ever shown. And a delete
+   *  has to survive sync, which pushes rows - a row that is gone locally
+   *  pushes nothing, so the campaign would come back on the next pull.
+   *
+   *  Nothing lists it afterwards: listCampaigns filters on is_active unless
+   *  asked otherwise, so it stops being owed, stops being paid, and stops
+   *  appearing anywhere he can reach. */
+  deleteCampaign(id: string): Promise<void>
+
   /** Writes the campaign's current rate onto its posted videos that have no
    *  rate snapshot yet, and returns how many it changed.
    *

@@ -240,6 +240,10 @@ export class LocalAdapter implements DataAdapter {
     })
   }
 
+  async deleteCampaign(id: string): Promise<void> {
+    await this.updateCampaign(id, { is_active: false })
+  }
+
   async backfillUnpricedVideos(campaignId: string): Promise<number> {
     return this.tx([this.db.campaigns, this.db.videos, this.db._outbox], async (tx) => {
       const campaign = (await this.requireRow(tx, 'campaigns', campaignId)) as Campaign

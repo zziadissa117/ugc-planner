@@ -166,6 +166,49 @@ describe('the numbers that decide the day', () => {
   })
 })
 
+describe('deleting a campaign', () => {
+  it('takes two taps, and the first one can be taken back', async () => {
+    const user = userEvent.setup()
+    await renderBrief()
+
+    await user.click(screen.getByRole('button', { name: 'Delete this campaign' }))
+    expect(screen.getByText(/Delete Inflow\?/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Keep it' }))
+    expect(await adapter.listCampaigns()).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Delete this campaign' })).toBeInTheDocument()
+  })
+
+  it('leaves every screen, without destroying what it explains', async () => {
+    // Soft, on purpose: its videos carry phase_events, and that log is
+    // append-only. A real delete would cascade through the history that
+    // explains every figure the app has ever shown.
+    const video = await adapter.createVideo({
+      campaign_id: INFLOW_CAMPAIGN_ID,
+      setup: 'face',
+      angle_id: null,
+      script: null,
+      blocked_reason: null,
+      owed_for_date: null,
+      rate_snapshot_cents: null,
+      posted_at: null,
+    })
+
+    const user = userEvent.setup()
+    await renderBrief()
+    await user.click(screen.getByRole('button', { name: 'Delete this campaign' }))
+    await user.click(screen.getByRole('button', { name: 'Delete it' }))
+
+    await waitFor(async () => {
+      expect(await adapter.listCampaigns()).toHaveLength(0)
+    })
+    // Still there underneath, with its history intact.
+    expect(await adapter.listCampaigns({ includeInactive: true })).toHaveLength(1)
+    expect(await adapter.getVideo(video.id)).not.toBeNull()
+    expect(await adapter.listPhaseEvents({ videoId: video.id })).not.toHaveLength(0)
+  })
+})
+
 describe('hooks and ideas', () => {
   it('stays folded, and says how many are in there', async () => {
     await renderBrief()

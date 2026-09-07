@@ -122,8 +122,10 @@ export function Now() {
   const markOneEdited = useCallback(async () => {
     setEditBusy(true)
     try {
+      // Same set the backlog line counts: nothing from a deleted campaign.
+      const live = new Set(campaigns.map((c) => c.id))
       const filmed = videos
-        .filter((v) => v.phase === 'filmed')
+        .filter((v) => v.phase === 'filmed' && live.has(v.campaign_id))
         .sort((a, b) => a.created_at.localeCompare(b.created_at))
       const next = filmed[0]
       if (!next) return
@@ -132,7 +134,7 @@ export function Now() {
     } finally {
       setEditBusy(false)
     }
-  }, [data, reload, videos])
+  }, [campaigns, data, reload, videos])
 
   if (!loaded) return null
 
@@ -143,16 +145,18 @@ export function Now() {
           <Header summary={summary} />
           <EditBacklog count={summary.editBacklog} busy={editBusy} onMarkEdited={markOneEdited} />
           <div className="grid grid-cols-2 gap-2">
+            {/* FILM is the one thing on this screen that starts work, so it is
+                the only lit thing on it. */}
             <button
               type="button"
               onClick={() => setStage({ kind: 'pick_campaign' })}
-              className="min-h-tap rounded-lg border border-state-now bg-surface-raised px-4 font-semibold tracking-wide text-state-now active:bg-surface"
+              className="lit min-h-tap rounded-xl border border-state-now/70 bg-surface-raised px-4 text-lg font-semibold tracking-[0.2em] text-state-now transition-transform duration-100 active:scale-[0.98] active:bg-surface"
             >
               FILM
             </button>
             <Link
               to="/post"
-              className="flex min-h-tap items-center justify-center rounded-lg border border-edge bg-surface px-4 font-semibold tracking-wide text-text active:bg-surface-raised"
+              className="flex min-h-tap items-center justify-center rounded-xl border border-edge bg-surface px-4 text-lg font-semibold tracking-[0.2em] text-text transition-transform duration-100 active:scale-[0.98] active:bg-surface-raised"
             >
               POST
             </Link>
@@ -219,26 +223,48 @@ function Header({ summary }: { summary: ReturnType<typeof summariseToday> }) {
     return () => window.clearInterval(timer)
   }, [])
 
+  const done = summary.owed > 0 && summary.posted >= summary.owed
+
   return (
-    <header className="flex items-end justify-between gap-3">
-      <div>
-        <p className="text-4xl font-semibold leading-none tabular-nums text-text">
-          {now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-        </p>
-        <p className="mt-1 text-sm text-state-later">
-          {now.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' })}
-        </p>
+    <header className="relative overflow-hidden rounded-2xl border border-edge bg-gradient-to-b from-surface-raised to-surface px-4 py-3">
+      {/* A hairline catching the light along the top of the card. */}
+      <span aria-hidden className="absolute inset-x-0 top-0 h-px bg-edge-lit/70" />
+
+      <div className="flex items-end justify-between gap-3">
+        <div className="min-w-0">
+          <p className="numeric whitespace-nowrap text-4xl font-semibold leading-none text-text">
+            {now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </p>
+          <p className="mt-1.5 truncate text-[10px] uppercase tracking-[0.14em] text-state-later">
+            {now.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })}
+          </p>
+        </div>
+        <div className="shrink-0 text-right">
+          <p className="numeric whitespace-nowrap text-4xl font-semibold leading-none">
+            {/* Green only once the day is actually filled - it is the same
+                "posted" state the boxes use, not a flourish. */}
+            <span className={done ? 'text-state-posted' : 'text-text'}>{summary.posted}</span>
+            <span className="text-state-later"> of {summary.owed}</span>
+          </p>
+          <p className="mt-1.5 whitespace-nowrap text-[10px] uppercase tracking-[0.14em] text-state-later">
+            posted today
+            {summary.runwayDays === null ? '' : ` · ${summary.runwayDays}d banked`}
+          </p>
+        </div>
       </div>
-      <div className="text-right">
-        <p className="text-2xl font-semibold tabular-nums text-text">
-          {summary.posted}
-          <span className="text-state-later"> of {summary.owed}</span>
-        </p>
-        <p className="text-xs text-state-later">
-          posted today
-          {summary.runwayDays === null ? '' : ` · ${summary.runwayDays}d banked`}
-        </p>
-      </div>
+
+      {/* The day, as one bar. Nothing new is being said - it is the same two
+          numbers above, at a glance from across the room. */}
+      {summary.owed > 0 ? (
+        <div className="mt-3 h-1 overflow-hidden rounded-full bg-ink">
+          <div
+            className={`h-full rounded-full transition-[width] duration-500 ease-out ${
+              done ? 'bg-state-posted' : 'bg-state-now'
+            }`}
+            style={{ width: `${Math.min(100, (summary.posted / summary.owed) * 100)}%` }}
+          />
+        </div>
+      ) : null}
     </header>
   )
 }

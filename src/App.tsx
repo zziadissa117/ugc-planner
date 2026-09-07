@@ -39,11 +39,15 @@ export function App() {
   }, [data])
 
   return (
-    <div className="flex min-h-dvh flex-col bg-ink text-text">
-      <main className="flex-1 px-3 pb-3 pt-4">{ready ? <Outlet /> : null}</main>
+    <div className="flex min-h-dvh flex-col text-text">
+      <main key={ready ? 'ready' : 'loading'} className="rise-in flex-1 px-3 pb-3 pt-4">
+        {ready ? <Outlet /> : null}
+      </main>
 
+      {/* Glass rather than a solid slab: the screen keeps going underneath it,
+          which is what stops a bottom bar reading as the end of the page. */}
       <nav
-        className="sticky bottom-0 border-t border-edge bg-surface"
+        className="sticky bottom-0 border-t border-edge bg-surface/80 backdrop-blur-xl"
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         <ul className="mx-auto flex max-w-screen-sm">
@@ -54,17 +58,33 @@ export function App() {
                 end={tab.end}
                 className={({ isActive }) =>
                   [
-                    // Full-width, full-height target: the whole quarter of the
+                    // Full-width, full-height target: the whole fifth of the
                     // bar is tappable, not just the word.
-                    'flex min-h-tap items-center justify-center text-sm font-semibold tracking-wide',
-                    'transition-none active:bg-surface-raised',
+                    'relative flex min-h-tap items-center justify-center text-[13px] font-semibold',
+                    'transition-colors duration-150 active:bg-surface-raised',
                     // Where you are is a state, so it gets the "now" colour.
-                    // Everything else is a "later" grey.
-                    isActive ? 'text-state-now' : 'text-state-later',
+                    // Everything else is a "later" grey. The tracking opens up
+                    // on the active one too, so the tab reads as lit rather
+                    // than merely a slightly different grey.
+                    isActive
+                      ? 'tracking-[0.18em] text-state-now'
+                      : 'tracking-[0.12em] text-state-later',
                   ].join(' ')
                 }
               >
-                {tab.label}
+                {({ isActive }) => (
+                  <>
+                    {/* The lit rule sits on the bar's own top edge, so the
+                        active tab looks connected to the screen above it. */}
+                    {isActive ? (
+                      <span
+                        aria-hidden
+                        className="absolute inset-x-4 -top-px h-px bg-state-now shadow-[0_0_12px_1px_var(--color-state-now)]"
+                      />
+                    ) : null}
+                    {tab.label}
+                  </>
+                )}
               </NavLink>
             </li>
           ))}

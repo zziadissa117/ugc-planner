@@ -120,10 +120,11 @@ function CampaignBoard({
   const rate = campaign.pay_per_video_cents
 
   return (
-    <div className="rounded-lg border border-edge bg-surface p-3">
+    <div className="relative overflow-hidden rounded-2xl border border-edge bg-gradient-to-b from-surface-raised to-surface p-3">
+      <span aria-hidden className="absolute inset-x-0 top-0 h-px bg-edge-lit/70" />
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <h2 className="font-semibold text-text">{campaign.name}</h2>
-        <p className="text-xs tabular-nums text-state-later">
+        <h2 className="font-semibold tracking-wide text-text">{campaign.name}</h2>
+        <p className="numeric text-xs text-state-later">
           <span className={doneToday >= quota && quota > 0 ? 'text-state-posted' : 'text-text'}>
             {doneToday} of {quota} today
           </span>
@@ -165,12 +166,15 @@ function CampaignBoard({
                       aria-label={`${row.account.platform} post ${cell.slot + 1} of ${slots}`}
                       onClick={() => onToggle(row.account, cell.slot, cell.post)}
                       className={[
-                        'flex h-9 w-9 items-center justify-center rounded-md border text-sm font-semibold active:bg-surface-raised disabled:opacity-50',
+                        'flex h-10 w-10 items-center justify-center rounded-lg border text-base font-semibold',
+                        'transition-transform duration-100 active:scale-95 active:bg-surface-raised disabled:opacity-50',
                         done
-                          ? 'border-state-posted bg-state-posted/15 text-state-posted'
+                          // Lit, because green here is the whole point of the
+                          // screen: the day's work, proved, from across a room.
+                          ? 'lit border-state-posted bg-state-posted/15 text-state-posted'
                           : extra
                             ? 'border-dashed border-edge text-state-later'
-                            : 'border-edge text-state-later',
+                            : 'border-edge bg-ink/40 text-state-later',
                       ].join(' ')}
                     >
                       {busy === key ? '·' : done ? '✓' : ''}
@@ -185,7 +189,7 @@ function CampaignBoard({
                   disabled={busy !== null}
                   aria-label={`${row.account.platform} extra post`}
                   onClick={() => onToggle(row.account, slots, null)}
-                  className="flex h-9 w-9 items-center justify-center rounded-md border border-dashed border-edge text-sm text-state-later active:bg-surface-raised disabled:opacity-50"
+                  className="flex h-10 w-10 items-center justify-center rounded-lg border border-dashed border-edge text-base text-state-later transition-transform duration-100 active:scale-95 active:bg-surface-raised disabled:opacity-50"
                 >
                   +
                 </button>

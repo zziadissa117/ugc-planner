@@ -14,7 +14,7 @@
 // scroll past most of it.
 
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import { AccountsEditor } from '../components/AccountsEditor'
 import { EditableField } from '../components/EditableField'
@@ -70,6 +70,7 @@ const RETIRED_KEYS = [
 export function Campaign() {
   const { campaignId } = useParams()
   const data = useData()
+  const navigate = useNavigate()
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [missing, setMissing] = useState(false)
 
@@ -238,6 +239,14 @@ export function Campaign() {
             </details>
           ) : null}
 
+          <DeleteCampaign
+            name={campaign.name}
+            onDelete={async () => {
+              await data.deleteCampaign(campaign.id)
+              void navigate('/campaigns')
+            }}
+          />
+
           {rest.length > 0 ? (
             <details className="rounded-lg border border-edge bg-surface">
               <summary className="flex min-h-tap cursor-pointer items-center px-3 text-sm font-semibold text-state-later">
@@ -374,6 +383,58 @@ function HooksEditor({ campaignId }: { campaignId: string }) {
         </button>
       </div>
     </details>
+  )
+}
+
+/** Removing a campaign, behind one confirming tap.
+ *
+ *  Two taps rather than one because it takes a campaign off every screen at
+ *  once - today's obligation, the money, the posting board - and the second
+ *  tap names it, so a mis-tap on the wrong brief cannot do it silently.
+ *  Nothing is destroyed underneath: the campaign is marked inactive and its
+ *  videos and their history stay exactly as they were. */
+function DeleteCampaign({ name, onDelete }: { name: string; onDelete: () => Promise<void> }) {
+  const [confirming, setConfirming] = useState(false)
+  const [busy, setBusy] = useState(false)
+
+  if (!confirming) {
+    return (
+      <button
+        type="button"
+        onClick={() => setConfirming(true)}
+        className="min-h-tap rounded-lg border border-edge px-3 text-sm font-semibold text-state-later active:bg-surface-raised"
+      >
+        Delete this campaign
+      </button>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5 rounded-lg border border-state-blocked/40 bg-state-blocked/5 p-3">
+      <p className="text-sm text-text">
+        Delete {name}? It stops being owed, stops being counted, and leaves every screen.
+      </p>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => setConfirming(false)}
+          className="min-h-tap flex-1 rounded-md border border-edge px-3 text-sm font-semibold text-state-later active:bg-surface-raised"
+        >
+          Keep it
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            setBusy(true)
+            void onDelete().finally(() => setBusy(false))
+          }}
+          className="min-h-tap flex-1 rounded-md border border-state-blocked px-3 text-sm font-semibold text-state-blocked active:bg-surface disabled:opacity-60"
+        >
+          Delete it
+        </button>
+      </div>
+    </div>
   )
 }
 

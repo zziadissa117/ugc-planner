@@ -70,14 +70,15 @@ export function Money() {
 
 function Figure({ label, cents, big }: { label: string; cents: number; big?: boolean }) {
   return (
-    <div className="rounded-lg border border-edge bg-surface p-3 text-center">
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-state-later">{label}</p>
-      <p
-        className={`mt-0.5 font-semibold tabular-nums text-text ${big ? 'text-2xl' : 'text-xl'}`}
-      >
+    <div className="relative overflow-hidden rounded-2xl border border-edge bg-gradient-to-b from-surface-raised to-surface p-3 text-center">
+      <span aria-hidden className="absolute inset-x-0 top-0 h-px bg-edge-lit/70" />
+      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-state-later">
+        {label}
+      </p>
+      <p className={`numeric mt-1 font-semibold text-text ${big ? 'text-3xl' : 'text-xl'}`}>
         {formatCents(cents)}
       </p>
-      <p className="text-[11px] tabular-nums text-state-later">
+      <p className="numeric mt-0.5 text-[11px] text-state-later">
         ~{formatCents(toCadCents(cents))} CAD
       </p>
     </div>

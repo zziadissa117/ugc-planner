@@ -132,5 +132,6 @@ describe('saving a generated batch', () => {
       'claude-sonnet-5',
     )
     expect(saved).toBe(1)
+    expect(duplicates).toBe(1)
   })
 })

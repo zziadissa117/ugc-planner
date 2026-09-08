@@ -23,6 +23,7 @@ import {
   WARMUP_SESSIONS_REQUIRED,
   lastWarmupAt,
   needsWarmup,
+  warmsUp,
   warmupCompletions,
   warmupMinutesFor,
 } from '../data'
@@ -97,18 +98,19 @@ export function Now() {
   }, [data, reload])
 
   const summary = useMemo(
-    () => summariseToday(campaigns, videos, posts),
-    [campaigns, posts, videos],
+    () => summariseToday(campaigns, accounts, videos, posts),
+    [accounts, campaigns, posts, videos],
   )
 
-  // Every account, not only the ones still being built. He asked to keep all
-  // of them in front of him - "just to make sure i keep them fresh and
-  // remember" - with the not-ready ones first, because those are the ones
-  // holding a campaign off the Post tab.
+  // Every account that warms up at all, not only the ones still being built.
+  // He asked to keep them all in front of him - "just to make sure i keep them
+  // fresh and remember" - with the not-ready ones first, because those are the
+  // ones holding a campaign off the Post tab. YouTube is not here at all:
+  // "youtube accounts dont need to warmup so remove them from warmups."
   const warmupAccounts = useMemo(
     () =>
       accounts
-        .filter((account) => account.is_active)
+        .filter((account) => account.is_active && warmsUp(account))
         .sort((a, b) => {
           const byStatus = Number(needsWarmup(b)) - Number(needsWarmup(a))
           return byStatus !== 0 ? byStatus : a.platform.localeCompare(b.platform)

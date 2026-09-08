@@ -227,7 +227,7 @@ describe('warming up an account', () => {
   it('names the accounts that are not ready, and puts them first', async () => {
     // The count on its own ("Warm up 2 accounts") made him tap to find out
     // which. The point of this list is reading it without tapping.
-    await freshAccount('YouTube', '@brandnew')
+    await freshAccount('Facebook', '@brandnew')
 
     renderScreen()
     expect(await screen.findByText('Keep them warm')).toBeInTheDocument()
@@ -238,7 +238,22 @@ describe('warming up an account', () => {
 
     // Ahead of the two ready ones: it is what holds a campaign off Post.
     const rows = screen.getAllByRole('listitem')
-    expect(rows[0]).toHaveTextContent('YouTube')
+    expect(rows[0]).toHaveTextContent('Facebook')
+  })
+
+  it('leaves YouTube out of it entirely', async () => {
+    // "youtube accounts dont need to warmup so remove them from warmups." It
+    // is brand new and never warmed, and still does not belong on this list.
+    await adapter.addCampaignAccount({
+      campaign_id: INFLOW_CAMPAIGN_ID,
+      platform: 'YouTube',
+      handle: '@michael.yt',
+    })
+
+    renderScreen()
+    await screen.findByText('Keep them warm')
+    expect(screen.queryByText('YouTube')).toBeNull()
+    expect(screen.queryByText(/@michael\.yt/)).toBeNull()
   })
 
   it('starts the session straight from the row, with no picker in between', async () => {

@@ -13,9 +13,16 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { localToday } from './index'
 import { LocalAdapter } from './local/LocalAdapter'
 import { LocalDatabase } from './local/db'
-import { buildBoard, markPosted, pickVideoForSlot, unmarkPosted } from './posting'
+import {
+  boardsForToday,
+  buildBoard,
+  markPosted,
+  pickVideoForSlot,
+  tallyBoards,
+  unmarkPosted,
+} from './posting'
 import type { Campaign, CampaignAccount, Video } from './schema'
-import { deliverablesPostedOn } from './today'
+import { deliverablesPostedOn, summariseToday } from './today'
 
 const USER = '11111111-1111-4111-8111-111111111111'
 let adapter: LocalAdapter
@@ -263,5 +270,70 @@ describe('which video a new slot reaches for', () => {
   it('never reuses one that is already posted', () => {
     const videos = [video('done', 'posted', '2026-09-01T00:00:00.000Z')]
     expect(pickVideoForSlot(videos, 'c1', new Set())).toBeNull()
+  })
+})
+
+describe('the home screen and the Post tab', () => {
+  // He filled the day on the Post tab and the home screen still said "5 of 6".
+  // The two screens worked today out separately: Now summed every campaign's
+  // raw quota and counted every post in the store, while Post filtered the
+  // boards and only counted posts on accounts it actually offered. These tests
+  // exist to keep them reading one derivation.
+  async function bothCounts() {
+    const campaigns = await adapter.listCampaigns()
+    const accounts = await adapter.listCampaignAccounts()
+    const videos = await adapter.listVideos()
+    const posts = (await Promise.all(videos.map((v) => adapter.listVideoPosts(v.id)))).flat()
+    return {
+      home: summariseToday(campaigns, accounts, videos, posts),
+      tab: tallyBoards(boardsForToday(campaigns, accounts, posts)),
+    }
+  }
+
+  it('agree once the day is filled', async () => {
+    const { campaign, accounts } = await setUp(3, ['Instagram', 'TikTok'])
+
+    for (let slot = 0; slot < 3; slot++) {
+      for (const account of accounts) {
+        const { board, videos } = await state(campaign)
+        await markPosted(adapter, board, account, slot, videos)
+      }
+    }
+
+    const { home, tab } = await bothCounts()
+    expect(home.posted).toBe(3)
+    expect(home.owed).toBe(3)
+    expect(tab).toEqual({ posted: home.posted, owed: home.owed })
+  })
+
+  it('do not owe a day he has no way to fill', async () => {
+    // Every account still warming up: the campaign is off the Post tab, so it
+    // must be off the count too. Owing a number with no box behind it is the
+    // one thing this app must never do.
+    const { campaign, accounts } = await setUp(4, ['Instagram'])
+    await adapter.updateCampaignAccount(accounts[0].id, { status: 'warming' })
+
+    const { home, tab } = await bothCounts()
+    expect(home.owed).toBe(0)
+    expect(tab.owed).toBe(0)
+    expect(buildBoard(campaign, await adapter.listCampaignAccounts(), []).rows).toHaveLength(0)
+  })
+
+  it('still owe a campaign with no accounts at all, because that is fixable', async () => {
+    await setUp(2, [])
+
+    const { home, tab } = await bothCounts()
+    expect(home.owed).toBe(2)
+    expect(tab.owed).toBe(2)
+  })
+
+  it('count a YouTube-only campaign, warmed up or not', async () => {
+    // YouTube never warms up, so a brand new YouTube account is postable and
+    // its campaign is owed from day one.
+    await setUp(2, ['YouTube'])
+
+    const { home, tab } = await bothCounts()
+    expect(home.owed).toBe(2)
+    expect(tab.owed).toBe(2)
   })
 })

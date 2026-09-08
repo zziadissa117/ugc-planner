@@ -61,9 +61,34 @@ export function warmupCompletions(accountId: string, events: readonly WarmupEven
   return events.filter((event) => event.account_id === accountId).length
 }
 
-/** True while an account is not ready to post brand content from. */
+/** Platforms where an account is usable the day it is made.
+ *
+ *  YouTube is not a place a new account gets throttled for posting: "youtube
+ *  accounts dont need to warmup so remove them from warmups." So a YouTube
+ *  account never appears on the warm-up list and is never held off the Post
+ *  tab, whatever its status column happens to say. The column is left alone
+ *  rather than forced to 'ready' - nothing should rewrite his rows to make a
+ *  screen come out right, and the rule belongs in one place instead. */
+export const PLATFORMS_WITHOUT_WARMUP: readonly string[] = ['YouTube']
+
+/** True when warming up is a thing this account does at all. */
+export function warmsUp(account: CampaignAccount): boolean {
+  return !PLATFORMS_WITHOUT_WARMUP.includes(account.platform)
+}
+
+/** True while an account is not ready to post brand content from.
+ *
+ *  A platform that does not warm up is never "not ready": there is no sitting
+ *  that would change anything, so waiting on one would hold a campaign off the
+ *  Post tab forever. */
 export function needsWarmup(account: CampaignAccount): boolean {
-  return account.status !== 'ready'
+  return warmsUp(account) && account.status !== 'ready'
+}
+
+/** True when he can post brand content from this account today. The exact
+ *  inverse of needsWarmup, named for the question the Post tab asks. */
+export function canPostFrom(account: CampaignAccount): boolean {
+  return !needsWarmup(account)
 }
 
 /** The status an account should hold after `completions` sessions.

@@ -25,11 +25,14 @@ export {
 } from './defaults'
 export { SESSION_TARGET_PHASE, chainFor, nextPhase, previousPhase } from './phases'
 export {
+  PLATFORMS_WITHOUT_WARMUP,
   WARMUP_MINUTES_BUILDING,
   WARMUP_MINUTES_MAINTENANCE,
   WARMUP_SESSIONS_REQUIRED,
+  canPostFrom,
   lastWarmupAt,
   needsWarmup,
+  warmsUp,
   warmupCompletions,
   warmupMinutesFor,
 } from './warmup'

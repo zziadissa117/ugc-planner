@@ -23,7 +23,12 @@ beforeEach(async () => {
 async function summary() {
   const videos = await adapter.listVideos()
   const posts = (await Promise.all(videos.map((v) => adapter.listVideoPosts(v.id)))).flat()
-  return summariseToday(await adapter.listCampaigns(), videos, posts)
+  return summariseToday(
+    await adapter.listCampaigns(),
+    await adapter.listCampaignAccounts(),
+    videos,
+    posts,
+  )
 }
 
 describe("today's quota", () => {

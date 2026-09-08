@@ -15,7 +15,7 @@ import { Link } from 'react-router-dom'
 
 import type { Campaign, CampaignAccount, Video, VideoPost } from '../data'
 import { localToday } from '../data'
-import { buildBoard, markPosted, unmarkPosted, type PostingBoard } from '../data/posting'
+import { boardsForToday, markPosted, unmarkPosted, type PostingBoard } from '../data/posting'
 import { ensureTodaysQuota } from '../data/today'
 import { useData } from '../data/useData'
 import { formatCents } from '../money'
@@ -56,22 +56,13 @@ export function Posting() {
     }
   }, [data, reload])
 
-  const boards = useMemo(() => {
-    if (!loaded) return []
-    return loaded.campaigns
-      .map((campaign) => buildBoard(campaign, loaded.accounts, loaded.posts, today))
-      .filter((board) => {
-        if (board.rows.length > 0) return true
-        if (board.quota <= 0) return false
-        // No rows, and the campaign owes something. Two different situations:
-        // it has accounts but every one is still warming up - which belongs on
-        // the home screen's warm-up list, not here - or it has no accounts at
-        // all, where saying so is the only way he learns to add one.
-        return !loaded.accounts.some(
-          (account) => account.campaign_id === board.campaign.id && account.is_active,
-        )
-      })
-  }, [loaded, today])
+  // The same call the home screen makes, so the two can never disagree about
+  // what today owes - see boardsForToday.
+  const boards = useMemo(
+    () =>
+      loaded ? boardsForToday(loaded.campaigns, loaded.accounts, loaded.posts, today) : [],
+    [loaded, today],
+  )
 
   const toggle = useCallback(
     async (board: PostingBoard, account: CampaignAccount, slot: number, post: VideoPost | null) => {

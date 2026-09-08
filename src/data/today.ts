@@ -13,7 +13,8 @@
 
 import type { DataAdapter } from './DataAdapter'
 import { localToday } from './index'
-import type { Campaign, Video, VideoPost } from './schema'
+import { boardsForToday, tallyBoards } from './posting'
+import type { Campaign, CampaignAccount, Video, VideoPost } from './schema'
 
 /** Paid deliverables this campaign owes per day.
  *
@@ -103,12 +104,17 @@ export interface TodaySummary {
 
 export function summariseToday(
   campaigns: readonly Campaign[],
+  accounts: readonly CampaignAccount[],
   videos: readonly Video[],
   posts: readonly VideoPost[] = [],
   date: string = localToday(),
 ): TodaySummary {
-  const owed = campaigns.reduce((sum, c) => sum + dailyVideoDemand(c), 0)
-  const posted = deliverablesPostedOn(posts, date).size
+  // Off the same boards the Post tab renders, rather than off the raw quotas
+  // and every post in the store. The home screen said "5 of 6" on a day the
+  // Post tab showed filled, because the two screens worked the day out
+  // separately - Now counted campaigns Post had hidden, and counted posts on
+  // accounts Post did not offer. There is now one derivation and both read it.
+  const { owed, posted } = tallyBoards(boardsForToday(campaigns, accounts, posts, date))
 
   // Only stock belonging to a campaign still on the books. A deleted campaign
   // stops owing anything the moment it goes, so counting its half-finished

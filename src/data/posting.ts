@@ -25,6 +25,7 @@
 import type { DataAdapter } from './DataAdapter'
 import { localToday } from './index'
 import type { Campaign, CampaignAccount, Video, VideoPost } from './schema'
+import { canPostFrom } from './warmup'
 
 export interface PostingCell {
   slot: number
@@ -84,13 +85,14 @@ export function buildBoard(
   posts: readonly VideoPost[],
   date: string = localToday(),
 ): PostingBoard {
-  // Ready accounts only. An account still warming up is one he must not post
-  // brand content from yet, so offering it a box is offering him a mistake -
-  // "If a campaign is not set to ready then dont put it in the post tab." It
-  // is not hidden work: the home screen names every not-ready account and
-  // takes him straight into warming it up.
+  // Accounts he can actually post from. One still warming up is one he must
+  // not post brand content from yet, so offering it a box is offering him a
+  // mistake - "If a campaign is not set to ready then dont put it in the post
+  // tab." It is not hidden work: the home screen names every account still
+  // warming and takes him straight into warming it up. Platforms that do not
+  // warm up at all (YouTube) are always postable - see canPostFrom.
   const mine = accounts.filter(
-    (a) => a.campaign_id === campaign.id && a.is_active && a.status === 'ready',
+    (a) => a.campaign_id === campaign.id && a.is_active && canPostFrom(a),
   )
   const accountIds = new Set(mine.map((a) => a.id))
 
@@ -133,6 +135,46 @@ export function buildBoard(
     slots,
     rows,
     doneToday: videoIdBySlot.length,
+  }
+}
+
+/** Every board the Post tab shows today, in one place.
+ *
+ *  This exists because the home screen and the Post tab used to work today out
+ *  separately - Now summed raw daily_post_quota over every campaign and counted
+ *  every video_post in the store, while Post built boards, filtered them, and
+ *  only counted posts on accounts he can post from. Two derivations of one
+ *  number cannot help but drift, and they did: a day he had filled on the Post
+ *  tab still read as unfinished on the home screen. Both screens now render
+ *  this, so the home count IS the Post tab summed, by construction rather than
+ *  by two pieces of arithmetic agreeing.
+ *
+ *  A campaign is on the tab when he can post it (it has an account he can post
+ *  from) or when it has no accounts at all - the second says "add one", which
+ *  is the only way that gets fixed. A campaign whose every account is still
+ *  warming up is off the tab and off the count: it belongs to the warm-up list
+ *  on the home screen, and owing him a number he has no way to fill is the
+ *  thing this app must never do. */
+export function boardsForToday(
+  campaigns: readonly Campaign[],
+  accounts: readonly CampaignAccount[],
+  posts: readonly VideoPost[],
+  date: string = localToday(),
+): PostingBoard[] {
+  return campaigns
+    .map((campaign) => buildBoard(campaign, accounts, posts, date))
+    .filter((board) => {
+      if (board.rows.length > 0) return true
+      if (board.quota <= 0) return false
+      return !accounts.some((a) => a.campaign_id === board.campaign.id && a.is_active)
+    })
+}
+
+/** What today owes and what has gone out, summed off those boards. */
+export function tallyBoards(boards: readonly PostingBoard[]): { owed: number; posted: number } {
+  return {
+    owed: boards.reduce((sum, board) => sum + board.quota, 0),
+    posted: boards.reduce((sum, board) => sum + board.doneToday, 0),
   }
 }
 

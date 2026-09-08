@@ -37,3 +37,4 @@ playwright/.cache
 .env
 .env.*
 !.env.example
+supabase/.temp/

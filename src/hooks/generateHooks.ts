@@ -167,6 +167,47 @@ export async function generateHooks(context: HookContext): Promise<GenerateHooks
  *  The check constraint refuses a generated hook with no model, so this is the
  *  only place the two can be set together - which is what stops a generated
  *  line ever being mistaken later for one he wrote himself. */
+/** A hook reduced to the words that carry it, for comparison.
+ *
+ *  Case, punctuation and the small words go: "This took me nine seconds to
+ *  break." and "This took me nine seconds to break, and it never once said it
+ *  wasn't sure." are the same hook wearing a different coat, and saving the
+ *  second alongside the first fills a slot that should have held something
+ *  new. */
+const FILLER = new Set([
+  'a', 'an', 'and', 'the', 'is', 'it', 'its', 'my', 'me', 'i', 'to', 'of', 'in',
+  'on', 'at', 'this', 'that', 'was', 'were', 'right', 'now', 'just', 'so',
+])
+
+export function hookFingerprint(body: string): string {
+  return body
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((word) => word !== '' && !FILLER.has(word))
+    .sort()
+    .join(' ')
+}
+
+/** True when `body` is recognisably a line the campaign already has.
+ *
+ *  Containment, not equality: a returned hook that is an existing line plus a
+ *  trailing clause contains all of its words, and is the same hook. */
+export function alreadyHave(body: string, existing: readonly string[]): boolean {
+  const words = new Set(hookFingerprint(body).split(' ').filter((w) => w !== ''))
+  if (words.size === 0) return true
+
+  for (const other of existing) {
+    const theirs = hookFingerprint(other).split(' ').filter((w) => w !== '')
+    if (theirs.length === 0) continue
+    const shared = theirs.filter((word) => words.has(word)).length
+    // Three quarters of the shorter line's carrying words in common is not a
+    // new hook by any reading.
+    if (shared / Math.min(theirs.length, words.size) >= 0.75) return true
+  }
+  return false
+}
+
 export async function saveGeneratedHooks(
   data: DataAdapter,
   campaignId: string,
@@ -176,8 +217,17 @@ export async function saveGeneratedHooks(
   const generatedAt = new Date().toISOString()
   let saved = 0
 
+  // What the campaign already holds, his own and previously generated. The
+  // prompt forbids handing his own lines back and it still happened - it
+  // returned six rewordings of his hook bank and said so in its warnings - so
+  // the guarantee lives here too, where it does not depend on a model
+  // following an instruction.
+  const existing = (await data.listCampaignHooks(campaignId)).map((hook) => hook.body)
+
   for (const hook of result.hooks) {
     if (hook.body.trim() === '') continue
+    if (alreadyHave(hook.body, existing)) continue
+    existing.push(hook.body)
     await data.addCampaignHook({
       campaign_id: campaignId,
       angle_id: hook.angle_id,

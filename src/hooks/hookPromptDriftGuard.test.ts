@@ -80,6 +80,43 @@ describe('the vendored hook prompt matches the client', () => {
   })
 })
 
+describe('a tool call that does not match its schema', () => {
+  // Both fields are `required` in RETURN_HOOKS_SCHEMA and neither can be
+  // trusted. A model with nothing to warn about omitted `warnings` entirely,
+  // spreading undefined threw, and the function died with a bare 500 on a
+  // request that had already been answered and paid for.
+  it('treats a missing warnings array as no warnings, not as a crash', () => {
+    const noWarnings = { hooks: [{ body: 'A hook.', outline: null, angle_id: null }] }
+    expect(() =>
+      client.dropUnknownAngles(noWarnings as never, ANGLES),
+    ).not.toThrow()
+    expect(client.dropUnknownAngles(noWarnings as never, ANGLES).warnings).toEqual([])
+  })
+
+  it('survives a missing hooks array', () => {
+    expect(client.dropUnknownAngles({ warnings: [] } as never, ANGLES).hooks).toEqual([])
+  })
+
+  it('drops an entry with no text rather than saving a blank hook', () => {
+    const ragged = {
+      hooks: [
+        { body: 'Real.', outline: null, angle_id: null },
+        { body: '   ', outline: null, angle_id: null },
+        { outline: null, angle_id: null },
+      ],
+      warnings: [],
+    }
+    expect(client.dropUnknownAngles(ragged as never, ANGLES).hooks).toHaveLength(1)
+  })
+
+  it('handles all of it the same way the deployed copy does', () => {
+    const ragged = { hooks: [{ body: 'A hook.', outline: 7, angle_id: 3 }] }
+    expect(vendored.dropUnknownAngles(ragged as never, ANGLES)).toEqual(
+      client.dropUnknownAngles(ragged as never, ANGLES),
+    )
+  })
+})
+
 describe('the rotation rule itself', () => {
   it('alternates away from the family last used', () => {
     expect(client.nextFamily(ANGLES, 'fear')).toBe('greed')

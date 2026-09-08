@@ -227,4 +227,7 @@ console does not offer to write hooks and he writes them himself on the brief
 page - a working path, not a broken button.
 
 Env: `ANTHROPIC_API_KEY` (project secret, shared with parse-campaign) and
-`GENERATE_HOOKS_MODEL` (optional, defaults to `claude-haiku-4-5-20251001`).
+`GENERATE_HOOKS_MODEL` (optional, defaults to `claude-sonnet-5` - hook
+writing is creative work and Haiku returned near-identical batches on a
+campaign with no angle list to spread across; parse-campaign stays on Haiku,
+which is extraction against a schema).

@@ -195,4 +195,4 @@ export async function saveGeneratedHooks(
 
 /** The model the function defaults to. Kept here only so a saved hook can say
  *  what wrote it; the function's own env var is what actually decides. */
-export const DEFAULT_HOOK_MODEL = 'claude-haiku-4-5-20251001'
+export const DEFAULT_HOOK_MODEL = 'claude-sonnet-5'

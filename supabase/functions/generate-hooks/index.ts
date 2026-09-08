@@ -26,7 +26,12 @@ import {
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!
 const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY')!
-const MODEL = Deno.env.get('GENERATE_HOOKS_MODEL') ?? 'claude-haiku-4-5-20251001'
+// Sonnet, not Haiku. Hook writing is the one genuinely creative call the app
+// makes, and it is where a cheaper model shows: asked for ten hooks with no
+// angle list to spread across, Haiku returned nine rewordings of the brief's
+// own thesis sentence. Parsing stays on Haiku - that job is extraction against
+// a schema, which it does well.
+const MODEL = Deno.env.get('GENERATE_HOOKS_MODEL') ?? 'claude-sonnet-5'
 
 /** Hooks are short and there are never many. Capped so a runaway response
  *  cannot cost more than the job is worth. */

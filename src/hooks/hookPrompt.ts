@@ -116,11 +116,13 @@ Rules that override everything else:
 1. Work only from the campaign material given to you. Every claim in a hook must be supported by the PRODUCT section. Do not add a statistic, a price, a percentage, a guarantee or a feature that is not stated there. If the material is thin, write fewer and simpler hooks and say so in warnings - a hook that invents a fact is worse than no hook, because it reaches a brand as though the creator said it.
 2. The NEVER DO list is absolute. A hook that breaks any of those rules is unusable, whatever else is good about it.
 3. One angle per hook. Never blend two storylines into one line.
-4. If a WORKING BRIEF section is given, it is the creator's own worked-up brief for this campaign and it outranks every other section here. Follow its formats, its voice rules, its structure and its restrictions exactly, and honour any attribution it demands - if it says a claim must be phrased as something the company says rather than as fact, phrase it that way. Where it names formats or angles, spread the hooks across them rather than writing every hook for one. Where it contradicts a shorter section above, it wins.
-5. If a MATERIAL section is given, it is the creator's own hooks, video ideas, formats and concepts for this campaign. Build from it: take its angles of attack, its formats and its phrasing as the starting point, and write new lines in that vein. Do not simply reword a line that is already there, and do not ignore it in favour of something generic - it is the most specific thing you have been given about what works for this campaign.
-6. Each hook names the angle it belongs to by its id, chosen from the ANGLES given. Never invent an angle id. Use null if a hook belongs to none of them, and always use null when no angles are given - angles are optional and their absence is not a problem to solve.
-7. Write the way the VOICE section describes. Spoken, not written: contractions, plain words, no marketing cadence, no "unlock", no "game-changer", no rhetorical question stacking.
-8. Do not number them, do not add hashtags, do not write the caption. The hook only.
+4. A hook is not the pitch. The STRUCTURE section describes what the video does AFTER the hook, and its first beat is usually the campaign's own thesis - "most X do A, this one does B". Never open with that sentence. The hook earns the three seconds in which the thesis then gets said: it is a moment, a receipt, a confession, a thing that just happened. Explaining the product IS the video; it is not the hook.
+5. Every hook in the batch must be a different hook. Not the same claim reworded, not the same sentence with a synonym swapped - a different situation, a different opening move, a different reason to stop scrolling. Before you return, read them as a list: if two would make a viewer feel the same thing, one of them is not doing any work. Where the material names formats or segments, spread across them and vary WITHIN each. If the material only supports fewer genuinely different hooks than were asked for, write the ones you can stand behind and say what was missing in warnings - a batch of ten variations on one line is worth less than four that differ, and it is the single most common way this goes wrong. Never return an empty list, and never fewer than three: thin material is a reason to write simply, not a reason to write nothing.
+6. If a WORKING BRIEF section is given, it is the creator's own worked-up brief for this campaign and it outranks every other section here. Follow its formats, its voice rules, its structure and its restrictions exactly, and honour any attribution it demands - if it says a claim must be phrased as something the company says rather than as fact, phrase it that way. Where it names formats or angles, spread the hooks across them rather than writing every hook for one. Where it contradicts a shorter section above, it wins.
+7. If a MATERIAL section is given, it is the creator's own hooks, video ideas, formats and concepts for this campaign. Build from it: take its angles of attack, its formats and its phrasing as the starting point, and write new lines in that vein. Do not simply reword a line that is already there, and do not ignore it in favour of something generic - it is the most specific thing you have been given about what works for this campaign. Match its register above all: if its lines are short, spoken and a little unhinged, yours are too - do not answer a bank of scroll-stoppers with a bank of product statements.
+8. Each hook names the angle it belongs to by its id, chosen from the ANGLES given. Never invent an angle id. Use null if a hook belongs to none of them, and always use null when no angles are given - angles are optional and their absence is not a problem to solve.
+9. Write the way the VOICE section describes. Spoken, not written: contractions, plain words, no marketing cadence, no "unlock", no "game-changer", no rhetorical question stacking.
+10. Do not number them, do not add hashtags, do not write the caption. The hook only.
 
 Call the return_hooks tool exactly once with your hooks. Do not explain yourself outside the tool call.`
 
@@ -241,14 +243,26 @@ export function dropUnknownAngles(
   angles: readonly HookAngle[],
 ): GenerateHooksResult {
   const known = new Set(angles.map((angle) => angle.id))
-  const warnings = [...result.warnings]
+
+  // Both arrays are `required` in the schema and both still have to be
+  // checked, for the reason stated above: a tool schema is a hint. A model
+  // with nothing to warn about will sometimes omit `warnings` entirely, and
+  // spreading undefined threw a TypeError that crashed the whole function -
+  // a 500 with no body, on a request that had already been paid for and
+  // answered. Missing means empty, which is what it was trying to say.
+  const incoming = Array.isArray(result?.hooks) ? result.hooks : []
+  const warnings = Array.isArray(result?.warnings) ? [...result.warnings] : []
   let dropped = 0
 
-  const hooks = result.hooks.map((hook) => {
-    if (hook.angle_id === null || known.has(hook.angle_id)) return hook
-    dropped++
-    return { ...hook, angle_id: null }
-  })
+  const hooks = incoming
+    .filter((hook) => typeof hook?.body === 'string' && hook.body.trim() !== '')
+    .map((hook) => {
+      const angle_id = typeof hook.angle_id === 'string' ? hook.angle_id : null
+      const outline = typeof hook.outline === 'string' ? hook.outline : null
+      if (angle_id === null || known.has(angle_id)) return { ...hook, angle_id, outline }
+      dropped++
+      return { ...hook, angle_id: null, outline }
+    })
 
   if (dropped > 0) {
     warnings.push(

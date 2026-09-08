@@ -106,8 +106,10 @@ describe('the deployed generate-hooks function', () => {
     // The never-do list, checked where it can be checked mechanically. Naming
     // a competitor is the rule most likely to be broken by a model reaching
     // for a concrete comparison.
+    // Whole words: a plain substring check fails on "otherwise", which is not
+    // a competitor and cost a real run to work out.
     for (const competitor of ['stripe', 'paypal', 'shopify payments', 'wise', 'payoneer']) {
-      expect(all).not.toContain(competitor)
+      expect(all).not.toMatch(new RegExp(`\b${competitor}\b`))
     }
 
     // "Escape" applies to fees, freezes and waiting - never to taxes.
@@ -162,6 +164,51 @@ describe('the deployed generate-hooks function', () => {
       expect(hook.body.trim()).not.toBe('')
       // No angles were given, so none can be claimed.
       expect(hook.angle_id).toBeNull()
+    }
+  })
+
+  it('writes ten different hooks, not ten rewordings of the thesis', async () => {
+    // The failure this exists to catch, from his own Vertus campaign: with no
+    // angle list to spread across and a STRUCTURE whose first beat is the
+    // campaign's thesis, the generator returned nine versions of "normal AI
+    // predicts, Vertus reasons". Inflow looked fine only because its six
+    // angles were doing the work.
+    const thesisTrap = {
+      ...CONTEXT,
+      angles: [],
+      lastFamily: null,
+      productFacts:
+        'A payment system. Most processors hold your money for days and advertise a rate lower than what you pay; this one pays out instantly at one flat price.',
+      structure:
+        '1. Most processors hold your money and hide fees. 2. This one pays instantly at one flat price. 3. Proof. 4. Call to action.',
+      referenceMaterial: [
+        'Format A - the receipt: open on the dashboard, react to what it says',
+        'Format B - the confession: talk to camera about something embarrassing that happened',
+        '"I sold twelve grand in a week and my account locked the same day."',
+        '"my accountant called me" opener',
+      ],
+      count: 10,
+    }
+
+    const { data, error } = await client.functions.invoke('generate-hooks', { body: thesisTrap })
+    expect(error).toBeNull()
+
+    const result = data as GenerateHooksResult
+    const bodies = result.hooks.map((hook) => hook.body.trim().toLowerCase())
+    expect(bodies.length).toBeGreaterThan(2)
+
+    // Every hook distinct, and not merely by a word: no two may share their
+    // first six words, which is what nine rewordings of one sentence look
+    // like from the outside.
+    const openings = bodies.map((body) => body.split(/\s+/).slice(0, 6).join(' '))
+    expect(new Set(openings).size).toBe(openings.length)
+    expect(new Set(bodies).size).toBe(bodies.length)
+
+    // And the batch as a whole must not be the thesis restated: if most of
+    // them lean on the same word, they are the same hook.
+    for (const word of ['instantly', 'flat', 'processor', 'processors']) {
+      const leaning = bodies.filter((body) => body.includes(word)).length
+      expect(leaning).toBeLessThan(Math.ceil(bodies.length * 0.75))
     }
   })
 })

@@ -32,6 +32,7 @@ import {
   saveFieldValue,
   virtualField,
 } from '../data/campaignFields'
+import { GENERATION_BRIEF_KEY } from '../hooks/generateHooks'
 import { useData } from '../data/useData'
 import { dailyEarningsCents, formatCents } from '../money'
 
@@ -60,6 +61,7 @@ const BRIEF_LABELS: Record<string, string> = {
  *  handles and login moved onto campaign_accounts, one per platform; editing
  *  style was noise he asked to be rid of. */
 const RETIRED_KEYS = [
+  GENERATION_BRIEF_KEY,
   'platforms',
   'handle_tiktok',
   'handle_instagram',
@@ -230,6 +232,11 @@ export function Campaign() {
             </div>
           </div>
 
+          <GenerationBrief
+            value={byKey.get(GENERATION_BRIEF_KEY)?.field_value ?? ''}
+            onSave={(value) => saveField(GENERATION_BRIEF_KEY, value)}
+          />
+
           <HooksEditor campaignId={campaign.id} />
         </div>
 
@@ -278,6 +285,80 @@ export function Campaign() {
         </div>
       </div>
     </section>
+  )
+}
+
+/** A whole worked-up brief, pasted in as one document.
+ *
+ *  He does not write hooks by hand. He has the campaign's brief and contract
+ *  read and turned into a document - product facts, audience segments, voice
+ *  rules, formats, hook banks, angles - and pastes the result in here. It is
+ *  stored verbatim as one field and sent to the generator whole, because the
+ *  structure is the point: split into fragments it would be a pile of lines,
+ *  and the generator would lose which format or segment each belonged to.
+ *
+ *  Deliberately NOT a list of hooks. Nothing here is ever offered to him as a
+ *  line to read to camera - the FILM console shows generated hooks only, which
+ *  is exactly what he asked for. */
+function GenerationBrief({
+  value,
+  onSave,
+}: {
+  value: string
+  onSave: (value: string | null) => Promise<void>
+}) {
+  const [draft, setDraft] = useState(value)
+  const [busy, setBusy] = useState(false)
+  const [saved, setSaved] = useState(false)
+  // Held in state, not computed from `value` on every render: derived from the
+  // value it would slam shut the instant he saved, hiding the confirmation he
+  // was waiting for. Open to start when there is nothing in it yet, and his
+  // afterwards.
+  const [open, setOpen] = useState(value.trim() === '')
+
+  const dirty = draft.trim() !== value.trim()
+
+  return (
+    <details
+      className="rounded-lg border border-edge bg-surface"
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
+      <summary className="flex min-h-tap cursor-pointer items-center px-3 text-sm font-semibold text-text">
+        Brief for the hook writer{value.trim() === '' ? '' : ' - saved'}
+      </summary>
+
+      <div className="border-t border-edge px-3 py-2">
+        <p className="mb-2 text-xs text-state-later">
+          Paste the whole thing - product, audience, voice, structure, formats, hook banks,
+          angles. It goes to the hook writer as-is and outranks the short fields above. It is
+          never shown as a hook.
+        </p>
+        <textarea
+          value={draft}
+          onChange={(event) => {
+            setDraft(event.target.value)
+            setSaved(false)
+          }}
+          aria-label="Brief for the hook writer"
+          placeholder="# Campaign brief&#10;&#10;## PRODUCT&#10;...&#10;&#10;## VOICE&#10;..."
+          className="h-64 w-full resize-y rounded-md border border-edge bg-surface-raised p-2 font-mono text-xs text-text placeholder:text-state-later"
+        />
+        <button
+          type="button"
+          onClick={() => {
+            setBusy(true)
+            void onSave(draft.trim() === '' ? null : draft)
+              .then(() => setSaved(true))
+              .finally(() => setBusy(false))
+          }}
+          disabled={busy || !dirty}
+          className="mt-1.5 min-h-tap w-full rounded-md border border-edge px-3 text-sm font-semibold text-text active:bg-surface-raised disabled:text-state-later"
+        >
+          {busy ? 'Saving...' : saved && !dirty ? 'Saved' : 'Save the brief'}
+        </button>
+      </div>
+    </details>
   )
 }
 

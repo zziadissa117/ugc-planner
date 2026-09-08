@@ -112,6 +112,9 @@ function readContext(body: unknown): HookContext | string {
     audience: typeof raw.audience === 'string' ? raw.audience : null,
     tone: typeof raw.tone === 'string' ? raw.tone : null,
     structure: typeof raw.structure === 'string' ? raw.structure : null,
+    // The whole pasted brief. Absent is normal - an older client does not
+    // send it - so this defaults to null rather than refusing the request.
+    generationBrief: typeof raw.generationBrief === 'string' ? raw.generationBrief : null,
     rules: rules as string[],
     angles: angles.map((angle) => {
       const a = angle as Record<string, unknown>

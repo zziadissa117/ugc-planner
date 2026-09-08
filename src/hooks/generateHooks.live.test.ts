@@ -35,6 +35,7 @@ const CONTEXT: HookContext = {
     'Online store owners 25-45 selling internationally and running ads. They scroll past anything that smells like an ad.',
   tone: 'Talk like a person telling a friend something useful. Concrete over clever.',
   structure: 'Hook, then the problem, then Inflow as what fixed it, then a concrete number.',
+  generationBrief: null,
   rules: [
     'Never promise anyone escapes, avoids or hides from taxes.',
     'Never name or attack a competitor. Say "your payment processor" or "most processors".',

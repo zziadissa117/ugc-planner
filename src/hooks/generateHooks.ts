@@ -96,6 +96,16 @@ export interface BuildContextInput {
   count: number
 }
 
+/** The field holding a brief he has had worked up and pasted in whole.
+ *
+ *  He does not write hooks by hand: he has the campaign's brief read and
+ *  turned into a document with product facts, audience segments, voice rules,
+ *  formats, hook banks and angles, and pastes that in. It is stored as one
+ *  campaign_fields row and sent verbatim, never split - the structure is the
+ *  point, and it is not a hook, so it never appears in the console's hook
+ *  list. */
+export const GENERATION_BRIEF_KEY = 'generation_brief'
+
 /** How much of his dumped material to send. Enough to carry the campaign's
  *  voice and formats, capped so a year of accumulated ideas cannot push the
  *  request past what the model will read. */
@@ -110,6 +120,8 @@ export function buildContext(input: BuildContextInput): HookContext {
     audience: fieldValue(input.fields, 'audience'),
     tone: fieldValue(input.fields, 'tone'),
     structure: fieldValue(input.fields, 'structure'),
+    // The whole pasted document, undivided. See GENERATION_BRIEF_KEY.
+    generationBrief: fieldValue(input.fields, GENERATION_BRIEF_KEY),
     rules: input.rules.map((rule) => rule.body),
     angles: toHookAngles(input.angles),
     referenceMaterial: input.hooks

@@ -32,6 +32,15 @@ export interface HookContext {
    *  never name one, nothing asks him to invent them, and generation works
    *  the same with an empty list - it simply has no families to rotate. */
   angles: HookAngle[]
+  /** A whole working brief, pasted in as one document.
+   *
+   *  He does not write hooks by hand - he has the campaign's own brief read
+   *  and worked up into a document with its product facts, audience segments,
+   *  voice rules, formats, hook banks and angles, and pastes the result into
+   *  one box. So this arrives verbatim and undivided: splitting it into
+   *  fragments would lose the structure that makes it worth having, and its
+   *  own sections are more specific than the four short fields above. */
+  generationBrief: string | null
   /** What he dumped into the brief's Hooks & ideas box: hooks, video ideas,
    *  formats, concepts, viral references. This is the most valuable thing in
    *  the request - it is the campaign's own creative material in his own
@@ -100,10 +109,11 @@ Rules that override everything else:
 1. Work only from the campaign material given to you. Every claim in a hook must be supported by the PRODUCT section. Do not add a statistic, a price, a percentage, a guarantee or a feature that is not stated there. If the material is thin, write fewer and simpler hooks and say so in warnings - a hook that invents a fact is worse than no hook, because it reaches a brand as though the creator said it.
 2. The NEVER DO list is absolute. A hook that breaks any of those rules is unusable, whatever else is good about it.
 3. One angle per hook. Never blend two storylines into one line.
-4. If a MATERIAL section is given, it is the creator's own hooks, video ideas, formats and concepts for this campaign. Build from it: take its angles of attack, its formats and its phrasing as the starting point, and write new lines in that vein. Do not simply reword a line that is already there, and do not ignore it in favour of something generic - it is the most specific thing you have been given about what works for this campaign.
-5. Each hook names the angle it belongs to by its id, chosen from the ANGLES given. Never invent an angle id. Use null if a hook belongs to none of them, and always use null when no angles are given - angles are optional and their absence is not a problem to solve.
-6. Write the way the VOICE section describes. Spoken, not written: contractions, plain words, no marketing cadence, no "unlock", no "game-changer", no rhetorical question stacking.
-7. Do not number them, do not add hashtags, do not write the caption. The hook only.
+4. If a WORKING BRIEF section is given, it is the creator's own worked-up brief for this campaign and it outranks every other section here. Follow its formats, its voice rules, its structure and its restrictions exactly, and honour any attribution it demands - if it says a claim must be phrased as something the company says rather than as fact, phrase it that way. Where it names formats or angles, spread the hooks across them rather than writing every hook for one. Where it contradicts a shorter section above, it wins.
+5. If a MATERIAL section is given, it is the creator's own hooks, video ideas, formats and concepts for this campaign. Build from it: take its angles of attack, its formats and its phrasing as the starting point, and write new lines in that vein. Do not simply reword a line that is already there, and do not ignore it in favour of something generic - it is the most specific thing you have been given about what works for this campaign.
+6. Each hook names the angle it belongs to by its id, chosen from the ANGLES given. Never invent an angle id. Use null if a hook belongs to none of them, and always use null when no angles are given - angles are optional and their absence is not a problem to solve.
+7. Write the way the VOICE section describes. Spoken, not written: contractions, plain words, no marketing cadence, no "unlock", no "game-changer", no rhetorical question stacking.
+8. Do not number them, do not add hashtags, do not write the caption. The hook only.
 
 Call the return_hooks tool exactly once with your hooks. Do not explain yourself outside the tool call.`
 
@@ -118,6 +128,18 @@ export function buildHookRequest(context: HookContext): string {
 
   lines.push(`CAMPAIGN: ${context.campaignName}${context.company ? ` (${context.company})` : ''}`)
   lines.push('')
+
+  // First, and whole. When he has pasted a worked-up brief it is the richest
+  // and most specific thing in the request - the short fields below are a
+  // summary of the same campaign at best, and out of date at worst.
+  if (context.generationBrief !== null && context.generationBrief.trim() !== '') {
+    lines.push(
+      "WORKING BRIEF - the creator's own brief for this campaign. This outranks every section below it.",
+    )
+    lines.push(context.generationBrief.trim())
+    lines.push('')
+  }
+
   lines.push('PRODUCT - every claim in a hook must be supported by this')
   lines.push(context.productFacts ?? absent)
   lines.push('')

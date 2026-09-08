@@ -277,6 +277,53 @@ describe('deleting a campaign', () => {
   })
 })
 
+describe('the brief for the hook writer', () => {
+  it('takes a whole pasted document and keeps it in one piece', async () => {
+    // He does not write hooks by hand - he has the brief worked up into a
+    // document and pastes the result in. It must not be shredded into
+    // fragments the way the Hooks & ideas box deliberately is.
+    const doc = [
+      '# Vertus Campaign Brief',
+      '',
+      '## PRODUCT',
+      'Vertus - an AI system at waitlist stage. Never state claims as proven fact.',
+      '',
+      '## VOICE',
+      'Overheard, not pitched.',
+    ].join('\n')
+
+    const user = userEvent.setup()
+    await renderBrief()
+
+    await user.click(screen.getByLabelText('Brief for the hook writer'))
+    await user.paste(doc)
+    await user.click(screen.getByRole('button', { name: 'Save the brief' }))
+
+    await waitFor(async () => {
+      const fields = await adapter.listCampaignFields(INFLOW_CAMPAIGN_ID)
+      expect(fields.find((f) => f.field_key === 'generation_brief')?.field_value).toBe(doc)
+    })
+    // One field, not a pile of hooks.
+    expect(await adapter.listCampaignHooks(INFLOW_CAMPAIGN_ID)).toHaveLength(0)
+  })
+
+  it('stays out of the everything-else fold', async () => {
+    await adapter.setCampaignField({
+      campaign_id: INFLOW_CAMPAIGN_ID,
+      field_key: 'generation_brief',
+      field_value: 'A pasted brief.',
+      source: 'user_entered',
+      source_quote: null,
+      source_document_id: null,
+    })
+
+    await renderBrief()
+    // It has its own box; showing it a second time as a raw field row would be
+    // the metadata dashboard creeping back.
+    expect(screen.queryByText('generation brief')).toBeNull()
+  })
+})
+
 describe('hooks and ideas', () => {
   it('stays folded, and says how many are in there', async () => {
     await renderBrief()

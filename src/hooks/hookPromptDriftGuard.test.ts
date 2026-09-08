@@ -28,6 +28,7 @@ const CONTEXT: client.HookContext = {
   audience: 'Online store owners selling internationally.',
   tone: 'Talk like a person telling a friend something useful.',
   structure: 'Hook, then the problem, then what fixed it.',
+  generationBrief: null,
   rules: ['Never name a competitor.', 'Never mix more than one angle into a video.'],
   angles: ANGLES,
   referenceMaterial: [
@@ -146,6 +147,35 @@ describe('what the model is allowed to see', () => {
     expect(request).toContain('Write 5 hooks.')
     // No rotation line, because there are no families to alternate between.
     expect(request).not.toContain('ROTATION')
+  })
+
+  it('carries a pasted working brief whole, and says it outranks the rest', () => {
+    // He does not write hooks by hand: he has the brief worked up into a
+    // document and pastes it in. Splitting it would lose which format or
+    // audience segment each part belonged to, so it goes in verbatim.
+    const doc = [
+      '## PRODUCT',
+      'Vertus - an AI system at waitlist stage.',
+      '',
+      '## VOICE',
+      'Overheard, not pitched. Never "let me tell you about".',
+    ].join('\n')
+    const request = client.buildHookRequest({ ...CONTEXT, generationBrief: doc })
+
+    expect(request).toContain('WORKING BRIEF')
+    expect(request).toContain(doc)
+    // Ahead of the short fields, because it outranks them.
+    expect(request.indexOf('WORKING BRIEF')).toBeLessThan(request.indexOf('PRODUCT -'))
+    expect(client.HOOK_SYSTEM_PROMPT).toContain('outranks every other section')
+  })
+
+  it('leaves the section out entirely when nothing is pasted', () => {
+    // An empty heading would read to the model as "he has a brief and it is
+    // blank", which is not the same as not having one.
+    for (const empty of [null, '', '   ']) {
+      const request = client.buildHookRequest({ ...CONTEXT, generationBrief: empty })
+      expect(request).not.toContain('WORKING BRIEF')
+    }
   })
 
   it('says so plainly when he has dumped nothing in yet', () => {

@@ -102,7 +102,13 @@ Contracts are templated (SideShift). Parse these with high confidence when prese
 - campaign name, company, term start: the Key Contract Information table
 - post_public_days: "not delete, hide, or restrict it for a period of NN"
 
-From the brief, attempt only: platforms, video length and aspect ratio, approval route, disclosure requirements, hashtag tokens. Nothing else.
+From the brief, attempt: platforms, video length and aspect ratio, approval route, disclosure requirements, hashtag tokens, and these four, which are what the creator actually reads while filming:
+- product_facts: what the product or service IS, and the claims the brief permits about it. Include any attribution the brief demands (for example, that a claim must be phrased as something the company says rather than as established fact).
+- audience: who the videos are for, in the brief's terms. If it names several segments, give them all.
+- tone: how the videos should sound - register, energy, and the phrasings or deliveries the brief forbids.
+- structure: what the video does after the hook - the beats, in order, and any timing the brief fixes.
+
+These four are prose, and every brief writes them differently under different headings. Read the brief you were given rather than looking for a particular layout: a brief that never uses the word "audience" may still say plainly who it is for. Condense into a few clear sentences and quote the passage you condensed from - source_quote must still be a verbatim substring of the brief, but the value may be your own summary of it. Return null for any of the four the brief genuinely does not address. Attempt nothing beyond this list.
 
 Never attempt, under any circumstance, even if the text seems to mention them: handles (TikTok/Instagram), account email or password, editing style, setup type, real per-stage minutes (film/edit/post), daily post quota. No document ever contains these; if you think you see one, it is a coincidence, not this campaign's value - return null.
 

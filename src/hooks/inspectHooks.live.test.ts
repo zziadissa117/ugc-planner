@@ -28,6 +28,7 @@ const CONTEXT: HookContext = {
   tone: 'Talk like a person telling a friend something useful. Concrete over clever. Annoyed, surprised or relieved is good; flat delivery kills the video.',
   structure:
     'Hook (0-2 sec), then the problem / that-is-me moment, then Inflow introduced naturally as what fixed it, then a payoff with a concrete number.',
+  generationBrief: null,
   rules: [
     'Never promise anyone escapes, avoids or hides from taxes. "Escape" applies to fees, freezes and waiting, never to taxes.',
     'Never name or attack a competitor. Say "your payment processor" or "most processors".',

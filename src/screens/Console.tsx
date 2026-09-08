@@ -67,7 +67,11 @@ export function Console({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
-  const [warnings, setWarnings] = useState<string[]>([])
+  /** One line about the batch, written by the app from what it counted.
+   *  Never the generator's own `warnings` - that is where it explains itself
+   *  ("Kept angle_id null throughout", "Spread hooks across Format A x3"),
+   *  and a paragraph of that under every batch is noise he cannot act on. */
+  const [note, setNote] = useState<string | null>(null)
   const [lastFamily, setLastFamily] = useState<string | null>(null)
 
   const reload = useCallback(async () => {
@@ -137,7 +141,7 @@ export function Console({
   const generate = useCallback(async () => {
     setGenerating(true)
     setError(null)
-    setWarnings([])
+    setNote(null)
     try {
       const [fieldRows, ruleRows, angleRows, hookRows] = await Promise.all([
         data.listCampaignFields(campaign.id),
@@ -158,8 +162,21 @@ export function Console({
         count: Math.max(3, goal + 2),
       })
       const result = await generateHooks(context)
-      await saveGeneratedHooks(data, campaign.id, result, DEFAULT_HOOK_MODEL)
-      setWarnings(result.warnings)
+      const asked = Math.max(3, goal + 2)
+      const { saved, duplicates } = await saveGeneratedHooks(
+        data,
+        campaign.id,
+        result,
+        DEFAULT_HOOK_MODEL,
+      )
+
+      // Silence when he got what he asked for: the hooks are the answer.
+      const parts: string[] = []
+      if (saved < asked) parts.push(`${saved} of ${asked}`)
+      if (duplicates > 0) {
+        parts.push(`${duplicates} you already had ${duplicates === 1 ? 'was' : 'were'} skipped`)
+      }
+      setNote(parts.length > 0 ? parts.join(' - ') : null)
       await reload()
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught))
@@ -211,15 +228,7 @@ export function Console({
           </button>
         ) : null}
 
-        {warnings.length > 0 ? (
-          <ul className="mt-2 flex flex-col gap-1">
-            {warnings.map((warning) => (
-              <li key={warning} className="text-xs text-state-waiting">
-                {warning}
-              </li>
-            ))}
-          </ul>
-        ) : null}
+        {note === null ? null : <p className="mt-2 text-xs text-state-later">{note}</p>}
       </Section>
 
       <Section title="The campaign, quickly">

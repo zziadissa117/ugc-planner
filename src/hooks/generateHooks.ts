@@ -208,14 +208,28 @@ export function alreadyHave(body: string, existing: readonly string[]): boolean 
   return false
 }
 
+/** What saving a batch actually did - counted here rather than taken from the
+ *  model's own account of itself. The generator's `warnings` turned out to be
+ *  where it narrates its process ("Kept angle_id null throughout", "Spread
+ *  hooks across Format A x3"), and rendering that gave him a paragraph of
+ *  self-justification under every batch. These two numbers are facts the app
+ *  knows, and they are the only ones he can act on. */
+export interface SaveOutcome {
+  /** New hooks written to the campaign. */
+  saved: number
+  /** Returned hooks that were lines he already had, so were not saved. */
+  duplicates: number
+}
+
 export async function saveGeneratedHooks(
   data: DataAdapter,
   campaignId: string,
   result: GenerateHooksResult,
   model: string,
-): Promise<number> {
+): Promise<SaveOutcome> {
   const generatedAt = new Date().toISOString()
   let saved = 0
+  let duplicates = 0
 
   // What the campaign already holds, his own and previously generated. The
   // prompt forbids handing his own lines back and it still happened - it
@@ -226,7 +240,10 @@ export async function saveGeneratedHooks(
 
   for (const hook of result.hooks) {
     if (hook.body.trim() === '') continue
-    if (alreadyHave(hook.body, existing)) continue
+    if (alreadyHave(hook.body, existing)) {
+      duplicates++
+      continue
+    }
     existing.push(hook.body)
     await data.addCampaignHook({
       campaign_id: campaignId,
@@ -240,7 +257,7 @@ export async function saveGeneratedHooks(
     })
     saved++
   }
-  return saved
+  return { saved, duplicates }
 }
 
 /** The model the function defaults to. Kept here only so a saved hook can say

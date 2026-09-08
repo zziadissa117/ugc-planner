@@ -89,7 +89,7 @@ describe('saving a generated batch', () => {
   })
 
   it('keeps the new one and drops the reworded one', async () => {
-    const saved = await saveGeneratedHooks(
+    const { saved, duplicates } = await saveGeneratedHooks(
       adapter,
       campaignId,
       {
@@ -111,6 +111,9 @@ describe('saving a generated batch', () => {
     )
 
     expect(saved).toBe(1)
+    // Counted here, not taken from the model's own account of itself: this is
+    // what the console tells him, and it has to be true.
+    expect(duplicates).toBe(1)
     const hooks = await adapter.listCampaignHooks(campaignId)
     expect(hooks).toHaveLength(2)
     expect(hooks.filter((hook) => hook.source === 'generated')).toHaveLength(1)
@@ -122,7 +125,7 @@ describe('saving a generated batch', () => {
       outline: null,
       angle_id: null,
     }
-    const saved = await saveGeneratedHooks(
+    const { saved, duplicates } = await saveGeneratedHooks(
       adapter,
       campaignId,
       { hooks: [twice, { ...twice, body: twice.body.toUpperCase() }], warnings: [] },

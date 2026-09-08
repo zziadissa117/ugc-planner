@@ -212,29 +212,33 @@ describe('warming up an account', () => {
     return { campaign, account }
   }
 
-  it('says nothing at all while every account is ready', async () => {
+  it('keeps ready accounts on the list too, so they do not go stale', async () => {
+    // "keep a warmup section for all accounts just to make sure i keep them
+    // fresh and remember". The seed's two are ready, and both belong here.
     renderScreen()
-    await screen.findByText(/of 1/)
-    // The seed's accounts are ready. He asked not to see warmed-up accounts
-    // here, and an empty "nothing to warm up" card is noise saying the same.
-    expect(screen.queryByText('Not ready to post')).toBeNull()
+    expect(await screen.findByText('Keep them warm')).toBeInTheDocument()
+    expect(screen.getByText('TikTok')).toBeInTheDocument()
+    expect(screen.getByText('Instagram')).toBeInTheDocument()
+    // Never warmed, and a shorter sitting than an account being built.
+    expect(screen.getAllByText('never warmed')).toHaveLength(2)
+    expect(screen.getAllByText('5 min')).toHaveLength(2)
   })
 
-  it('names the accounts that are not ready, on the home screen', async () => {
+  it('names the accounts that are not ready, and puts them first', async () => {
     // The count on its own ("Warm up 2 accounts") made him tap to find out
     // which. The point of this list is reading it without tapping.
-    await freshAccount('TikTok', '@brandnew')
-    await freshAccount('Instagram', '@second')
+    await freshAccount('YouTube', '@brandnew')
 
     renderScreen()
-    expect(await screen.findByText('Not ready to post')).toBeInTheDocument()
-    expect(screen.getByText('TikTok')).toBeInTheDocument()
+    expect(await screen.findByText('Keep them warm')).toBeInTheDocument()
     expect(screen.getByText(/@brandnew/)).toBeInTheDocument()
-    expect(screen.getByText('Instagram')).toBeInTheDocument()
-    expect(screen.getByText(/@second/)).toBeInTheDocument()
-    // Each row carries how far along its warm-up is, and which campaign it is.
-    expect(screen.getAllByText(`0 of ${WARMUP_SESSIONS_REQUIRED}`)).toHaveLength(2)
-    expect(screen.getAllByText(/Brand new campaign/)).toHaveLength(2)
+    // Amber progress rather than a date, and the longer sitting.
+    expect(screen.getByText(`0 of ${WARMUP_SESSIONS_REQUIRED}`)).toBeInTheDocument()
+    expect(screen.getByText('15 min')).toBeInTheDocument()
+
+    // Ahead of the two ready ones: it is what holds a campaign off Post.
+    const rows = screen.getAllByRole('listitem')
+    expect(rows[0]).toHaveTextContent('YouTube')
   })
 
   it('starts the session straight from the row, with no picker in between', async () => {
@@ -243,10 +247,9 @@ describe('warming up an account', () => {
     const user = userEvent.setup()
     renderScreen()
     await screen.findByText(/of 1/)
-    await user.click(await screen.findByRole('button', { name: /TikTok/ }))
+    await user.click(await screen.findByRole('button', { name: /TikTok.*@brandnew/ }))
 
-    expect(await screen.findByText('@brandnew')).toBeInTheDocument()
-    expect(screen.getByText('15:00')).toBeInTheDocument()
+    expect(await screen.findByText('15:00')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Mark warmed up' }))
 
@@ -256,6 +259,29 @@ describe('warming up an account', () => {
     })
     // Back on the home screen, with the row now showing its progress.
     expect(await screen.findByText(`1 of ${WARMUP_SESSIONS_REQUIRED}`)).toBeInTheDocument()
+  })
+
+  it('gives a ready account five minutes, and logs it as five', async () => {
+    const accounts = await adapter.listCampaignAccounts(INFLOW_CAMPAIGN_ID)
+    const tiktok = accounts.find((a) => a.platform === 'TikTok')!
+
+    const user = userEvent.setup()
+    renderScreen()
+    await screen.findByText(/of 1/)
+    await user.click(await screen.findByRole('button', { name: /TikTok/ }))
+
+    expect(await screen.findByText('05:00')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Mark warmed up' }))
+
+    await waitFor(async () => {
+      const events = await adapter.listWarmupEvents()
+      expect(events.find((e) => e.account_id === tiktok.id)?.minutes).toBe(5)
+    })
+    // It was already ready and stays ready - warming it is maintenance, and
+    // the row now says when it last happened.
+    const after = await adapter.listCampaignAccounts(INFLOW_CAMPAIGN_ID)
+    expect(after.find((a) => a.id === tiktok.id)?.status).toBe('ready')
+    expect(await screen.findByText('today')).toBeInTheDocument()
   })
 
   it('promotes an account to ready after two sessions, and drops it off the list', async () => {
@@ -272,8 +298,11 @@ describe('warming up an account', () => {
 
     renderScreen()
     await screen.findByText(/of 1/)
-    expect(screen.queryByText('Not ready to post')).toBeNull()
-    expect(screen.queryByText('@brandnew')).toBeNull()
+    // Still listed - every account is - but as maintenance rather than as
+    // something holding a campaign back.
+    expect(await screen.findByText(/@brandnew/)).toBeInTheDocument()
+    expect(screen.queryByText(`2 of ${WARMUP_SESSIONS_REQUIRED}`)).toBeNull()
+    expect(screen.getAllByText('5 min').length).toBeGreaterThan(0)
   })
 
   it('never demotes an account he marked ready himself', async () => {

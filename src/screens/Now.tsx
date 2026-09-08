@@ -19,7 +19,13 @@ import type {
   VideoPost,
   WarmupEvent,
 } from '../data'
-import { WARMUP_SESSIONS_REQUIRED, needsWarmup, warmupCompletions } from '../data'
+import {
+  WARMUP_SESSIONS_REQUIRED,
+  lastWarmupAt,
+  needsWarmup,
+  warmupCompletions,
+  warmupMinutesFor,
+} from '../data'
 import { ensureTodaysQuota, summariseToday } from '../data/today'
 import { useData } from '../data/useData'
 import { formatCents } from '../money'
@@ -34,9 +40,9 @@ const DEFAULT_GOAL = 7
  *  Bookkeeping only: never surfaced, never compared against. */
 const FILM_SESSION_PLANNED_MINUTES = 120
 
-/** How long a warm-up countdown runs. Nothing asks: the account needs to be
- *  used for a while, not for an exact time he has to plan. */
-const WARMUP_DEFAULT_MINUTES = 15
+/** Nothing asks how long a warm-up runs: it comes from what the account is
+ *  for. Fifteen minutes while it is being built a history, five to keep a
+ *  ready one alive. See warmupMinutesFor. */
 
 type Stage =
   | { kind: 'home' }
@@ -95,7 +101,20 @@ export function Now() {
     [campaigns, posts, videos],
   )
 
-  const warmupAccounts = useMemo(() => accounts.filter(needsWarmup), [accounts])
+  // Every account, not only the ones still being built. He asked to keep all
+  // of them in front of him - "just to make sure i keep them fresh and
+  // remember" - with the not-ready ones first, because those are the ones
+  // holding a campaign off the Post tab.
+  const warmupAccounts = useMemo(
+    () =>
+      accounts
+        .filter((account) => account.is_active)
+        .sort((a, b) => {
+          const byStatus = Number(needsWarmup(b)) - Number(needsWarmup(a))
+          return byStatus !== 0 ? byStatus : a.platform.localeCompare(b.platform)
+        }),
+    [accounts],
+  )
 
   const beginConsole = useCallback(
     async (campaign: Campaign, goal: number) => {
@@ -112,8 +131,8 @@ export function Now() {
   )
 
   const recordWarmup = useCallback(
-    async (accountId: string) => {
-      await data.recordWarmupEvent(accountId, WARMUP_DEFAULT_MINUTES)
+    async (account: CampaignAccount) => {
+      await data.recordWarmupEvent(account.id, warmupMinutesFor(account))
       await reload()
     },
     [data, reload],
@@ -161,7 +180,7 @@ export function Now() {
               POST
             </Link>
           </div>
-          <NotReadyAccounts
+          <WarmupList
             accounts={warmupAccounts}
             campaigns={campaigns}
             warmupEvents={warmupEvents}
@@ -205,7 +224,7 @@ export function Now() {
           account={stage.account}
           campaign={stage.campaign}
           onDone={async () => {
-            await recordWarmup(stage.account.id)
+            await recordWarmup(stage.account)
             setStage({ kind: 'home' })
           }}
           onBack={() => setStage({ kind: 'home' })}
@@ -458,18 +477,19 @@ function Briefing({
   )
 }
 
-/** The accounts he cannot safely post from yet, named on the home screen.
+/** Every account, and when each was last used.
  *
- *  This used to be a button reading "Warm up 2 accounts", which told him a
- *  number and made him tap to find out which. He asked for the opposite: "when
- *  i have accounts not ready i want that place to be somewhere where i check
- *  what accounts are NOT ready so i can warm them up." So the accounts
- *  themselves are the list, and tapping one starts its session directly - the
- *  picker screen in between is gone.
+ *  It began as a button reading "Warm up 2 accounts" - a number he had to tap
+ *  to find out what it meant - and became a list of the not-ready ones when he
+ *  asked to see which they were. He then asked for the rest as well: "keep a
+ *  warmup section for all accounts just to make sure i keep them fresh and
+ *  remember". So a ready account is here too, not because it needs promoting
+ *  but because an account nobody touches goes stale.
  *
- *  Nothing renders when every account is ready: "i dont want to see already
- *  warmed up accounts there", and an empty card saying so is noise. */
-function NotReadyAccounts({
+ *  Not-ready accounts sort first and read amber, because those are the ones
+ *  holding a campaign off the Post tab. A ready one is grey and says how long
+ *  it has been left alone, which is the whole of the remembering. */
+function WarmupList({
   accounts,
   campaigns,
   warmupEvents,
@@ -486,18 +506,24 @@ function NotReadyAccounts({
 
   return (
     <div className="flex flex-col gap-1.5">
-      <h2 className="text-xs font-semibold uppercase tracking-wide text-state-waiting">
-        Not ready to post
+      <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-state-later">
+        Keep them warm
       </h2>
       <ul className="flex flex-col gap-1.5">
         {accounts.map((account) => {
+          const building = needsWarmup(account)
           const done = warmupCompletions(account.id, warmupEvents)
+          const last = lastWarmupAt(account.id, warmupEvents)
           return (
             <li key={account.id}>
               <button
                 type="button"
                 onClick={() => onPick(account)}
-                className="flex min-h-tap w-full items-center justify-between gap-3 rounded-lg border border-state-waiting/40 bg-surface px-3 text-left active:bg-surface-raised"
+                className={[
+                  'flex min-h-tap w-full items-center justify-between gap-3 rounded-lg border bg-surface px-3 text-left',
+                  'transition-transform duration-100 active:scale-[0.99] active:bg-surface-raised',
+                  building ? 'border-state-waiting/40' : 'border-edge',
+                ].join(' ')}
               >
                 <span className="truncate">
                   <span className="font-semibold text-text">{account.platform}</span>
@@ -506,8 +532,19 @@ function NotReadyAccounts({
                     {nameById.get(account.campaign_id) ?? 'unknown campaign'}
                   </span>
                 </span>
-                <span className="shrink-0 text-sm tabular-nums text-state-waiting">
-                  {done} of {WARMUP_SESSIONS_REQUIRED}
+                <span className="shrink-0 text-right">
+                  {building ? (
+                    <span className="numeric text-sm text-state-waiting">
+                      {done} of {WARMUP_SESSIONS_REQUIRED}
+                    </span>
+                  ) : (
+                    <span className="text-sm text-state-later">
+                      {last === null ? 'never warmed' : sinceLabel(last)}
+                    </span>
+                  )}
+                  <span className="block text-[10px] uppercase tracking-[0.14em] text-state-later">
+                    {warmupMinutesFor(account)} min
+                  </span>
                 </span>
               </button>
             </li>
@@ -516,6 +553,15 @@ function NotReadyAccounts({
       </ul>
     </div>
   )
+}
+
+/** "today", "yesterday", "4d ago". Whole days only - the point is remembering
+ *  roughly how long an account has been left alone, not timing it. */
+function sinceLabel(iso: string): string {
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000)
+  if (days <= 0) return 'today'
+  if (days === 1) return 'yesterday'
+  return `${days}d ago`
 }
 
 /** The account to warm up, and a countdown. Nothing here touches the video
@@ -531,7 +577,7 @@ function WarmupTimer({
   onDone: () => Promise<void>
   onBack: () => void
 }) {
-  const [secondsLeft, setSecondsLeft] = useState(WARMUP_DEFAULT_MINUTES * 60)
+  const [secondsLeft, setSecondsLeft] = useState(() => warmupMinutesFor(account) * 60)
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
@@ -561,11 +607,15 @@ function WarmupTimer({
       </h2>
       <p className="-mt-3 text-sm text-state-later">{campaign?.name ?? 'unknown campaign'}</p>
 
-      <p className="text-center text-6xl font-semibold tabular-nums text-text" aria-live="polite">
+      <p className="numeric text-center text-6xl font-semibold text-text" aria-live="polite">
         {mm}:{ss}
       </p>
       <p className="text-center text-sm text-state-later">
-        {secondsLeft === 0 ? "Time's up." : 'Use the account normally until this runs out.'}
+        {secondsLeft === 0
+          ? "Time's up."
+          : needsWarmup(account)
+            ? 'Use the account normally until this runs out.'
+            : 'Scroll the feed until this runs out - just enough to keep it alive.'}
       </p>
 
       <button

@@ -24,7 +24,15 @@ export {
   EXPORT_REMINDER_DAYS,
 } from './defaults'
 export { SESSION_TARGET_PHASE, chainFor, nextPhase, previousPhase } from './phases'
-export { WARMUP_SESSIONS_REQUIRED, needsWarmup, warmupCompletions } from './warmup'
+export {
+  WARMUP_MINUTES_BUILDING,
+  WARMUP_MINUTES_MAINTENANCE,
+  WARMUP_SESSIONS_REQUIRED,
+  lastWarmupAt,
+  needsWarmup,
+  warmupCompletions,
+  warmupMinutesFor,
+} from './warmup'
 export { PULL_CURSOR_COLUMN } from './sync'
 export * from './schema'
 

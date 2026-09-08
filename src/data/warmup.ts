@@ -1,11 +1,15 @@
-// Whether an account still needs warming up.
+// Whether an account still needs warming up, and how long that takes.
 //
 // This used to be a question about a campaign, inferred from whether it had
 // ever posted. It is a question about an ACCOUNT: two accounts on one campaign
-// warm up separately, and he asked to decide it himself - "warmup the accounts
-// set as NEW or WARMING UP i will see there, i dont want to see already warmed
-// up accounts there". So `status` on the account is the answer, and he can set
-// it by hand.
+// warm up separately, and he asked to decide it himself. So `status` on the
+// account is the answer, and he can set it by hand.
+//
+// `needsWarmup` means "not ready to post from yet", and that is all it means.
+// It is not the same question as "should this appear on the warm-up list": a
+// ready account still wants a scroll now and then to stay alive, and the home
+// screen lists every account for exactly that reason. What changes with status
+// is how long the sitting is and how it reads - see warmupMinutesFor.
 //
 // Completing sessions still promotes automatically, and "warmed up twice" is
 // counted from warmup_events at query time rather than kept as a number on the
@@ -14,6 +18,37 @@
 import type { CampaignAccount, WarmupEvent } from './schema'
 
 export const WARMUP_SESSIONS_REQUIRED = 2
+
+/** How long a warm-up runs, by what the account is for.
+ *
+ *  A new account is being built a history, which takes a real sitting. A ready
+ *  account is only being kept alive - "keep a warmup section for all accounts
+ *  just to make sure i keep them fresh and remember, the time for scrolling
+ *  will only be 5 minutes for the ready accounts" - and five minutes of
+ *  scrolling is the whole of that job. */
+export const WARMUP_MINUTES_BUILDING = 15
+export const WARMUP_MINUTES_MAINTENANCE = 5
+
+export function warmupMinutesFor(account: CampaignAccount): number {
+  return account.status === 'ready' ? WARMUP_MINUTES_MAINTENANCE : WARMUP_MINUTES_BUILDING
+}
+
+/** When this account was last warmed up, or null if it never has been.
+ *
+ *  Read off the log rather than kept on the row, the same as the count: a
+ *  stored "last warmed" drifts from the events that explain it. This is what
+ *  makes a ready account's line say how long it has been left alone. */
+export function lastWarmupAt(
+  accountId: string,
+  events: readonly WarmupEvent[],
+): string | null {
+  let latest: string | null = null
+  for (const event of events) {
+    if (event.account_id !== accountId) continue
+    if (latest === null || event.occurred_at > latest) latest = event.occurred_at
+  }
+  return latest
+}
 
 /** Sessions completed against this account.
  *

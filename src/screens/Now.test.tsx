@@ -241,6 +241,21 @@ describe('warming up an account', () => {
     expect(rows[0]).toHaveTextContent('Facebook')
   })
 
+  it('drops a handle whose campaign is gone, even one orphaned before the fix', async () => {
+    // His report: "i still have karimssn1 handle to warmup even if i deleted
+    // the campaign. And i don't want to see it." deleteCampaign now takes the
+    // accounts down too, but rows orphaned by an earlier delete are already in
+    // his store - so the list refuses them on sight rather than only new ones.
+    const { account } = await freshAccount('TikTok', '@karimssn1')
+    await adapter.updateCampaign(account.campaign_id, { is_active: false })
+    // Deliberately still active, the way an earlier delete would have left it.
+    expect((await adapter.listCampaignAccounts()).some((a) => a.id === account.id)).toBe(true)
+
+    renderScreen()
+    await screen.findByText('Keep them warm')
+    expect(screen.queryByText(/@karimssn1/)).toBeNull()
+  })
+
   it('leaves YouTube out of it entirely', async () => {
     // "youtube accounts dont need to warmup so remove them from warmups." It
     // is brand new and never warmed, and still does not belong on this list.

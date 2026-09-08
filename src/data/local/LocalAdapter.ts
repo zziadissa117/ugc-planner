@@ -242,6 +242,16 @@ export class LocalAdapter implements DataAdapter {
 
   async deleteCampaign(id: string): Promise<void> {
     await this.updateCampaign(id, { is_active: false })
+
+    // Its accounts go with it. A campaign_account is not a thing on its own -
+    // it is where THIS campaign posts - so leaving them active left handles
+    // behind on the warm-up list for a campaign that no longer exists, with
+    // nothing on any screen able to explain where they came from or get rid of
+    // them. Soft, like the campaign itself and like deleteCampaignAccount:
+    // sync pushes rows, and a row deleted locally pushes nothing.
+    for (const account of await this.listCampaignAccounts(id)) {
+      await this.updateCampaignAccount(account.id, { is_active: false })
+    }
   }
 
   async backfillUnpricedVideos(campaignId: string): Promise<number> {

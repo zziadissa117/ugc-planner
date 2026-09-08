@@ -259,6 +259,22 @@ describe('deleting a campaign', () => {
     expect(await adapter.getVideo(video.id)).not.toBeNull()
     expect(await adapter.listPhaseEvents({ videoId: video.id })).not.toHaveLength(0)
   })
+
+  it("takes the campaign's accounts with it", async () => {
+    // "make sure everything related to it doesnt stay, for example i still
+    // have karimssn1 handle to warmup even if i deleted the campaign." An
+    // account is where THIS campaign posts, so it cannot outlive it.
+    expect(await adapter.listCampaignAccounts()).not.toHaveLength(0)
+
+    const user = userEvent.setup()
+    await renderBrief()
+    await user.click(screen.getByRole('button', { name: 'Delete this campaign' }))
+    await user.click(screen.getByRole('button', { name: 'Delete it' }))
+
+    await waitFor(async () => {
+      expect(await adapter.listCampaignAccounts()).toHaveLength(0)
+    })
+  })
 })
 
 describe('hooks and ideas', () => {

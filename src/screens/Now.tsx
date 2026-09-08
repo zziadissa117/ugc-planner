@@ -107,16 +107,22 @@ export function Now() {
   // fresh and remember" - with the not-ready ones first, because those are the
   // ones holding a campaign off the Post tab. YouTube is not here at all:
   // "youtube accounts dont need to warmup so remove them from warmups."
-  const warmupAccounts = useMemo(
-    () =>
-      accounts
-        .filter((account) => account.is_active && warmsUp(account))
-        .sort((a, b) => {
-          const byStatus = Number(needsWarmup(b)) - Number(needsWarmup(a))
-          return byStatus !== 0 ? byStatus : a.platform.localeCompare(b.platform)
-        }),
-    [accounts],
-  )
+  const warmupAccounts = useMemo(() => {
+    // Only accounts belonging to a campaign still on the books. Deleting a
+    // campaign now takes its accounts down with it, but a campaign deleted
+    // before it did left its handles here with nothing on any screen able to
+    // explain them or get rid of them - so the list is filtered as well as
+    // the delete being fixed, and those orphans go on sight.
+    const live = new Set(campaigns.map((c) => c.id))
+    return accounts
+      .filter(
+        (account) => account.is_active && live.has(account.campaign_id) && warmsUp(account),
+      )
+      .sort((a, b) => {
+        const byStatus = Number(needsWarmup(b)) - Number(needsWarmup(a))
+        return byStatus !== 0 ? byStatus : a.platform.localeCompare(b.platform)
+      })
+  }, [accounts, campaigns])
 
   const beginConsole = useCallback(
     async (campaign: Campaign, goal: number) => {

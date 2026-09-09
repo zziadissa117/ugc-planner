@@ -216,12 +216,14 @@ describe('warming up an account', () => {
     // "keep a warmup section for all accounts just to make sure i keep them
     // fresh and remember". The seed's two are ready, and both belong here.
     renderScreen()
-    expect(await screen.findByText('Keep them warm')).toBeInTheDocument()
+    expect(await screen.findByText(/Keep them warm/)).toBeInTheDocument()
     expect(screen.getByText('TikTok')).toBeInTheDocument()
     expect(screen.getByText('Instagram')).toBeInTheDocument()
     // Never warmed, and a shorter sitting than an account being built.
     expect(screen.getAllByText('never warmed')).toHaveLength(2)
     expect(screen.getAllByText('5 min')).toHaveLength(2)
+    // Nothing done yet, so there is no done group at all.
+    expect(screen.queryByText('Warmed today')).toBeNull()
   })
 
   it('names the accounts that are not ready, and puts them first', async () => {
@@ -230,7 +232,7 @@ describe('warming up an account', () => {
     await freshAccount('Facebook', '@brandnew')
 
     renderScreen()
-    expect(await screen.findByText('Keep them warm')).toBeInTheDocument()
+    expect(await screen.findByText(/Keep them warm/)).toBeInTheDocument()
     expect(screen.getByText(/@brandnew/)).toBeInTheDocument()
     // Amber progress rather than a date, and the longer sitting.
     expect(screen.getByText(`0 of ${WARMUP_SESSIONS_REQUIRED}`)).toBeInTheDocument()
@@ -252,7 +254,7 @@ describe('warming up an account', () => {
     expect((await adapter.listCampaignAccounts()).some((a) => a.id === account.id)).toBe(true)
 
     renderScreen()
-    await screen.findByText('Keep them warm')
+    await screen.findByText(/Keep them warm/)
     expect(screen.queryByText(/@karimssn1/)).toBeNull()
   })
 
@@ -266,7 +268,7 @@ describe('warming up an account', () => {
     })
 
     renderScreen()
-    await screen.findByText('Keep them warm')
+    await screen.findByText(/Keep them warm/)
     expect(screen.queryByText('YouTube')).toBeNull()
     expect(screen.queryByText(/@michael\.yt/)).toBeNull()
   })
@@ -307,11 +309,42 @@ describe('warming up an account', () => {
       const events = await adapter.listWarmupEvents()
       expect(events.find((e) => e.account_id === tiktok.id)?.minutes).toBe(5)
     })
-    // It was already ready and stays ready - warming it is maintenance, and
-    // the row now says when it last happened.
+    // It was already ready and stays ready - warming it is maintenance.
     const after = await adapter.listCampaignAccounts(INFLOW_CAMPAIGN_ID)
     expect(after.find((a) => a.id === tiktok.id)?.status).toBe('ready')
-    expect(await screen.findByText('today')).toBeInTheDocument()
+
+    // And it moves into the done group, leaving one still to do.
+    expect(await screen.findByText('Warmed today')).toBeInTheDocument()
+    expect(await screen.findByText('warmed')).toBeInTheDocument()
+    expect(screen.getByText(/Keep them warm - 1 left/)).toBeInTheDocument()
+  })
+
+  it('separates what is done today from what is left', async () => {
+    // "when a video is warmed up for the day put it in green and separate the
+    // warm and not warm accounts."
+    const accounts = await adapter.listCampaignAccounts(INFLOW_CAMPAIGN_ID)
+    const tiktok = accounts.find((a) => a.platform === 'TikTok')!
+    await adapter.recordWarmupEvent(tiktok.id, 5)
+
+    renderScreen()
+    expect(await screen.findByText('Warmed today')).toBeInTheDocument()
+    expect(screen.getByText(/Keep them warm - 1 left/)).toBeInTheDocument()
+
+    // The done one sits under the done heading, the other under what is left.
+    const groups = screen.getAllByRole('list')
+    expect(groups).toHaveLength(2)
+    expect(groups[0]).toHaveTextContent('Instagram')
+    expect(groups[1]).toHaveTextContent('TikTok')
+  })
+
+  it('drops the "what is left" heading once everything is done', async () => {
+    for (const account of await adapter.listCampaignAccounts(INFLOW_CAMPAIGN_ID)) {
+      await adapter.recordWarmupEvent(account.id, 5)
+    }
+
+    renderScreen()
+    expect(await screen.findByText('Warmed today')).toBeInTheDocument()
+    expect(screen.queryByText(/Keep them warm/)).toBeNull()
   })
 
   it('promotes an account to ready after two sessions, and drops it off the list', async () => {

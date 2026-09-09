@@ -22,6 +22,7 @@ import type {
 import {
   WARMUP_SESSIONS_REQUIRED,
   lastWarmupAt,
+  localToday,
   needsWarmup,
   warmsUp,
   warmupCompletions,
@@ -494,9 +495,12 @@ function Briefing({
  *  remember". So a ready account is here too, not because it needs promoting
  *  but because an account nobody touches goes stale.
  *
- *  Not-ready accounts sort first and read amber, because those are the ones
- *  holding a campaign off the Post tab. A ready one is grey and says how long
- *  it has been left alone, which is the whole of the remembering. */
+ *  Split in two, because it is a daily checklist and the question he is
+ *  asking it is "what is left today": an account warmed today is done and
+ *  goes green under its own heading, the same green the posting boxes use for
+ *  the same reason. Within what is left, not-ready accounts read amber and
+ *  come first - those are the ones holding a campaign off the Post tab - and a
+ *  ready one says how long it has been left alone. */
 function WarmupList({
   accounts,
   campaigns,
@@ -510,55 +514,98 @@ function WarmupList({
 }) {
   if (accounts.length === 0) return null
 
+  const today = localToday()
   const nameById = new Map(campaigns.map((campaign) => [campaign.id, campaign.name]))
 
-  return (
-    <div className="flex flex-col gap-1.5">
-      <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-state-later">
-        Keep them warm
-      </h2>
-      <ul className="flex flex-col gap-1.5">
-        {accounts.map((account) => {
-          const building = needsWarmup(account)
-          const done = warmupCompletions(account.id, warmupEvents)
-          const last = lastWarmupAt(account.id, warmupEvents)
-          return (
-            <li key={account.id}>
-              <button
-                type="button"
-                onClick={() => onPick(account)}
-                className={[
-                  'flex min-h-tap w-full items-center justify-between gap-3 rounded-lg border bg-surface px-3 text-left',
-                  'transition-transform duration-100 active:scale-[0.99] active:bg-surface-raised',
-                  building ? 'border-state-waiting/40' : 'border-edge',
-                ].join(' ')}
+  const lastById = new Map(
+    accounts.map((account) => [account.id, lastWarmupAt(account.id, warmupEvents)]),
+  )
+  const warmedToday = (account: CampaignAccount): boolean => {
+    const last = lastById.get(account.id) ?? null
+    return last !== null && localToday(new Date(last)) === today
+  }
+
+  const todo = accounts.filter((account) => !warmedToday(account))
+  const done = accounts.filter(warmedToday)
+
+  const row = (account: CampaignAccount, warm: boolean) => {
+    const building = needsWarmup(account)
+    const sessions = warmupCompletions(account.id, warmupEvents)
+    const last = lastById.get(account.id) ?? null
+    return (
+      <li key={account.id}>
+        <button
+          type="button"
+          onClick={() => onPick(account)}
+          className={[
+            'flex min-h-tap w-full items-center justify-between gap-3 rounded-lg px-3 text-left',
+            'border transition-transform duration-100 active:scale-[0.99] active:bg-surface-raised',
+            // Green is "done", the same green the posting boxes use. It is the
+            // day's work proved, and it is why the two groups are split rather
+            // than sorted: he should see what is left without reading statuses.
+            warm
+              ? 'border-state-posted/40 bg-state-posted/5'
+              : building
+                ? 'border-state-waiting/40 bg-surface'
+                : 'border-edge bg-surface',
+          ].join(' ')}
+        >
+          <span className="flex min-w-0 items-center gap-2">
+            {warm ? (
+              <span aria-hidden className="shrink-0 text-state-posted">
+                ✓
+              </span>
+            ) : null}
+            <span className="truncate">
+              <span className={`font-semibold ${warm ? 'text-state-posted' : 'text-text'}`}>
+                {account.platform}
+              </span>
+              <span className="ml-2 text-sm text-state-later">
+                {account.handle ?? 'no handle saved'} ·{' '}
+                {nameById.get(account.campaign_id) ?? 'unknown campaign'}
+              </span>
+            </span>
+          </span>
+          <span className="shrink-0 text-right">
+            {building ? (
+              <span
+                className={`numeric text-sm ${warm ? 'text-state-posted' : 'text-state-waiting'}`}
               >
-                <span className="truncate">
-                  <span className="font-semibold text-text">{account.platform}</span>
-                  <span className="ml-2 text-sm text-state-later">
-                    {account.handle ?? 'no handle saved'} ·{' '}
-                    {nameById.get(account.campaign_id) ?? 'unknown campaign'}
-                  </span>
-                </span>
-                <span className="shrink-0 text-right">
-                  {building ? (
-                    <span className="numeric text-sm text-state-waiting">
-                      {done} of {WARMUP_SESSIONS_REQUIRED}
-                    </span>
-                  ) : (
-                    <span className="text-sm text-state-later">
-                      {last === null ? 'never warmed' : sinceLabel(last)}
-                    </span>
-                  )}
-                  <span className="block text-[10px] uppercase tracking-[0.14em] text-state-later">
-                    {warmupMinutesFor(account)} min
-                  </span>
-                </span>
-              </button>
-            </li>
-          )
-        })}
-      </ul>
+                {sessions} of {WARMUP_SESSIONS_REQUIRED}
+              </span>
+            ) : (
+              <span className={`text-sm ${warm ? 'text-state-posted' : 'text-state-later'}`}>
+                {warm ? 'warmed' : last === null ? 'never warmed' : sinceLabel(last)}
+              </span>
+            )}
+            <span className="block text-[10px] uppercase tracking-[0.14em] text-state-later">
+              {warmupMinutesFor(account)} min
+            </span>
+          </span>
+        </button>
+      </li>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      {todo.length > 0 ? (
+        <div className="flex flex-col gap-1.5">
+          <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-state-later">
+            Keep them warm - {todo.length} left
+          </h2>
+          <ul className="flex flex-col gap-1.5">{todo.map((account) => row(account, false))}</ul>
+        </div>
+      ) : null}
+
+      {done.length > 0 ? (
+        <div className="flex flex-col gap-1.5">
+          <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-state-posted">
+            Warmed today
+          </h2>
+          <ul className="flex flex-col gap-1.5">{done.map((account) => row(account, true))}</ul>
+        </div>
+      ) : null}
     </div>
   )
 }

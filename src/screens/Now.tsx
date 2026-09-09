@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
+import type { Streak } from '../data/streak'
 import type {
   Campaign,
   CampaignAccount,
@@ -28,6 +29,7 @@ import {
   warmupCompletions,
   warmupMinutesFor,
 } from '../data'
+import { postingStreak } from '../data/streak'
 import { ensureTodaysQuota, summariseToday } from '../data/today'
 import { useData } from '../data/useData'
 import { formatCents } from '../money'
@@ -170,7 +172,7 @@ export function Now() {
     <section className="mx-auto flex max-w-3xl flex-col gap-4">
       {stage.kind === 'home' ? (
         <>
-          <Header summary={summary} />
+          <Header summary={summary} streak={postingStreak(posts)} />
           <EditBacklog count={summary.editBacklog} busy={editBusy} onMarkEdited={markOneEdited} />
           <div className="grid grid-cols-2 gap-2">
             {/* FILM is the one thing on this screen that starts work, so it is
@@ -243,7 +245,13 @@ export function Now() {
   )
 }
 
-function Header({ summary }: { summary: ReturnType<typeof summariseToday> }) {
+function Header({
+  summary,
+  streak,
+}: {
+  summary: ReturnType<typeof summariseToday>
+  streak: Streak
+}) {
   const [now, setNow] = useState(() => new Date())
 
   useEffect(() => {
@@ -265,6 +273,19 @@ function Header({ summary }: { summary: ReturnType<typeof summariseToday> }) {
           </p>
           <p className="mt-1.5 truncate text-[10px] uppercase tracking-[0.14em] text-state-later">
             {now.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })}
+            {streak.days > 0 ? (
+              <>
+                {' · '}
+                {/* Green once today is kept, white while it is still the thing
+                    to do. Both are states the rest of the app already uses -
+                    a streak is a fact counted from the log, not a badge. */}
+                <span
+                  className={streak.includesToday ? 'text-state-posted' : 'text-state-now'}
+                >
+                  {streak.days} day{streak.days === 1 ? '' : 's'} running
+                </span>
+              </>
+            ) : null}
           </p>
         </div>
         <div className="shrink-0 text-right">
@@ -287,7 +308,7 @@ function Header({ summary }: { summary: ReturnType<typeof summariseToday> }) {
         <div className="mt-3 h-1 overflow-hidden rounded-full bg-ink">
           <div
             className={`h-full rounded-full transition-[width] duration-500 ease-out ${
-              done ? 'bg-state-posted' : 'bg-state-now'
+              done ? 'bg-state-posted cleared' : 'bg-state-now'
             }`}
             style={{ width: `${Math.min(100, (summary.posted / summary.owed) * 100)}%` }}
           />

@@ -106,6 +106,25 @@ body {
   animation: rise-in 0.16s ease-out both;
 }
 
+/* The day's bar, the moment it fills. One pass, then it stays lit - the only
+   celebration in the app, and it fires on a real state (the day is done)
+   rather than as decoration. */
+@keyframes cleared-sweep {
+  0% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+  35% {
+    box-shadow: 0 0 16px 2px var(--color-state-posted);
+  }
+  100% {
+    box-shadow: 0 0 6px 0 var(--color-state-posted);
+  }
+}
+
+.cleared {
+  animation: cleared-sweep 0.9s ease-out both;
+}
+
 /* A state colour, lit from behind. Used only where the colour already carries
    the meaning: the tab you are on, the button that is the next thing to do. */
 .lit {
@@ -140,7 +159,8 @@ body {
     opacity: 0.5;
   }
 
-  .rise-in {
+  .rise-in,
+  .cleared {
     animation: none;
   }
 }

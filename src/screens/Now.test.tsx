@@ -103,6 +103,61 @@ describe('the home screen', () => {
   })
 })
 
+describe('the streak', () => {
+  async function postOn(daysAgo: number) {
+    const video = await adapter.createVideo({
+      campaign_id: INFLOW_CAMPAIGN_ID,
+      setup: 'face',
+      angle_id: null,
+      script: null,
+      blocked_reason: null,
+      owed_for_date: null,
+      rate_snapshot_cents: null,
+      posted_at: null,
+    })
+    const when = new Date()
+    when.setDate(when.getDate() - daysAgo)
+    when.setHours(12, 0, 0, 0)
+    const accounts = await adapter.listCampaignAccounts(INFLOW_CAMPAIGN_ID)
+    await adapter.addVideoPost({
+      video_id: video.id,
+      account_id: accounts[0].id,
+      platform: accounts[0].platform,
+      url: null,
+      view_count: null,
+      view_count_entered_at: null,
+      posted_at: when.toISOString(),
+    })
+  }
+
+  it('says nothing at all before there is one', async () => {
+    renderScreen()
+    await screen.findByText(/of 1/)
+    expect(screen.queryByText(/running/)).toBeNull()
+  })
+
+  it('counts the days running once he has posted', async () => {
+    for (const daysAgo of [2, 1, 0]) await postOn(daysAgo)
+
+    renderScreen()
+    expect(await screen.findByText('3 days running')).toBeInTheDocument()
+  })
+
+  it('stays alive while today is still empty', async () => {
+    // Not broken until a whole day is missed - that is the pressure.
+    for (const daysAgo of [2, 1]) await postOn(daysAgo)
+
+    renderScreen()
+    expect(await screen.findByText('2 days running')).toBeInTheDocument()
+  })
+
+  it('says one day, not one days', async () => {
+    await postOn(0)
+    renderScreen()
+    expect(await screen.findByText('1 day running')).toBeInTheDocument()
+  })
+})
+
 describe('editing, without a session', () => {
   it('shows nothing to edit when nothing has been filmed', async () => {
     renderScreen()

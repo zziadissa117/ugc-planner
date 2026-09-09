@@ -327,13 +327,39 @@ describe('the home screen and the Post tab', () => {
     expect(tab.owed).toBe(2)
   })
 
-  it('count a YouTube-only campaign, warmed up or not', async () => {
-    // YouTube never warms up, so a brand new YouTube account is postable and
-    // its campaign is owed from day one.
-    await setUp(2, ['YouTube'])
+  it('keep a YouTube campaign off the tab until he marks it ready', async () => {
+    // "Do not put youtube in the posting section if its warming or new... only
+    // put it in post section when ready." YouTube skipping warm-up says nothing
+    // about whether he is ready to post from the account.
+    const campaign = await adapter.createCampaign({
+      name: 'Vertus',
+      company: null,
+      default_setup: 'face',
+      approval_mode: 'none',
+      daily_post_quota: 2,
+      pay_per_video_cents: 4000,
+      cycle_size: null,
+    })
+    const account = await adapter.addCampaignAccount({
+      campaign_id: campaign.id,
+      platform: 'YouTube',
+      handle: '@vertus',
+    })
+    expect(account.status).toBe('new')
 
-    const { home, tab } = await bothCounts()
-    expect(home.owed).toBe(2)
-    expect(tab.owed).toBe(2)
+    const off = await bothCounts()
+    expect(off.home.owed).toBe(0)
+    expect(off.tab.owed).toBe(0)
+
+    // Warming is no different: it is still not an account he posts from.
+    await adapter.updateCampaignAccount(account.id, { status: 'warming' })
+    const stillOff = await bothCounts()
+    expect(stillOff.tab.owed).toBe(0)
+
+    // Ready, and it is owed and postable like anything else.
+    await adapter.updateCampaignAccount(account.id, { status: 'ready' })
+    const on = await bothCounts()
+    expect(on.home.owed).toBe(2)
+    expect(on.tab.owed).toBe(2)
   })
 })

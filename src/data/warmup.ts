@@ -5,11 +5,17 @@
 // warm up separately, and he asked to decide it himself. So `status` on the
 // account is the answer, and he can set it by hand.
 //
-// `needsWarmup` means "not ready to post from yet", and that is all it means.
-// It is not the same question as "should this appear on the warm-up list": a
-// ready account still wants a scroll now and then to stay alive, and the home
-// screen lists every account for exactly that reason. What changes with status
-// is how long the sitting is and how it reads - see warmupMinutesFor.
+// Three questions live here and they are deliberately not the same one:
+//
+//   warmsUp       - does this platform warm up at all? (YouTube does not)
+//   needsWarmup   - should this account be on the warm-up list right now?
+//   canPostFrom   - may he post brand content from it today?
+//
+// Collapsing any pair of them has gone wrong before. The warm-up list once
+// showed only accounts that were not ready, when a ready one still wants a
+// scroll to stay alive; and canPostFrom was once the inverse of needsWarmup,
+// which made a brand new YouTube account postable because its platform skips
+// warm-up. Status decides posting; platform decides warming.
 //
 // Completing sessions still promotes automatically, and "warmed up twice" is
 // counted from warmup_events at query time rather than kept as a number on the
@@ -65,10 +71,13 @@ export function warmupCompletions(accountId: string, events: readonly WarmupEven
  *
  *  YouTube is not a place a new account gets throttled for posting: "youtube
  *  accounts dont need to warmup so remove them from warmups." So a YouTube
- *  account never appears on the warm-up list and is never held off the Post
- *  tab, whatever its status column happens to say. The column is left alone
- *  rather than forced to 'ready' - nothing should rewrite his rows to make a
- *  screen come out right, and the rule belongs in one place instead. */
+ *  account never appears on the warm-up list, whatever its status says.
+ *
+ *  It is still held off the Post tab until he marks it ready - see
+ *  canPostFrom. Skipping warm-up is a fact about the platform; being ready to
+ *  post from is a fact about the account, and his status column is the only
+ *  thing that says it. Nothing here rewrites that column to make a screen come
+ *  out right. */
 export const PLATFORMS_WITHOUT_WARMUP: readonly string[] = ['YouTube']
 
 /** True when warming up is a thing this account does at all. */
@@ -76,19 +85,28 @@ export function warmsUp(account: CampaignAccount): boolean {
   return !PLATFORMS_WITHOUT_WARMUP.includes(account.platform)
 }
 
-/** True while an account is not ready to post brand content from.
+/** True when this account belongs on the warm-up list.
  *
- *  A platform that does not warm up is never "not ready": there is no sitting
- *  that would change anything, so waiting on one would hold a campaign off the
- *  Post tab forever. */
+ *  Two conditions, and they are different questions: warming up has to be a
+ *  thing this platform does at all, and the account has to not be ready yet.
+ *  A YouTube account is never here, however it is marked. */
 export function needsWarmup(account: CampaignAccount): boolean {
   return warmsUp(account) && account.status !== 'ready'
 }
 
-/** True when he can post brand content from this account today. The exact
- *  inverse of needsWarmup, named for the question the Post tab asks. */
+/** True when he can post brand content from this account today.
+ *
+ *  Status, and nothing else. This used to be the inverse of needsWarmup, which
+ *  quietly made a YouTube account postable the moment it existed - the platform
+ *  skips warm-up, so it could never be "not ready". He wanted the two separated:
+ *  "Do not put youtube in the posting section if its warming or new, do not put
+ *  it in warmup section too, only put it in post section when ready." So the
+ *  platform decides whether warming up is a thing it does; the status decides
+ *  whether he posts from it. A YouTube account he has not marked ready is off
+ *  the Post tab and off the warm-up list both, and the place he makes it ready
+ *  is the status row on the campaign's brief. */
 export function canPostFrom(account: CampaignAccount): boolean {
-  return !needsWarmup(account)
+  return account.status === 'ready'
 }
 
 /** The status an account should hold after `completions` sessions.

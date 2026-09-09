@@ -30,6 +30,18 @@ import {
   warmupMinutesFor,
 } from '../data'
 import { postingStreak } from '../data/streak'
+import {
+  MILESTONES_MS,
+  elapsedMs,
+  formatElapsed,
+  isRunning,
+  pause as pauseWork,
+  readWorkDay,
+  reset as resetWork,
+  start as startWork,
+  writeWorkDay,
+  type WorkDay,
+} from '../data/workClock'
 import { ensureTodaysQuota, summariseToday } from '../data/today'
 import { useData } from '../data/useData'
 import { formatCents } from '../money'
@@ -54,6 +66,7 @@ type Stage =
   | { kind: 'briefing'; campaign: Campaign }
   | { kind: 'console'; campaign: Campaign; goal: number; workSessionId: string }
   | { kind: 'warmup_timer'; account: CampaignAccount; campaign: Campaign | null }
+  | { kind: 'work' }
 
 export function Now() {
   const data = useData()
@@ -66,6 +79,14 @@ export function Now() {
   const [loaded, setLoaded] = useState(false)
   const [editBusy, setEditBusy] = useState(false)
   const [stage, setStage] = useState<Stage>({ kind: 'home' })
+  /** Read from storage on mount, so leaving the page - or reloading, or
+   *  closing the tab - never loses the stretch he is in. */
+  const [workDay, setWorkDay] = useState<WorkDay>(() => readWorkDay())
+
+  const changeWork = useCallback((next: WorkDay) => {
+    writeWorkDay(next)
+    setWorkDay(next)
+  }, [])
 
   const reload = useCallback(async () => {
     const [nextCampaigns, nextVideos, nextWarmupEvents, nextAccounts] = await Promise.all([
@@ -172,7 +193,12 @@ export function Now() {
     <section className="mx-auto flex max-w-3xl flex-col gap-4">
       {stage.kind === 'home' ? (
         <>
-          <Header summary={summary} streak={postingStreak(posts)} />
+          <Header
+            summary={summary}
+            streak={postingStreak(posts)}
+            workDay={workDay}
+            onOpenWork={() => setStage({ kind: 'work' })}
+          />
           <EditBacklog count={summary.editBacklog} busy={editBusy} onMarkEdited={markOneEdited} />
           <div className="grid grid-cols-2 gap-2">
             {/* FILM is the one thing on this screen that starts work, so it is
@@ -208,6 +234,12 @@ export function Now() {
         <CampaignPicker
           campaigns={campaigns}
           onPick={(campaign) => setStage({ kind: 'briefing', campaign })}
+          onBack={() => setStage({ kind: 'home' })}
+        />
+      ) : stage.kind === 'work' ? (
+        <WorkTimer
+          day={workDay}
+          onChange={changeWork}
           onBack={() => setStage({ kind: 'home' })}
         />
       ) : stage.kind === 'briefing' ? (
@@ -248,16 +280,26 @@ export function Now() {
 function Header({
   summary,
   streak,
+  workDay,
+  onOpenWork,
 }: {
   summary: ReturnType<typeof summariseToday>
   streak: Streak
+  workDay: WorkDay
+  onOpenWork: () => void
 }) {
   const [now, setNow] = useState(() => new Date())
+  const working = isRunning(workDay)
 
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(new Date()), 30_000)
+    // Every second while the clock is running, so the figure beside the time
+    // actually moves; every half minute otherwise, which is all the wall clock
+    // needs.
+    const timer = window.setInterval(() => setNow(new Date()), working ? 1000 : 30_000)
     return () => window.clearInterval(timer)
-  }, [])
+  }, [working])
+
+  const worked = elapsedMs(workDay, now.getTime())
 
   const done = summary.owed > 0 && summary.posted >= summary.owed
 
@@ -268,9 +310,30 @@ function Header({
 
       <div className="flex items-end justify-between gap-3">
         <div className="min-w-0">
-          <p className="numeric whitespace-nowrap text-4xl font-semibold leading-none text-text">
-            {now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-          </p>
+          {/* The time is the way into the work clock - he asked for it there
+              rather than as another button on a screen he wants bare. */}
+          <button
+            type="button"
+            onClick={onOpenWork}
+            aria-label={working ? `Working - ${formatElapsed(worked)}` : 'Start working'}
+            className="flex items-baseline gap-2 rounded-md text-left active:bg-surface"
+          >
+            <span className="numeric whitespace-nowrap text-4xl font-semibold leading-none text-text">
+              {now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </span>
+            {worked > 0 || working ? (
+              <span
+                className={[
+                  'numeric whitespace-nowrap text-lg font-semibold leading-none',
+                  // Running is the thing happening now; a paused stretch he
+                  // has not come back to is grey like anything else waiting.
+                  working ? 'text-state-now' : 'text-state-later',
+                ].join(' ')}
+              >
+                {formatElapsed(worked)}
+              </span>
+            ) : null}
+          </button>
           <p className="mt-1.5 truncate text-[10px] uppercase tracking-[0.14em] text-state-later">
             {now.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })}
             {streak.days > 0 ? (
@@ -638,6 +701,114 @@ function sinceLabel(iso: string): string {
   if (days <= 0) return 'today'
   if (days === 1) return 'yesterday'
   return `${days}d ago`
+}
+
+/** The work clock: start it, watch it, leave it running.
+ *
+ *  Nothing here is a budget and nothing is compared against a plan - that is
+ *  the timer he had removed from the filming path. This one only reports.
+ *  It keeps running when he leaves: the elapsed figure moves to the home
+ *  screen beside the wall clock, and a reload picks it up where it was,
+ *  because what is stored is when the stretch began rather than a number
+ *  something has to keep ticking.
+ *
+ *  The milestones are the game. Passing thirty minutes is a state, so it is
+ *  allowed a colour; they are not badges collected for their own sake, and
+ *  nothing is unlocked by them. */
+function WorkTimer({
+  day,
+  onChange,
+  onBack,
+}: {
+  day: WorkDay
+  onChange: (next: WorkDay) => void
+  onBack: () => void
+}) {
+  const running = isRunning(day)
+  const [now, setNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    if (!running) return
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [running])
+
+  const worked = elapsedMs(day, now)
+  const reached = MILESTONES_MS.filter((ms) => worked >= ms).length
+
+  return (
+    <div className="flex flex-col gap-5">
+      <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-state-later">
+        Time at the desk today
+      </h2>
+
+      <p
+        aria-live="off"
+        aria-label="Time worked today"
+        className={[
+          'numeric text-center text-6xl font-semibold leading-none',
+          running ? 'text-state-now' : 'text-state-later',
+        ].join(' ')}
+      >
+        {formatElapsed(worked)}
+      </p>
+
+      {/* Four marks, lighting as the evening goes. The only scoreboard the
+          app keeps that is about him rather than about the work. */}
+      <div className="flex items-center justify-center gap-2">
+        {MILESTONES_MS.map((ms) => {
+          const passed = worked >= ms
+          return (
+            <span
+              key={ms}
+              aria-hidden
+              className={[
+                'h-1.5 flex-1 rounded-full transition-colors duration-500',
+                passed ? 'bg-state-posted' : 'bg-surface-raised',
+              ].join(' ')}
+            />
+          )
+        })}
+      </div>
+      <p className="-mt-3 text-center text-[10px] uppercase tracking-[0.14em] text-state-later">
+        {reached === 0
+          ? '30m · 1h · 2h · 3h'
+          : `${reached} of ${MILESTONES_MS.length} marks`}
+      </p>
+
+      <button
+        type="button"
+        onClick={() => onChange(running ? pauseWork(day) : startWork(day))}
+        className={[
+          'min-h-tap rounded-xl border px-4 text-lg font-semibold tracking-[0.2em]',
+          'transition-transform duration-100 active:scale-[0.98]',
+          running
+            ? 'border-edge bg-surface text-text active:bg-surface-raised'
+            : 'lit border-state-now/70 bg-surface-raised text-state-now active:bg-surface',
+        ].join(' ')}
+      >
+        {running ? 'PAUSE' : worked > 0 ? 'BACK TO WORK' : 'START WORKING'}
+      </button>
+
+      <button
+        type="button"
+        onClick={onBack}
+        className="min-h-tap rounded-lg border border-edge bg-surface px-4 text-sm font-semibold text-state-later active:bg-surface-raised"
+      >
+        {running ? 'Leave it running' : 'Back'}
+      </button>
+
+      {worked > 0 && !running ? (
+        <button
+          type="button"
+          onClick={() => onChange(resetWork(day))}
+          className="text-xs text-state-later underline-offset-4 active:underline"
+        >
+          Clear today
+        </button>
+      ) : null}
+    </div>
+  )
 }
 
 /** The account to warm up, and a countdown. Nothing here touches the video

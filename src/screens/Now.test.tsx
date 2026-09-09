@@ -103,6 +103,69 @@ describe('the home screen', () => {
   })
 })
 
+describe('the work clock', () => {
+  beforeEach(() => localStorage.clear())
+
+  it('shows nothing beside the time until he starts', async () => {
+    renderScreen()
+    await screen.findByText(/of 1/)
+    expect(screen.getByRole('button', { name: 'Start working' })).toBeInTheDocument()
+    expect(screen.queryByLabelText('Time worked today')).toBeNull()
+  })
+
+  it('opens from the time itself and starts counting', async () => {
+    const user = userEvent.setup()
+    renderScreen()
+    await screen.findByText(/of 1/)
+
+    await user.click(screen.getByRole('button', { name: 'Start working' }))
+    expect(await screen.findByLabelText('Time worked today')).toHaveTextContent('00:00')
+
+    await user.click(screen.getByRole('button', { name: 'START WORKING' }))
+    expect(screen.getByRole('button', { name: 'PAUSE' })).toBeInTheDocument()
+  })
+
+  it('keeps running when he leaves, and shows the figure beside the time', async () => {
+    // The whole point: "i dont want it to reset when i leave the now page".
+    const user = userEvent.setup()
+    renderScreen()
+    await screen.findByText(/of 1/)
+
+    await user.click(screen.getByRole('button', { name: 'Start working' }))
+    await user.click(screen.getByRole('button', { name: 'START WORKING' }))
+    await user.click(screen.getByRole('button', { name: 'Leave it running' }))
+
+    // Back on the home screen, the clock button now reports the stretch.
+    expect(await screen.findByRole('button', { name: /^Working - / })).toBeInTheDocument()
+  })
+
+  it('survives the screen being torn down and rebuilt', async () => {
+    const user = userEvent.setup()
+    const first = renderScreen()
+    await screen.findByText(/of 1/)
+    await user.click(screen.getByRole('button', { name: 'Start working' }))
+    await user.click(screen.getByRole('button', { name: 'START WORKING' }))
+    first.unmount()
+
+    // A reload reads the stretch back off storage rather than starting again.
+    renderScreen()
+    expect(await screen.findByRole('button', { name: /^Working - / })).toBeInTheDocument()
+  })
+
+  it('banks the time when paused, and offers it back', async () => {
+    const user = userEvent.setup()
+    renderScreen()
+    await screen.findByText(/of 1/)
+
+    await user.click(screen.getByRole('button', { name: 'Start working' }))
+    await user.click(screen.getByRole('button', { name: 'START WORKING' }))
+    await user.click(screen.getByRole('button', { name: 'PAUSE' }))
+
+    expect(screen.getByRole('button', { name: 'BACK TO WORK' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Clear today' })).toBeInTheDocument()
+  })
+})
+
 describe('the streak', () => {
   async function postOn(daysAgo: number) {
     const video = await adapter.createVideo({

@@ -59,6 +59,23 @@ A plain bullet list. At least 6 bullets, at most 8. Format exactly:
 - One thing to say
 - The next thing to say
 
+Work through this skeleton in this order, one bullet each. Skip any slot
+the brief does not support rather than inventing something to fill it -
+a five-bullet list of things the brief actually says beats an eight-bullet
+list with three guesses in it:
+
+1. THE PROBLEM - the pain the viewer already has, in their words.
+2. WHY IT HAPPENS - the mechanism behind it, one line. This is what makes
+   the video sound informed rather than like a complaint.
+3. THE TURN - what this product does differently. Attributed if the brief
+   demands attribution.
+4. THE CONCRETE DETAIL - the one number, price or specific the brief
+   actually permits. Exactly as written, never rounded or improved.
+5. THE PROOF - who uses it, where it has been tested, what is checkable.
+6. THE OBJECTION - what a sceptic says, answered in one line.
+7. WHY NOW - a launch, a waitlist, a deadline. Only if the brief states one.
+8. THE STAKE - what it costs to carry on the old way.
+
 Rules for this section specifically, because I read it off a screen with
 the camera already running:
 

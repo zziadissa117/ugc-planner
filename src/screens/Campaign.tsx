@@ -44,10 +44,20 @@ interface Loaded {
 
 /** The four that actually help him make the video. Everything else the parser
  *  found is kept, and kept out of the way. */
-const BRIEF_KEYS = ['product_facts', 'audience', 'tone', 'structure', 'notes'] as const
+const BRIEF_KEYS = [
+  'product_facts',
+  'talking_points',
+  'audience',
+  'tone',
+  'structure',
+  'notes',
+] as const
 
 const BRIEF_LABELS: Record<string, string> = {
   product_facts: 'What it is',
+  // One per line. Pinned in the FILM console while he films, so it is the one
+  // field here written to be read aloud from rather than read once.
+  talking_points: 'Say this in the video (one per line)',
   audience: 'Who it is for',
   tone: 'How it sounds',
   structure: 'How the video goes',
@@ -221,6 +231,7 @@ export function Campaign() {
                   key={key}
                   field={byKey.get(key) ?? virtualField(campaign.id, key)}
                   label={BRIEF_LABELS[key]}
+                  multiline={key === 'talking_points'}
                   onSave={(value) => saveField(key, value)}
                   onConfirm={
                     byKey.get(key)?.source === 'parsed_unreviewed'

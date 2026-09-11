@@ -20,6 +20,7 @@ export function EditableField({
   label,
   mask,
   compact,
+  multiline,
 }: {
   field: CampaignField
   onSave: (value: string | null) => Promise<void>
@@ -31,6 +32,10 @@ export function EditableField({
    *  rest and while editing. The length shown is fixed, not the real length -
    *  a password's length is itself information. */
   mask?: boolean
+  /** Edits in a textarea rather than a one-line input. For a field whose
+   *  shape is one item per line, where a single-line input would eat the
+   *  newlines on paste and make the field impossible to type by hand. */
+  multiline?: boolean
   /** Renders the resting view as a small inline pill instead of a full-width
    *  row - for fields meant to sit next to each other (platform, handle, pay)
    *  rather than stacked one per line. Editing still opens the same full-size
@@ -106,16 +111,29 @@ export function EditableField({
           {isMoney ? ' (dollars)' : ''}
         </label>
         <div className="mt-2 flex gap-2">
-          <input
-            id={`edit-${field.field_key}`}
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            type={mask && !revealed ? 'password' : 'text'}
-            autoComplete={mask ? 'new-password' : 'off'}
-            inputMode={isMoney ? 'decimal' : 'text'}
-            autoFocus
-            className="min-h-tap w-full rounded-lg border border-edge bg-surface-raised px-3 text-text"
-          />
+          {multiline ? (
+            // A single-line input silently eats newlines on paste, and a field
+            // whose whole shape is one item per line cannot be typed into one.
+            <textarea
+              id={`edit-${field.field_key}`}
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              rows={6}
+              autoFocus
+              className="w-full resize-y rounded-lg border border-edge bg-surface-raised p-3 text-sm text-text"
+            />
+          ) : (
+            <input
+              id={`edit-${field.field_key}`}
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              type={mask && !revealed ? 'password' : 'text'}
+              autoComplete={mask ? 'new-password' : 'off'}
+              inputMode={isMoney ? 'decimal' : 'text'}
+              autoFocus
+              className="min-h-tap w-full rounded-lg border border-edge bg-surface-raised px-3 text-text"
+            />
+          )}
           {mask ? (
             <button
               type="button"

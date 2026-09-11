@@ -53,6 +53,14 @@ What the video does AFTER the hook: the beats in order, plus any timing
 the brief fixes. Be clear that this is the body of the video, not the
 opening line.
 
+## TALKING POINTS
+Four to six single lines, each one thing I should say in the body of the
+video. Not the opening line - I have hooks for that - and not the call to
+action. Each line short enough to glance at mid-take, and phrased the way
+I would say it rather than the way a brief would write it. Keep any
+attribution the PRODUCT section demands. This is the section I read while
+the camera is running, so nothing in it may need interpreting.
+
 ## FORMATS
 Each repeatable video shape the brief implies or states, named, with what
 it looks like on screen and how long it runs.
@@ -95,8 +103,12 @@ Rules for you while writing it:
 
 ## After pasting it
 
-Open the campaign, paste into **Brief for the hook writer**, Save. Then
-FILM -> that campaign -> set a goal -> **Write me some hooks**.
+Open the campaign, paste the whole thing into **Brief for the hook
+writer**, Save. Then copy the TALKING POINTS lines on their own into **Say
+this in the video** - that field is what the FILM console pins to the top
+of the screen while filming, and it is the one thing here read aloud from
+rather than read once. Then FILM -> that campaign -> set a goal ->
+**Write me some hooks**.
 
 The generator is told the working brief outranks the short fields above
 it, so the four brief fields can stay thin if this document is good.

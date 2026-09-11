@@ -46,6 +46,25 @@ const SUMMARY_KEYS = ['product_facts', 'audience', 'tone'] as const
  *  with nothing behind it says so - the same rule as the ChatGPT block. */
 const CAN_SAY_KEYS = ['product_facts', 'disclosure', 'structure'] as const
 
+/** The points to hit in the body of the video, pinned so they stay on screen
+ *  however far he scrolls.
+ *
+ *  "i already have the hook, i just need inspiration for the body of what im
+ *  going to say, not the CTA i can figure that out by myself." So this is the
+ *  middle of the video and nothing else: not the opening line, which the hooks
+ *  list above already gives him, and not the close.
+ *
+ *  `talking_points` is his own list, one per line. Where a campaign has none
+ *  it falls back to `structure` - "how the video goes" is the same question
+ *  asked by the parser rather than by him, and showing it beats showing a gap
+ *  while he is mid-take. Nothing is written on his behalf either way. */
+const SAY_THIS_KEYS = ['talking_points', 'structure'] as const
+
+/** Enough to glance at between takes. More than this and he is reading a
+ *  script, which is not what he asked for and not what the pinned strip has
+ *  room to be. */
+const MAX_SAY_THIS_LINES = 6
+
 export function Console({
   campaign,
   goal,
@@ -193,8 +212,23 @@ export function Console({
     [data, reload],
   )
 
+  const sayThis = (() => {
+    for (const key of SAY_THIS_KEYS) {
+      const value = byKey.get(key) ?? null
+      if (value === null || value.trim() === '') continue
+      const lines: string[] = value
+        .split('\n')
+        .map((line: string) => line.replace(/^\s*[-*•]\s*/, '').trim())
+        .filter((line: string) => line !== '')
+      if (lines.length > 0) return lines.slice(0, MAX_SAY_THIS_LINES)
+    }
+    return []
+  })()
+
   return (
     <div className="flex flex-col gap-6">
+      <SayThis lines={sayThis} />
+
       <Scoreboard done={done} goal={goal} campaignName={campaign.name} />
 
       <button
@@ -274,6 +308,51 @@ export function Console({
 
 /** How many, of how many. The one number he asked to be able to watch - no
  *  clock next to it, since nothing here is timed. */
+/** The body of the video, pinned to the top of the console.
+ *
+ *  Sticky rather than just first, because he scrolls this screen while the
+ *  camera is running and asked for something that stays: "a widget that i can
+ *  see no matter where i scroll on the app that tells me what i need to say".
+ *  Same glass as the nav bar, so the screen visibly continues underneath it
+ *  rather than the page appearing to start here.
+ *
+ *  Collapsible, and that is the whole of its chrome: on a phone five lines is
+ *  most of the screen, and between takes he wants the hooks back. */
+function SayThis({ lines }: { lines: string[] }) {
+  const [open, setOpen] = useState(true)
+
+  if (lines.length === 0) return null
+
+  return (
+    <div className="sticky top-0 z-20 -mx-1 rounded-b-xl border-b border-edge-lit/60 bg-ink px-3 py-2 shadow-lg shadow-ink/90">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-3 text-left"
+      >
+        <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-state-later">
+          Say this
+        </span>
+        <span className="text-[10px] uppercase tracking-[0.14em] text-state-later">
+          {open ? 'hide' : `${lines.length} ${lines.length === 1 ? 'point' : 'points'}`}
+        </span>
+      </button>
+
+      {open ? (
+        <ol className="mt-1 flex flex-col gap-0.5">
+          {lines.map((line, index) => (
+            <li key={line} className="flex gap-2 text-sm leading-snug text-text">
+              <span className="numeric shrink-0 text-state-later">{index + 1}</span>
+              <span>{line}</span>
+            </li>
+          ))}
+        </ol>
+      ) : null}
+    </div>
+  )
+}
+
 function Scoreboard({
   done,
   goal,

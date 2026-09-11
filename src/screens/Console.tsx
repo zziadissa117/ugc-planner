@@ -26,9 +26,11 @@ import type {
   CampaignRule,
   PhaseEvent,
 } from '../data'
+import { stripMarker, talkingPointsFromBrief } from '../data/briefSections'
 import { useData } from '../data/useData'
 import {
   DEFAULT_HOOK_MODEL,
+  GENERATION_BRIEF_KEY,
   buildContext,
   generateHooks,
   hookGenerationAvailable,
@@ -54,11 +56,18 @@ const CAN_SAY_KEYS = ['product_facts', 'disclosure', 'structure'] as const
  *  middle of the video and nothing else: not the opening line, which the hooks
  *  list above already gives him, and not the close.
  *
- *  `talking_points` is his own list, one per line. Where a campaign has none
- *  it falls back to `structure` - "how the video goes" is the same question
- *  asked by the parser rather than by him, and showing it beats showing a gap
- *  while he is mid-take. Nothing is written on his behalf either way. */
-const SAY_THIS_KEYS = ['talking_points', 'structure'] as const
+ *  Two places it can come from, in order. His own `talking_points` field
+ *  wins. Failing that, the TALKING POINTS section of the working brief he
+ *  already pasted in whole - the document says it, and asking him to copy a
+ *  part of it into a second field by hand is work the app can do.
+ *
+ *  `structure` used to be the fallback and is not any more. It is the same
+ *  question in principle, but in practice it is a paragraph that ends in the
+ *  call to action - the one thing he said he writes himself - and that is
+ *  exactly what it served him for Vertus. A campaign with neither source
+ *  shows no strip at all, which is honest; the alternative was showing him
+ *  the wrong thing while the camera was running. */
+const SAY_THIS_FIELD = 'talking_points'
 
 /** Enough to glance at between takes. More than this and he is reading a
  *  script, which is not what he asked for and not what the pinned strip has
@@ -216,16 +225,14 @@ export function Console({
   )
 
   const sayThis = (() => {
-    for (const key of SAY_THIS_KEYS) {
-      const value = byKey.get(key) ?? null
-      if (value === null || value.trim() === '') continue
-      const lines: string[] = value
-        .split('\n')
-        .map((line: string) => line.replace(/^\s*[-*•]\s*/, '').trim())
-        .filter((line: string) => line !== '')
-      if (lines.length > 0) return lines.slice(0, MAX_SAY_THIS_LINES)
-    }
-    return []
+    const typed = (byKey.get(SAY_THIS_FIELD) ?? '')
+      .split('\n')
+      .map(stripMarker)
+      .filter((line: string) => line !== '')
+    if (typed.length > 0) return typed.slice(0, MAX_SAY_THIS_LINES)
+
+    const fromBrief = talkingPointsFromBrief(byKey.get(GENERATION_BRIEF_KEY) ?? null)
+    return fromBrief.slice(0, MAX_SAY_THIS_LINES)
   })()
 
   return (

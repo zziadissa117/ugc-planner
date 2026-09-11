@@ -100,28 +100,58 @@ describe('the pinned "say this" strip', () => {
     expect(screen.getByText('Third thing')).toBeInTheDocument()
   })
 
-  it('falls back to how the video goes when he has written no points', async () => {
-    // Better than a gap mid-take, and it is the same question asked by the
-    // parser rather than by him.
-    await setField('structure', 'Problem first\nThen what fixed it\nThen the number')
+  it('reads the points out of the brief he already pasted', async () => {
+    // He writes the working brief once and pastes the lot in. Asking him to
+    // copy a section of it into a second field by hand is work the app does.
+    await setField(
+      'generation_brief',
+      [
+        '## PRODUCT',
+        'Vertus says it reasons rather than predicting.',
+        '',
+        '## TALKING POINTS',
+        '- Vertus says it reasons instead of predicting',
+        '- Team came from aerospace and defense',
+        '- Reportedly tested in high-stakes places already',
+        '',
+        '## FORMATS',
+        'A - The Receipt.',
+      ].join('\n'),
+    )
 
     renderConsole()
     expect(await screen.findByText('Say this')).toBeInTheDocument()
-    expect(screen.getByText('Then what fixed it')).toBeInTheDocument()
+
+    const strip = screen.getByText('Say this').closest('div')!
+    expect(within(strip).getAllByRole('listitem')).toHaveLength(3)
+    expect(within(strip).getByText('Team came from aerospace and defense')).toBeInTheDocument()
+    // It stops at the next heading rather than running on into it.
+    expect(within(strip).queryByText('A - The Receipt.')).toBeNull()
   })
 
-  it('prefers his own points over the parsed structure', async () => {
-    await setField('structure', 'Parsed structure line')
+  it('never shows "how the video goes" - that paragraph ends in the CTA', async () => {
+    // What it actually served him for Vertus: the five-beat structure, call to
+    // action and all, which is the one part he writes himself.
+    await setField(
+      'structure',
+      'Every video in this order: the problem, the contrast, the proof, then the CTA - join the waitlist.',
+    )
+
+    renderConsole()
+    expect(await screen.findByRole('button', { name: 'Filmed one' })).toBeInTheDocument()
+    expect(screen.queryByText('Say this')).toBeNull()
+  })
+
+  it('prefers his own points over the pasted brief', async () => {
+    await setField('generation_brief', '## TALKING POINTS\n- From the document')
     await setField('talking_points', 'His own line')
 
     renderConsole()
     await screen.findByText('Say this')
 
-    // Scoped to the strip: `structure` is also rendered further down under
-    // what he can say, which is correct and not what this is about.
     const strip = screen.getByText('Say this').closest('div')!
     expect(within(strip).getByText('His own line')).toBeInTheDocument()
-    expect(within(strip).queryByText('Parsed structure line')).toBeNull()
+    expect(within(strip).queryByText('From the document')).toBeNull()
   })
 
   it('caps a long list rather than filling the screen with a script', async () => {

@@ -121,11 +121,15 @@ Rules for you while writing it:
 ## After pasting it
 
 Open the campaign, paste the whole thing into **Brief for the hook
-writer**, Save. Then copy the TALKING POINTS lines on their own into **Say
-this in the video** - that field is what the FILM console pins to the top
-of the screen while filming, and it is the one thing here read aloud from
-rather than read once. Then FILM -> that campaign -> set a goal ->
-**Write me some hooks**.
+writer**, Save. That is all of it - the FILM console reads the TALKING
+POINTS section straight out of this document and pins it to the top of
+the screen while filming, so there is nothing to copy across twice.
+
+**Say this in the video** on the brief page overrides that section when
+it has anything in it. Use it when a batch wants something the document
+does not say, and leave it empty the rest of the time.
+
+Then FILM -> that campaign -> set a goal -> **Write me some hooks**.
 
 The generator is told the working brief outranks the short fields above
 it, so the four brief fields can stay thin if this document is good.

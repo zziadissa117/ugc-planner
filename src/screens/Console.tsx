@@ -62,8 +62,11 @@ const SAY_THIS_KEYS = ['talking_points', 'structure'] as const
 
 /** Enough to glance at between takes. More than this and he is reading a
  *  script, which is not what he asked for and not what the pinned strip has
- *  room to be. */
-const MAX_SAY_THIS_LINES = 6
+ *  room to be.
+ *
+ *  Eight rather than six: he asks the brief for at least six, and a cap of
+ *  six would have silently clipped every list that did what it was told. */
+const MAX_SAY_THIS_LINES = 8
 
 export function Console({
   campaign,

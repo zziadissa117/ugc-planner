@@ -130,7 +130,9 @@ describe('the pinned "say this" strip', () => {
     renderConsole()
     await screen.findByText('Say this')
     const strip = screen.getByText('Say this').closest('div')!
-    expect(within(strip).getAllByRole('listitem')).toHaveLength(6)
+    // Eight, not six: the brief is asked for at least six, and a six-line cap
+    // would clip every list that did as it was told.
+    expect(within(strip).getAllByRole('listitem')).toHaveLength(8)
   })
 
   it('folds away between takes, and says how many are behind it', async () => {

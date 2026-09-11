@@ -54,12 +54,29 @@ the brief fixes. Be clear that this is the body of the video, not the
 opening line.
 
 ## TALKING POINTS
-Four to six single lines, each one thing I should say in the body of the
-video. Not the opening line - I have hooks for that - and not the call to
-action. Each line short enough to glance at mid-take, and phrased the way
-I would say it rather than the way a brief would write it. Keep any
-attribution the PRODUCT section demands. This is the section I read while
-the camera is running, so nothing in it may need interpreting.
+A plain bullet list. At least 6 bullets, at most 8. Format exactly:
+
+- One thing to say
+- The next thing to say
+
+Rules for this section specifically, because I read it off a screen with
+the camera already running:
+
+- One idea per bullet. Never two joined by "and" or a semicolon.
+- Twelve words or fewer per bullet. If it does not fit, it is two bullets
+  or it is not a talking point.
+- No sub-bullets, no bold, no headings, no numbering, no trailing notes
+  in brackets. A bullet is one line of plain text and nothing else.
+- Write what I would actually say out loud, not what a brief would write.
+  "Paid out instantly, not in seven days" - not "emphasise the instant
+  settlement value proposition".
+- Order them the way they should come out in the video.
+- Keep any attribution the PRODUCT section demands, inside the bullet:
+  "Vertus says it reasons instead of predicting", never just "it reasons".
+- Nothing that needs interpreting mid-take. If a bullet would make me stop
+  and work out what it meant, rewrite it.
+- No opening line and no call to action. I have hooks for the first and I
+  write the last one myself.
 
 ## FORMATS
 Each repeatable video shape the brief implies or states, named, with what

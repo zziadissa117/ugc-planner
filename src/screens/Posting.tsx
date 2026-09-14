@@ -70,7 +70,9 @@ export function Posting() {
   // what today owes - see boardsForToday.
   const boards = useMemo(
     () =>
-      loaded ? boardsForToday(loaded.campaigns, loaded.accounts, loaded.posts, today) : [],
+      loaded
+        ? boardsForToday(loaded.campaigns, loaded.accounts, loaded.videos, loaded.posts, today)
+        : [],
     [loaded, today],
   )
 

@@ -83,6 +83,7 @@ export function pickVideoForSlot(
 export function buildBoard(
   campaign: Campaign,
   accounts: readonly CampaignAccount[],
+  videos: readonly Video[],
   posts: readonly VideoPost[],
   date: string = localToday(),
 ): PostingBoard {
@@ -97,24 +98,47 @@ export function buildBoard(
   )
   const accountIds = new Set(mine.map((a) => a.id))
 
-  const todays = posts
-    .filter(
-      (p) =>
-        p.account_id !== null &&
-        accountIds.has(p.account_id) &&
-        localToday(new Date(p.posted_at)) === date,
-    )
-    .sort((a, b) => a.posted_at.localeCompare(b.posted_at))
+  const todays = posts.filter(
+    (p) =>
+      p.account_id !== null &&
+      accountIds.has(p.account_id) &&
+      localToday(new Date(p.posted_at)) === date,
+  )
 
-  const videoIdBySlot: string[] = []
-  for (const post of todays) {
-    if (!videoIdBySlot.includes(post.video_id)) videoIdBySlot.push(post.video_id)
-  }
+  // THE SLOTS ARE THE OWED VIDEO ROWS, in the order they were raised.
+  //
+  // They already exist: ensureTodaysQuota creates one per unit of the
+  // campaign's daily quota before this screen ever renders, and a row's
+  // created_at does not change. So box 3 is the third deliverable owed today,
+  // today, tomorrow and after a reload.
+  //
+  // It used to be built the other way round - the videos that had received a
+  // post today, packed in from the left - and that moved the boxes under his
+  // thumb. Ticking box 3 put the tick in box 1, because box 1 was simply the
+  // first entry of a list one item long. Clicking box 1 next then landed on a
+  // cell that already held that post and silently took it back down, which is
+  // how he found it: "There are some cases when i click on them they dont make
+  // noise." CLAUDE.md has said since the beginning that a box must stay in
+  // place; this is what was breaking it.
+  const owed = videos
+    .filter((v) => v.campaign_id === campaign.id && v.owed_for_date === date)
+    .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id))
+    .map((v) => v.id)
+
+  // Anything posted today that is not one of those rows: stock drained from
+  // the backlog, or an extra beyond the quota. Appended in the order it went
+  // out, so over-delivery is visible rather than vanishing.
+  const extra = todays
+    .slice()
+    .sort((a, b) => a.posted_at.localeCompare(b.posted_at))
+    .map((p) => p.video_id)
+    .filter((id, index, all) => all.indexOf(id) === index && !owed.includes(id))
+
+  const videoIdBySlot = [...owed, ...extra]
 
   const quota = campaign.daily_post_quota
-  // Never fewer columns than deliverables he actually posted: over-delivering
-  // is real and has to be visible, rather than the extra work vanishing or
-  // pushing the count past a denominator that cannot explain it.
+  // Never fewer columns than there are deliverables to show: over-delivering
+  // is real and has to be visible.
   const slots = Math.max(quota, videoIdBySlot.length)
 
   const rows: PostingRow[] = mine.map((account) => ({
@@ -129,13 +153,18 @@ export function buildBoard(
     }),
   }))
 
+  // Counted rather than taken from the length of the slot list: that list is
+  // now the day's obligation, most of which has not gone out yet.
+  const postedVideoIds = new Set(todays.map((p) => p.video_id))
+  const doneToday = videoIdBySlot.filter((id) => postedVideoIds.has(id)).length
+
   return {
     campaign,
     videoIdBySlot: Array.from({ length: slots }, (_, i) => videoIdBySlot[i] ?? null),
     quota,
     slots,
     rows,
-    doneToday: videoIdBySlot.length,
+    doneToday,
   }
 }
 
@@ -159,11 +188,12 @@ export function buildBoard(
 export function boardsForToday(
   campaigns: readonly Campaign[],
   accounts: readonly CampaignAccount[],
+  videos: readonly Video[],
   posts: readonly VideoPost[],
   date: string = localToday(),
 ): PostingBoard[] {
   return campaigns
-    .map((campaign) => buildBoard(campaign, accounts, posts, date))
+    .map((campaign) => buildBoard(campaign, accounts, videos, posts, date))
     .filter((board) => {
       if (board.rows.length > 0) return true
       if (board.quota <= 0) return false

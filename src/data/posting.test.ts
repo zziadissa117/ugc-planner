@@ -23,7 +23,7 @@ import {
   unmarkPosted,
 } from './posting'
 import type { Campaign, CampaignAccount, Video } from './schema'
-import { deliverablesPostedOn, summariseToday } from './today'
+import { deliverablesPostedOn, ensureTodaysQuota, summariseToday } from './today'
 
 const USER = '11111111-1111-4111-8111-111111111111'
 let adapter: LocalAdapter
@@ -65,7 +65,7 @@ async function state(campaign: Campaign) {
   const videos = await adapter.listVideos({ campaignId: campaign.id })
   const posts = (await Promise.all(videos.map((v) => adapter.listVideoPosts(v.id)))).flat()
   const accounts = await adapter.listCampaignAccounts(campaign.id)
-  return { videos, posts, accounts, board: buildBoard(campaign, accounts, posts) }
+  return { videos, posts, accounts, board: buildBoard(campaign, accounts, videos, posts) }
 }
 
 describe('the board', () => {
@@ -287,7 +287,7 @@ describe('the home screen and the Post tab', () => {
     const posts = (await Promise.all(videos.map((v) => adapter.listVideoPosts(v.id)))).flat()
     return {
       home: summariseToday(campaigns, accounts, videos, posts),
-      tab: tallyBoards(boardsForToday(campaigns, accounts, posts)),
+      tab: tallyBoards(boardsForToday(campaigns, accounts, videos, posts)),
     }
   }
 
@@ -317,7 +317,9 @@ describe('the home screen and the Post tab', () => {
     const { home, tab } = await bothCounts()
     expect(home.owed).toBe(0)
     expect(tab.owed).toBe(0)
-    expect(buildBoard(campaign, await adapter.listCampaignAccounts(), []).rows).toHaveLength(0)
+    expect(
+      buildBoard(campaign, await adapter.listCampaignAccounts(), [], []).rows,
+    ).toHaveLength(0)
   })
 
   it('still owe a campaign with no accounts at all, because that is fixable', async () => {
@@ -460,5 +462,83 @@ describe("today's takings", () => {
 
     const after = await state(campaign)
     expect(earnedOn(after.videos, after.posts, '2026-01-01')).toBe(0)
+  })
+})
+
+describe('a box stays where he tapped it', () => {
+  // CLAUDE.md has said from the start that a box must turn green and stay in
+  // place. It did not: the slot list was built from the videos that had
+  // received a post today, packed in from the left, so ticking box 3 put the
+  // tick in box 1 - and clicking box 1 next landed on the cell that now held
+  // that post and silently took it back down. He found it through the sound:
+  // "There are some cases when i click on them they dont make noise. THey are
+  // the cases in the same y axis as one that was already checked off."
+  //
+  // The slots are now the video rows ensureTodaysQuota already raises, one per
+  // unit of the quota, in the order it made them.
+  it('marks the slot he clicked, not the first empty one', async () => {
+    const { campaign, accounts } = await setUp(3, ['Instagram'])
+    await ensureTodaysQuota(adapter)
+
+    const before = await state(campaign)
+    await markPosted(adapter, before.board, accounts[0], 2, before.videos)
+
+    const { board } = await state(campaign)
+    expect(board.rows[0].cells[0].post).toBeNull()
+    expect(board.rows[0].cells[1].post).toBeNull()
+    expect(board.rows[0].cells[2].post).not.toBeNull()
+    expect(board.doneToday).toBe(1)
+  })
+
+  it('keeps every tick in its own box, whatever order he works in', async () => {
+    const { campaign, accounts } = await setUp(3, ['Instagram', 'TikTok'])
+    await ensureTodaysQuota(adapter)
+
+    // The order that broke it: middle, then last, then first.
+    for (const slot of [1, 2, 0]) {
+      const { board, videos } = await state(campaign)
+      await markPosted(adapter, board, accounts[0], slot, videos)
+    }
+
+    const { board } = await state(campaign)
+    expect(board.rows[0].cells.map((c) => c.post !== null)).toEqual([true, true, true])
+    expect(board.doneToday).toBe(3)
+    // Three deliverables, not one posted three times.
+    expect(new Set(board.videoIdBySlot).size).toBe(3)
+  })
+
+  it('does not move a tick when a later box is filled', async () => {
+    const { campaign, accounts } = await setUp(3, ['Instagram'])
+    await ensureTodaysQuota(adapter)
+
+    const first = await state(campaign)
+    await markPosted(adapter, first.board, accounts[0], 2, first.videos)
+    const afterFirst = await state(campaign)
+    const atSlotTwo = afterFirst.board.videoIdBySlot[2]
+
+    const second = await state(campaign)
+    await markPosted(adapter, second.board, accounts[0], 0, second.videos)
+
+    const { board } = await state(campaign)
+    // The first tick is still in box 3, on the same deliverable.
+    expect(board.videoIdBySlot[2]).toBe(atSlotTwo)
+    expect(board.rows[0].cells[2].post).not.toBeNull()
+    expect(board.rows[0].cells[0].post).not.toBeNull()
+    expect(board.rows[0].cells[1].post).toBeNull()
+  })
+
+  it('still shows an over-delivery beyond the quota', async () => {
+    const { campaign, accounts } = await setUp(1, ['Instagram'])
+    await ensureTodaysQuota(adapter)
+
+    const first = await state(campaign)
+    await markPosted(adapter, first.board, accounts[0], 0, first.videos)
+    const second = await state(campaign)
+    await markPosted(adapter, second.board, accounts[0], 1, second.videos)
+
+    const { board } = await state(campaign)
+    expect(board.quota).toBe(1)
+    expect(board.slots).toBe(2)
+    expect(board.doneToday).toBe(2)
   })
 })

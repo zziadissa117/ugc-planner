@@ -114,7 +114,7 @@ export function summariseToday(
   // Post tab showed filled, because the two screens worked the day out
   // separately - Now counted campaigns Post had hidden, and counted posts on
   // accounts Post did not offer. There is now one derivation and both read it.
-  const { owed, posted } = tallyBoards(boardsForToday(campaigns, accounts, posts, date))
+  const { owed, posted } = tallyBoards(boardsForToday(campaigns, accounts, videos, posts, date))
 
   // Only stock belonging to a campaign still on the books. A deleted campaign
   // stops owing anything the moment it goes, so counting its half-finished

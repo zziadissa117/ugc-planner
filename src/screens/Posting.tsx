@@ -80,7 +80,20 @@ export function Posting() {
     async (board: PostingBoard, account: CampaignAccount, slot: number, post: VideoPost | null) => {
       if (!loaded) return
       setBusy(`${account.id}:${slot}`)
-      const before = earnedOn(loaded.videos, loaded.posts, today)
+
+      // Before the write, not after it. He asked for it on every tap - "i
+      // want it to play every time i click on any of the buttons" - and a
+      // sound that waits for IndexedDB lands a beat late, which is what made
+      // it feel like it was firing at random.
+      //
+      // It used to play only when the money went up, so ticking the second
+      // platform for a deliverable was silent. That was defensible and it was
+      // not what he wanted: the tap is the thing being acknowledged, and a
+      // screen that answers some taps and not others reads as broken rather
+      // than as principled. Taking a post back down stays quiet - a till over
+      // an undo would be the app celebrating the wrong thing.
+      if (post === null) playCashRegister()
+
       try {
         if (post) await unmarkPosted(data, account, post)
         else await markPosted(data, board, account, slot, loaded.videos, today)
@@ -92,12 +105,6 @@ export function Posting() {
         ])
         const posts = (await Promise.all(videos.map((v) => data.listVideoPosts(v.id)))).flat()
         setLoaded({ campaigns, accounts, videos, posts })
-
-        // Only when the money actually moved. Ticking the second platform for
-        // a deliverable adds a destination and not a penny, and a till sound
-        // over that would be the app lying to him about what he just earned -
-        // which is the one thing that would make the sound worth nothing.
-        if (earnedOn(videos, posts, today) > before) playCashRegister()
       } finally {
         setBusy(null)
       }

@@ -16,6 +16,7 @@ import { LocalDatabase } from './local/db'
 import {
   boardsForToday,
   buildBoard,
+  earnedOn,
   markPosted,
   pickVideoForSlot,
   tallyBoards,
@@ -361,5 +362,103 @@ describe('the home screen and the Post tab', () => {
     const on = await bothCounts()
     expect(on.home.owed).toBe(2)
     expect(on.tab.owed).toBe(2)
+  })
+})
+
+describe("today's takings", () => {
+  // The figure pinned to the Post screen, and the thing the till sound is
+  // allowed to celebrate.
+  it('is nothing before anything goes out', async () => {
+    const { campaign } = await setUp(2, ['Instagram'])
+    const { videos, posts } = await state(campaign)
+    expect(earnedOn(videos, posts)).toBe(0)
+  })
+
+  it('pays once for a deliverable however many platforms it went out on', async () => {
+    // The whole reason it is built from de-duplicated video ids: ticking the
+    // second and third platform adds destinations and not a penny, and the
+    // sound must not fire over them.
+    const { campaign, accounts } = await setUp(1, ['Instagram', 'TikTok', 'YouTube'])
+    for (const account of accounts) {
+      const { board, videos } = await state(campaign)
+      await markPosted(adapter, board, account, 0, videos)
+    }
+
+    const { videos, posts } = await state(campaign)
+    expect(earnedOn(videos, posts)).toBe(3500)
+  })
+
+  it('adds up across slots and campaigns', async () => {
+    const first = await setUp(2, ['Instagram'])
+    for (let slot = 0; slot < 2; slot++) {
+      const { board, videos } = await state(first.campaign)
+      await markPosted(adapter, board, first.accounts[0], slot, videos)
+    }
+
+    const videos = await adapter.listVideos()
+    const posts = (await Promise.all(videos.map((v) => adapter.listVideoPosts(v.id)))).flat()
+    expect(earnedOn(videos, posts)).toBe(7000)
+  })
+
+  it('gives back the money when he takes a post down', async () => {
+    const { campaign, accounts } = await setUp(1, ['Instagram'])
+    const before = await state(campaign)
+    await markPosted(adapter, before.board, accounts[0], 0, before.videos)
+
+    const loaded = await state(campaign)
+    expect(earnedOn(loaded.videos, loaded.posts)).toBe(3500)
+
+    await unmarkPosted(adapter, accounts[0], loaded.posts[0])
+    const after = await state(campaign)
+    expect(earnedOn(after.videos, after.posts)).toBe(0)
+  })
+
+  it('counts nothing for a deliverable posted before the campaign had a rate', async () => {
+    // Unknown, not zero. It is picked up by backfillUnpricedVideos when a
+    // rate first arrives, and inventing a price for it here would be worse
+    // than the figure being low for an evening.
+    const campaign = await adapter.createCampaign({
+      name: 'Unpriced',
+      company: null,
+      default_setup: 'face',
+      approval_mode: 'none',
+      daily_post_quota: 1,
+      pay_per_video_cents: null,
+      cycle_size: null,
+    })
+    const account = await adapter.addCampaignAccount({
+      campaign_id: campaign.id,
+      platform: 'Instagram',
+      handle: '@me',
+      status: 'ready',
+    })
+    const { board, videos } = await state(campaign)
+    await markPosted(adapter, board, account, 0, videos)
+
+    const after = await state(campaign)
+    expect(after.videos.filter((v) => v.phase === 'posted')).toHaveLength(1)
+    expect(earnedOn(after.videos, after.posts)).toBe(0)
+  })
+
+  it('pays what the rate was when it went out, not what it is now', async () => {
+    // The snapshot is what makes the ledger non-rewritable: a rate changed
+    // next month must not repay last night.
+    const { campaign, accounts } = await setUp(1, ['Instagram'])
+    const before = await state(campaign)
+    await markPosted(adapter, before.board, accounts[0], 0, before.videos)
+
+    await adapter.updateCampaign(campaign.id, { pay_per_video_cents: 9900 })
+
+    const after = await state(campaign)
+    expect(earnedOn(after.videos, after.posts)).toBe(3500)
+  })
+
+  it('is only today, not the whole history', async () => {
+    const { campaign, accounts } = await setUp(1, ['Instagram'])
+    const before = await state(campaign)
+    await markPosted(adapter, before.board, accounts[0], 0, before.videos)
+
+    const after = await state(campaign)
+    expect(earnedOn(after.videos, after.posts, '2026-01-01')).toBe(0)
   })
 })

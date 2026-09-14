@@ -24,6 +24,7 @@
 
 import type { DataAdapter } from './DataAdapter'
 import { localToday } from './index'
+import { deliverablesPostedOn } from './today'
 import type { Campaign, CampaignAccount, Video, VideoPost } from './schema'
 import { canPostFrom } from './warmup'
 
@@ -176,6 +177,33 @@ export function tallyBoards(boards: readonly PostingBoard[]): { owed: number; po
     owed: boards.reduce((sum, board) => sum + board.quota, 0),
     posted: boards.reduce((sum, board) => sum + board.doneToday, 0),
   }
+}
+
+/** What the deliverables posted on `date` are worth, in cents.
+ *
+ *  Off the rate each video snapshotted when it went out, not off the
+ *  campaign's rate today: the snapshot is what makes the ledger
+ *  non-rewritable, and a rate changed next month must not repay last night.
+ *
+ *  Counted per DELIVERABLE, not per tick. A video cross-posted to three
+ *  platforms earned once, so ticking the second and third platform adds
+ *  destinations and no money - which is the whole reason the figure is built
+ *  from de-duplicated video ids rather than from the posts themselves.
+ *
+ *  A video posted before it had a rate contributes nothing rather than zero
+ *  dollars pretending to be a price. It is picked up later by
+ *  backfillUnpricedVideos when a rate first arrives. */
+export function earnedOn(
+  videos: readonly Video[],
+  posts: readonly VideoPost[],
+  date: string = localToday(),
+): number {
+  const rateById = new Map(videos.map((video) => [video.id, video.rate_snapshot_cents]))
+  let cents = 0
+  for (const videoId of deliverablesPostedOn(posts, date)) {
+    cents += rateById.get(videoId) ?? 0
+  }
+  return cents
 }
 
 /** Records that this deliverable went out on this platform.

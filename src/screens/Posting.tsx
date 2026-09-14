@@ -15,10 +15,17 @@ import { Link } from 'react-router-dom'
 
 import type { Campaign, CampaignAccount, Video, VideoPost } from '../data'
 import { localToday } from '../data'
-import { boardsForToday, markPosted, unmarkPosted, type PostingBoard } from '../data/posting'
+import {
+  boardsForToday,
+  earnedOn,
+  markPosted,
+  unmarkPosted,
+  type PostingBoard,
+} from '../data/posting'
 import { ensureTodaysQuota } from '../data/today'
 import { useData } from '../data/useData'
-import { formatCents } from '../money'
+import { formatCents, toCadCents } from '../money'
+import { isMuted, playCashRegister, setMuted } from '../sound'
 
 interface Loaded {
   campaigns: Campaign[]
@@ -64,14 +71,30 @@ export function Posting() {
     [loaded, today],
   )
 
+  const earned = loaded === null ? 0 : earnedOn(loaded.videos, loaded.posts, today)
+
   const toggle = useCallback(
     async (board: PostingBoard, account: CampaignAccount, slot: number, post: VideoPost | null) => {
       if (!loaded) return
       setBusy(`${account.id}:${slot}`)
+      const before = earnedOn(loaded.videos, loaded.posts, today)
       try {
         if (post) await unmarkPosted(data, account, post)
         else await markPosted(data, board, account, slot, loaded.videos, today)
-        await reload()
+
+        const [videos, campaigns, accounts] = await Promise.all([
+          data.listVideos(),
+          data.listCampaigns(),
+          data.listCampaignAccounts(),
+        ])
+        const posts = (await Promise.all(videos.map((v) => data.listVideoPosts(v.id)))).flat()
+        setLoaded({ campaigns, accounts, videos, posts })
+
+        // Only when the money actually moved. Ticking the second platform for
+        // a deliverable adds a destination and not a penny, and a till sound
+        // over that would be the app lying to him about what he just earned -
+        // which is the one thing that would make the sound worth nothing.
+        if (earnedOn(videos, posts, today) > before) playCashRegister()
       } finally {
         setBusy(null)
       }
@@ -83,11 +106,14 @@ export function Posting() {
 
   return (
     <section className="mx-auto flex max-w-3xl flex-col gap-4">
-      <header>
-        <h1 className="text-xl font-semibold text-text">Post</h1>
-        <p className="text-sm text-state-later">
-          Tick each platform as it goes up. Clears tomorrow.
-        </p>
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold text-text">Post</h1>
+          <p className="text-sm text-state-later">
+            Tick each platform as it goes up. Clears tomorrow.
+          </p>
+        </div>
+        <MadeToday cents={earned} />
       </header>
 
       {boards.length === 0 ? (
@@ -105,6 +131,98 @@ export function Posting() {
         />
       ))}
     </section>
+  )
+}
+
+/** The day's takings, counting up as he ticks.
+ *
+ *  "add that to the money made today total in a very dopamine giving way.
+ *  This is just to help me keep going." So it is the biggest thing on the
+ *  screen after the boxes themselves, it moves when it changes, and it shows
+ *  CAD underneath - he asked for that conversion on the Money screen for the
+ *  same reason, because dollars he can spend are more motivating than dollars
+ *  he is paid in.
+ *
+ *  This is the one figure in the app that counts what happened rather than
+ *  what the work pays. The Money screen deliberately counts nothing at all -
+ *  every wrong number it ever showed came from counting something - but "what
+ *  did I make today" is a question about today, and it is answered from rate
+ *  snapshots on deliverables that actually went out. */
+function MadeToday({ cents }: { cents: number }) {
+  const [shown, setShown] = useState(cents)
+  const [muted, setMutedState] = useState(() => isMuted())
+  const [flashing, setFlashing] = useState(false)
+
+  useEffect(() => {
+    if (cents === shown) return
+
+    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+    if (reduced || cents < shown) {
+      setShown(cents)
+      return
+    }
+
+    // Counts up rather than jumping, because watching it climb is the whole
+    // point. 500ms: long enough to read as movement, short enough that a
+    // second tick never queues up behind it.
+    setFlashing(true)
+    const from = shown
+    const started = performance.now()
+    let frame = 0
+
+    const step = (at: number) => {
+      const through = Math.min(1, (at - started) / 500)
+      // Ease out, so it lands rather than stopping dead.
+      const eased = 1 - (1 - through) ** 3
+      setShown(Math.round(from + (cents - from) * eased))
+      if (through < 1) frame = requestAnimationFrame(step)
+      else setFlashing(false)
+    }
+    frame = requestAnimationFrame(step)
+    return () => {
+      cancelAnimationFrame(frame)
+      setFlashing(false)
+    }
+  }, [cents, shown])
+
+  return (
+    <div className="text-right">
+      <div className="flex items-center justify-end gap-2">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-state-later">
+          Made today
+        </p>
+        <button
+          type="button"
+          onClick={() => {
+            const next = !muted
+            setMuted(next)
+            setMutedState(next)
+          }}
+          aria-label={muted ? 'Turn the sound on' : 'Turn the sound off'}
+          aria-pressed={muted}
+          className="rounded px-1 text-[10px] uppercase tracking-[0.14em] text-state-later active:bg-surface-raised"
+        >
+          {muted ? 'muted' : 'sound'}
+        </button>
+      </div>
+      <p
+        aria-label="Made today"
+        className={[
+          'numeric text-3xl font-semibold leading-none transition-transform duration-200',
+          // Green because it is money banked - the same "done" green the boxes
+          // use, for the same reason. Grey at zero: nothing has happened yet.
+          shown > 0 ? 'text-state-posted' : 'text-state-later',
+          flashing ? 'scale-105' : 'scale-100',
+        ].join(' ')}
+      >
+        {formatCents(shown)}
+      </p>
+      {shown > 0 ? (
+        <p className="numeric mt-0.5 text-[11px] text-state-later">
+          ~{formatCents(toCadCents(shown))} CAD
+        </p>
+      ) : null}
+    </div>
   )
 }
 

@@ -8,13 +8,18 @@
 // asset for one flourish, and a sound built from oscillators has no licence
 // attached to it.
 //
-// It is built as an actual till rather than as a chime: a burst of filtered
-// noise for the drawer mechanism, then a bell struck twice. The bell is a set
-// of INHARMONIC partials - overtones at 2.76x, 5.4x, 8.93x rather than at
-// whole multiples - because that is what makes a sound read as struck metal.
-// The first version was two triangle waves a major sixth apart and he said
-// what it actually was: "i thought the sound was going to be more of a cha
-// ching". Two pure notes is a doorbell.
+// That was the reasoning behind synthesising it, and it was wrong about the
+// part that mattered. Two triangle waves was a doorbell; a noise transient
+// and an inharmonic bell was closer but still not a till, and he ended it by
+// recording one and sending it over: "use this sound exactly". No amount of
+// measuring a waveform gets to the sound in someone's head.
+//
+// So the recording is what plays. It is 9KB, trimmed to start on the
+// transient so it fires the instant he taps, and precached by the service
+// worker (see globPatterns in vite.config.ts) so it still works with the
+// network off. The synthesised version stays as the fallback for the one tap
+// where it has not finished decoding, and for a browser that will not decode
+// mp3 at all - a quieter approximation beats silence.
 //
 // Every call is wrapped: audio is the one thing in this app allowed to fail
 // silently. A browser that blocks it, a device with no output, an AudioContext
@@ -60,11 +65,9 @@ export function setMuted(muted: boolean): void {
 /** The inharmonic partials of a struck bell.
  *
  *  A bell is not a note. Its overtones sit at ratios nothing like 2x, 3x, 4x,
- *  and that is exactly why it reads as metal rather than as a synthesiser -
- *  the first version of this was two triangle waves a sixth apart and sounded
- *  like a doorbell, which is what he told me. These ratios are the classic
- *  strike tone of a struck bell; the higher ones fade fastest, which is the
- *  other half of why real metal sounds the way it does. */
+ *  and that is why it reads as metal rather than as a synthesiser. Kept as the
+ *  fallback below - it is close enough to be better than silence on the one
+ *  tap where the recording has not finished decoding. */
 const BELL_PARTIALS = [
   { ratio: 1, gain: 1, decay: 1 },
   { ratio: 2.76, gain: 0.62, decay: 0.7 },
@@ -86,15 +89,11 @@ function strike(
     const osc = ctx.createOscillator()
     const envelope = ctx.createGain()
 
-    // Sine per partial: the metal comes from the ratios above, not from the
-    // waveform. A richer wave on top of them only muddies it.
     osc.type = 'sine'
     osc.frequency.setValueAtTime(hz * partial.ratio, at)
 
     const peak = level * partial.gain
     envelope.gain.setValueAtTime(0, at)
-    // 3ms attack: a struck bell has no fade-in, and anything slower reads as
-    // a synth pad rather than as something hit.
     envelope.gain.linearRampToValueAtTime(peak, at + 0.003)
     envelope.gain.exponentialRampToValueAtTime(0.0001, at + seconds * partial.decay)
 
@@ -104,24 +103,18 @@ function strike(
   }
 }
 
-/** The "cha": the drawer mechanism, before the bell rings.
- *
- *  Filtered noise rather than a tone, because it is a mechanism and not a
- *  note. Without it the sound is a bell on its own, which is a chime. */
+/** The "cha": the drawer mechanism, before the bell rings. */
 function chk(ctx: BaseAudioContext, at: number, seconds: number, level: number): void {
   const frames = Math.max(1, Math.floor(ctx.sampleRate * seconds))
   const buffer = ctx.createBuffer(1, frames, ctx.sampleRate)
   const samples = buffer.getChannelData(0)
   for (let i = 0; i < frames; i++) {
-    // Decaying white noise: a scrape, not a hiss.
     samples[i] = (Math.random() * 2 - 1) * (1 - i / frames) ** 2
   }
 
   const source = ctx.createBufferSource()
   source.buffer = buffer
 
-  // Bandpassed high and narrow, so it lands as metal being struck rather than
-  // as a burst of static.
   const filter = ctx.createBiquadFilter()
   filter.type = 'bandpass'
   filter.frequency.setValueAtTime(3200, at)
@@ -136,28 +129,62 @@ function chk(ctx: BaseAudioContext, at: number, seconds: number, level: number):
   source.stop(at + seconds)
 }
 
-/** Schedules the whole cha-ching into any context, live or offline.
- *
- *  Separate from playCashRegister so a test can render it into an
- *  OfflineAudioContext and check the shape of what comes out, rather than
- *  taking on trust that a pile of oscillators sounds like a till. */
+/** The synthesised stand-in. Kept because it needs nothing loaded and cannot
+ *  fail on a slow first tap; the recording is what he actually hears. */
 export function scheduleCashRegister(ctx: BaseAudioContext, at: number): void {
-  // "cha" - the drawer.
   chk(ctx, at, 0.055, 0.5)
-  // "CHING" - the bell, struck twice a semitone or so apart, the second
-  // quieter and a beat later. One strike is a bell; two is a till.
   strike(ctx, 1046.5, at + 0.02, 0.85, 0.2)
   strike(ctx, 1396.9, at + 0.1, 1.05, 0.16)
 }
 
-/** The money sound. */
+/** His own recording, trimmed to the transient. */
+export const CASH_REGISTER_URL = '/sounds/cha-ching.mp3'
+
+let sample: AudioBuffer | null = null
+let loading: Promise<void> | null = null
+
+/** Fetches and decodes the recording, once.
+ *
+ *  Called when the Post screen mounts rather than on the first tap, so the
+ *  sound is ready before he can reach a box. Decoding needs an AudioContext,
+ *  and a browser will not give a usable one before a gesture - so a context
+ *  that is still suspended decodes fine, it simply cannot play yet, which is
+ *  exactly the order we want. */
+export function primeCashRegister(): void {
+  if (sample !== null || loading !== null) return
+  const ctx = audio()
+  if (!ctx) return
+
+  loading = (async () => {
+    try {
+      const response = await fetch(CASH_REGISTER_URL)
+      if (!response.ok) return
+      sample = await ctx.decodeAudioData(await response.arrayBuffer())
+    } catch {
+      // Offline before the service worker cached it, a blocked fetch, a
+      // browser that cannot decode mp3. The synth covers all three.
+    }
+  })()
+}
+
+/** The money sound: his recording where it has loaded, the synth until then. */
 export function playCashRegister(): void {
   if (isMuted()) return
   const ctx = audio()
   if (!ctx) return
 
   try {
-    scheduleCashRegister(ctx, ctx.currentTime)
+    if (sample === null) {
+      // Start the load for next time, and make a noise now rather than none.
+      primeCashRegister()
+      scheduleCashRegister(ctx, ctx.currentTime)
+      return
+    }
+
+    const source = ctx.createBufferSource()
+    source.buffer = sample
+    source.connect(ctx.destination)
+    source.start(ctx.currentTime)
   } catch {
     /* nothing to do - the tick already landed, which is the part that counts */
   }

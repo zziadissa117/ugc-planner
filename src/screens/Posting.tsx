@@ -25,7 +25,7 @@ import {
 import { ensureTodaysQuota } from '../data/today'
 import { useData } from '../data/useData'
 import { formatCents, toCadCents } from '../money'
-import { isMuted, playCashRegister, setMuted } from '../sound'
+import { isMuted, playCashRegister, primeCashRegister, setMuted } from '../sound'
 
 interface Loaded {
   campaigns: Campaign[]
@@ -52,6 +52,9 @@ export function Posting() {
 
   useEffect(() => {
     let cancelled = false
+    // Fetched and decoded when the screen opens, not on the first tap, so the
+    // till is ready before he can reach a box.
+    primeCashRegister()
     void (async () => {
       // Raise today's rows first so the board has the day's obligation behind
       // it rather than filling in as he taps.

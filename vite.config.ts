@@ -13,7 +13,11 @@ export default defineConfig({
       // He films and posts from a phone on bad signal. Every asset the app
       // needs to boot has to already be on the device before he opens it.
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
+        // mp3 is here for the till sound on the Post screen. Without it the
+        // file is fetched over the network and the one screen he taps on a
+        // train is silent - the app has to work with the network off, and
+        // that includes the part that tells him he just earned something.
+        globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2,mp3}'],
         navigateFallback: '/index.html',
       },
       devOptions: {

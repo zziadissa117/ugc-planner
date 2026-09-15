@@ -103,6 +103,66 @@ describe('the home screen', () => {
   })
 })
 
+describe('the warm-up list, organised', () => {
+  // "make the warmup section more organized". It was one card per account,
+  // the campaign named after every handle, campaigns interleaved - so what
+  // was left for one campaign meant reading every row.
+  async function secondCampaign() {
+    const campaign = await adapter.createCampaign({
+      name: 'Vertus',
+      company: null,
+      default_setup: 'face',
+      approval_mode: 'none',
+      pay_per_video_cents: 4000,
+      cycle_size: null,
+    })
+    for (const platform of ['X', 'TikTok', 'Instagram']) {
+      await adapter.addCampaignAccount({
+        campaign_id: campaign.id,
+        platform,
+        handle: `@vertus.${platform.toLowerCase()}`,
+      })
+    }
+    return campaign
+  }
+
+  it('says each campaign once, as a heading over its own accounts', async () => {
+    await secondCampaign()
+
+    renderScreen()
+    await screen.findByText(/Keep them warm/)
+
+    expect(screen.getAllByText('Inflow')).toHaveLength(1)
+    expect(screen.getAllByText('Vertus')).toHaveLength(1)
+
+    // Each campaign's accounts live in their own list, not interleaved.
+    const lists = screen.getAllByRole('list')
+    const inflow = lists.find((list) => list.textContent?.includes('@michael.financier'))!
+    const vertus = lists.find((list) => list.textContent?.includes('@vertus.x'))!
+    expect(inflow).not.toBe(vertus)
+    expect(inflow.textContent).not.toContain('@vertus')
+    expect(vertus.textContent).not.toContain('@michael.financier')
+  })
+
+  it('orders a campaign by the platform picker, not the alphabet', async () => {
+    await secondCampaign()
+
+    renderScreen()
+    await screen.findByText(/Keep them warm/)
+
+    const vertus = screen
+      .getAllByRole('list')
+      .find((list) => list.textContent?.includes('@vertus.x'))!
+    const platforms = Array.from(vertus.querySelectorAll('li')).map((li) =>
+      ['TikTok', 'Instagram', 'X'].find((p) => li.textContent?.includes(`@vertus.${p.toLowerCase()}`)),
+    )
+    // KNOWN_PLATFORMS order is Instagram, TikTok, YouTube, Facebook, X - and
+    // they were added as X, TikTok, Instagram, so neither insertion order nor
+    // the alphabet would produce this.
+    expect(platforms).toEqual(['Instagram', 'TikTok', 'X'])
+  })
+})
+
 describe('the work clock', () => {
   beforeEach(() => localStorage.clear())
 

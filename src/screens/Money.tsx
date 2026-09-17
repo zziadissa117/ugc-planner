@@ -26,9 +26,8 @@ import {
  *  The account list is read for exactly one thing: whether a campaign counts
  *  at all. An account he has not marked ready is one he must not post from, so
  *  a campaign with no ready account is not earning yet and is kept out of the
- *  total. It is not hidden - it stays in the list with the amount it would add
- *  once onboarding is done, which is the FYI he asked for rather than a
- *  section of its own. */
+ *  total. None of that money disappears - it is shown as what it would add,
+ *  both beside each period and on the campaign holding it up. */
 export function Money() {
   const data = useData()
   const [campaigns, setCampaigns] = useState<Campaign[] | null>(null)
@@ -53,6 +52,11 @@ export function Money() {
   const totals = totalEarnings(live)
   const unrated = campaignsWithoutRate(live)
 
+  // Everything onboarding is holding back. listCampaigns already drops the
+  // archived ones, so this is only campaigns he is actually trying to run.
+  const blocked = campaigns.filter((campaign) => !campaignIsLive(campaign, accounts))
+  const couldBe = totalEarnings(blocked)
+
   return (
     <section className="mx-auto flex max-w-3xl flex-col gap-4">
       <header>
@@ -63,9 +67,9 @@ export function Money() {
       </header>
 
       <div className="grid grid-cols-3 gap-2">
-        <Figure label="Per day" cents={totals.dayCents} big />
-        <Figure label="Per week" cents={totals.weekCents} />
-        <Figure label="Per month" cents={totals.monthCents} />
+        <Figure label="Per day" cents={totals.dayCents} couldBeCents={couldBe.dayCents} big />
+        <Figure label="Per week" cents={totals.weekCents} couldBeCents={couldBe.weekCents} />
+        <Figure label="Per month" cents={totals.monthCents} couldBeCents={couldBe.monthCents} />
       </div>
 
       <ul className="flex flex-col gap-1.5">
@@ -91,7 +95,17 @@ export function Money() {
   )
 }
 
-function Figure({ label, cents, big }: { label: string; cents: number; big?: boolean }) {
+function Figure({
+  label,
+  cents,
+  couldBeCents,
+  big,
+}: {
+  label: string
+  cents: number
+  couldBeCents: number
+  big?: boolean
+}) {
   return (
     <div className="relative overflow-hidden rounded-2xl border border-edge bg-gradient-to-b from-surface-raised to-surface p-3 text-center">
       <span aria-hidden className="absolute inset-x-0 top-0 h-px bg-edge-lit/70" />
@@ -104,6 +118,21 @@ function Figure({ label, cents, big }: { label: string; cents: number; big?: boo
       <p className="numeric mt-0.5 text-[11px] text-state-later">
         ~{formatCents(toCadCents(cents))} CAD
       </p>
+
+      {/* What onboarding is holding back, against the period it belongs to.
+          Amber because it is waiting on something, the same state the line on
+          the campaign uses. Absent when there is nothing to add - an empty
+          bubble saying zero would be noise on every card, every day. */}
+      {couldBeCents > 0 ? (
+        <p className="mt-1.5 rounded-full border border-state-waiting/40 bg-state-waiting/10 px-1.5 py-0.5 text-state-waiting">
+          <span className="block text-[8px] font-semibold uppercase tracking-[0.14em]">
+            Could be
+          </span>
+          <span className="numeric block text-[11px] font-semibold">
+            +{formatCents(couldBeCents)}
+          </span>
+        </p>
+      ) : null}
     </div>
   )
 }

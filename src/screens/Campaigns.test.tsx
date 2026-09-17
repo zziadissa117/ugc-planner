@@ -130,6 +130,25 @@ describe('pay per month on each brief', () => {
     expect(screen.getByText(/Enter an amount/)).toBeInTheDocument()
   })
 
+  it('shows the per-video rate he negotiated, not a daily total', async () => {
+    // Pump.Fun pays $16.66 a video, three a day. A per-day figure reads
+    // "$49.98/day" and hides the only number he actually agreed.
+    await makeCampaign({ name: 'Pump.Fun', pay_per_video_cents: 1666, daily_post_quota: 3 })
+    await renderBriefs()
+
+    expect(await screen.findByText(/\$16\.66\/video/)).toBeInTheDocument()
+    expect(screen.getByText(/3\/day/)).toBeInTheDocument()
+    expect(screen.queryByText(/\$49\.98/)).toBeNull()
+  })
+
+  it('still says what it owes a day when there is no rate', async () => {
+    await makeCampaign({ pay_per_video_cents: null, daily_post_quota: 2 })
+    await renderBriefs()
+
+    expect(await screen.findByText(/no rate yet/)).toBeInTheDocument()
+    expect(screen.getByText(/2\/day/)).toBeInTheDocument()
+  })
+
   it('offers no reset until there is something to reset', async () => {
     const user = userEvent.setup()
     await makeCampaign()

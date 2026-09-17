@@ -221,6 +221,37 @@ describe('campaigns without a ready account', () => {
   })
 })
 
+describe('what it could be', () => {
+  it('shows the held-back amount against every period', async () => {
+    await makeCampaign()
+    await makeBlockedCampaign()
+    await renderMoney()
+
+    // Lock in App: $17.85 a day, $124.95 a week, $535.50 a month.
+    expect(screen.getAllByText('Could be')).toHaveLength(3)
+    expect(screen.getByText('+$17.85')).toBeInTheDocument()
+    expect(screen.getByText('+$124.95')).toBeInTheDocument()
+    expect(screen.getByText('+$535.50')).toBeInTheDocument()
+  })
+
+  it('says nothing when every campaign is already counting', async () => {
+    // An empty bubble reading zero would sit on every card, every day.
+    await makeCampaign()
+    await renderMoney()
+
+    expect(screen.queryByText('Could be')).toBeNull()
+  })
+
+  it('stops showing it once the campaign is ready', async () => {
+    const blocked = await makeBlockedCampaign()
+    const accounts = await adapter.listCampaignAccounts(blocked.id)
+    await adapter.updateCampaignAccount(accounts[0].id, { status: 'ready' })
+    await renderMoney()
+
+    expect(screen.queryByText('Could be')).toBeNull()
+  })
+})
+
 describe('his own monthly figure', () => {
   it('replaces the estimate in the total', async () => {
     // Pump.Fun is a retainer: the estimate says $1,499.40, he is paid $2,000.

@@ -4,16 +4,21 @@ import { Link } from 'react-router-dom'
 import type { Campaign, CampaignAccount } from '../data'
 import { centsToDollarsInput, parseDollarsToCents } from '../data/campaignFields'
 import { useData } from '../data/useData'
-import { dailyEarningsCents, formatCents, hasMonthlyOverride, monthlyPayCents } from '../money'
+import { formatCents, hasMonthlyOverride, monthlyPayCents } from '../money'
 
-/** Every campaign at a glance: what it pays a month, and where it posts.
+/** Every campaign at a glance: what it pays per video, what it owes per day,
+ *  what that comes to in a month, and where it posts.
  *
- *  A month rather than a day because that is the unit he actually thinks in
- *  when deciding whether a campaign is worth keeping. The figure is an
- *  estimate - rate x posts per day x 30 - and it is marked as one, because for
- *  two of his campaigns it is simply wrong: Pump.Fun is a monthly retainer and
- *  Inflow pays per completed 60-post cycle. Tapping it lets him put the real
- *  number in, and that number then wins everywhere. */
+ *  The per-video rate is the number he negotiated and the one he checks, so it
+ *  is shown as itself rather than folded into a daily total. A per-day figure
+ *  hid it completely on any campaign not posting once a day: Pump.Fun at
+ *  $16.66 x 3 read as "$49.98/day", with the rate he actually agreed nowhere
+ *  on the screen.
+ *
+ *  The month is an estimate - rate x posts per day x 30 - and is marked as
+ *  one, because for two of his campaigns it is simply wrong: Pump.Fun is a
+ *  monthly retainer and Inflow pays per completed 60-post cycle. Tapping it
+ *  lets him put the real number in, and that number then wins everywhere. */
 export function Campaigns() {
   const data = useData()
   const [campaigns, setCampaigns] = useState<Campaign[] | null>(null)
@@ -52,13 +57,12 @@ export function Campaigns() {
             const platforms = accounts
               .filter((a) => a.campaign_id === campaign.id)
               .map((a) => a.platform)
-            const perDay = dailyEarningsCents(campaign)
             return (
               <li
                 key={campaign.id}
                 className="flex items-center gap-2 rounded-lg border border-edge bg-surface pr-2"
               >
-                {/* The figure is editable, so it cannot live inside the link -
+                {/* The month is editable, so it cannot live inside the link -
                     a control inside an anchor is a tap he cannot aim. */}
                 <Link
                   to={`/campaigns/${campaign.id}`}
@@ -67,7 +71,13 @@ export function Campaigns() {
                   <span className="truncate font-semibold text-text">{campaign.name}</span>
                   <span className="truncate text-xs text-state-later">
                     {platforms.length === 0 ? 'no platforms yet' : platforms.join(' · ')}
-                    {perDay === null ? '' : ` · ${formatCents(perDay)}/day`}
+                  </span>
+                  {/* The rate he negotiated, as itself, beside what it owes. */}
+                  <span className="truncate text-xs tabular-nums text-state-later">
+                    {campaign.pay_per_video_cents === null
+                      ? 'no rate yet'
+                      : `${formatCents(campaign.pay_per_video_cents)}/video`}
+                    {` · ${campaign.daily_post_quota}/day`}
                   </span>
                 </Link>
 

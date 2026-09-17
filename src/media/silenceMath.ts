@@ -88,6 +88,49 @@ export function keepRanges(silences: Range[], duration: number, paddingSec: numb
   return keeps.filter((r) => r.end - r.start >= MIN_KEEP_SEC)
 }
 
+/** The quietest moment within `windowSec` either side of `time`, or null if
+ *  the level curve does not reach that far. */
+function quietestNear(levels: Level[], time: number, windowSec: number): Level | null {
+  let best: Level | null = null
+  for (const level of levels) {
+    if (level.time < time - windowSec) continue
+    if (level.time > time + windowSec) break
+    if (!best || level.db < best.db) best = level
+  }
+  return best
+}
+
+/** Pulls a roughly-placed cut onto the nearest genuine gap in the audio, and
+ *  refuses the cut outright when there is no gap to land on.
+ *
+ *  This exists because a speech recogniser's word timings are approximate -
+ *  good to about a fifth of a second - while a cut is exact. Trusting those
+ *  timings directly is what turned "I really want to master that" into "I
+ *  really want to mas", and "connections" into "connec": the reported end of
+ *  an "um" sat a little late, inside the word after it, and the cut went
+ *  where it was told.
+ *
+ *  The loudness curve already knows where the speech actually stops, so each
+ *  end of the cut is moved to the quietest instant nearby. If neither end has
+ *  a quiet instant to move to - the filler is said straight into the next
+ *  word, with no gap at all - this returns null and the filler is left in.
+ *  Leaving an "um" in costs him a second with the trimmer; taking a syllable
+ *  off a word he needs costs him the take. */
+export function snapCutToQuiet(
+  range: Range,
+  levels: Level[],
+  { windowSec, quietBelowDb }: { windowSec: number; quietBelowDb: number },
+): Range | null {
+  const start = quietestNear(levels, range.start, windowSec)
+  const end = quietestNear(levels, range.end, windowSec)
+  if (!start || !end) return null
+  // Both ends have to land somewhere actually quiet. If they don't, this is
+  // speech all the way through and nothing here is safe to remove.
+  if (start.db > quietBelowDb || end.db > quietBelowDb) return null
+  if (end.time - start.time < 0.05) return null
+  return { start: start.time, end: end.time }
+}
+
 /** Sorts and collapses overlapping/touching ranges into one, so a list built
  *  from two different sources (silence, spoken filler words) can be fed to
  *  keepRanges as a single well-ordered set - it walks the list assuming each

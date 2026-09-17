@@ -16,14 +16,21 @@ interface TimestampedChunk {
   timestamp: [number, number]
 }
 
-import type { Range } from './silenceMath'
+import type { Level, Range } from './silenceMath'
 
 /** Whisper's feature extractor is trained on 16kHz audio and expects the
  *  input already at that rate - a raw Float32Array is passed straight
  *  through with no resampling of its own. */
 export const WHISPER_SAMPLE_RATE = 16000
 
-const MODEL_ID = 'Xenova/whisper-tiny.en'
+/** base.en rather than tiny.en. tiny is half the download and noticeably
+ *  faster, and its word timings are not good enough to cut on: on a real take
+ *  it reported an "um" as lasting 20 milliseconds and put it 300ms from where
+ *  it actually was, which is how a cut ended up inside the word after it. On
+ *  the same clip base.en found all three fillers where tiny found one, and
+ *  timed them to within a frame or two. The extra ~35MB buys the difference
+ *  between a feature that works and one that damages takes. */
+const MODEL_ID = 'Xenova/whisper-base.en'
 
 /** English fillers, lowercased, punctuation stripped. Whisper sometimes
  *  spells these a few different ways ("umm" vs "um"), so this is a small set
@@ -133,10 +140,82 @@ function normalize(word: string): string {
   return word.toLowerCase().replace(/[^a-z]/g, '')
 }
 
-/** The ranges to cut for spoken filler words, padded the same way a silent
- *  pause is so the words around it don't get clipped. */
-export function fillerWordRanges(chunks: WordChunk[], paddingSec: number): Range[] {
-  return chunks
-    .filter((c) => FILLER_WORDS.has(normalize(c.text)))
-    .map((c) => ({ start: Math.max(0, c.start - paddingSec), end: c.end + paddingSec }))
+/** The ranges to cut for spoken filler words.
+ *
+ *  The recogniser's timings are approximate, so a filler's own start and end
+ *  are not trustworthy enough to cut on directly. What *is* trustworthy is
+ *  which words it heard either side: a cut for an "um" must never reach past
+ *  the real word before it or the real word after it. Those two words are the
+ *  guard rails, and `guardSec` keeps the cut a little clear of both.
+ *
+ *  Inside that corridor the cut is opened out to the quietest instant it can
+ *  find, so the "um" goes along with the dead air around it and what is left
+ *  runs speech straight into speech. Where the corridor is too tight to hold
+ *  a cut at all - a filler said right on top of the next word - nothing is
+ *  removed. An "um" left in costs a second with the trimmer. A syllable taken
+ *  off "connections" costs the take. */
+export function fillerWordRanges(
+  chunks: WordChunk[],
+  levels: Level[],
+  { guardSec }: { guardSec: number } = { guardSec: 0.04 },
+): Range[] {
+  const isFiller = (c: WordChunk) => FILLER_WORDS.has(normalize(c.text))
+  const ranges: Range[] = []
+
+  chunks.forEach((chunk, i) => {
+    if (!isFiller(chunk)) return
+
+    // The nearest real words either side - not other fillers, so a run of
+    // "um, uh" collapses into one cut rather than fighting over the gap.
+    let low = 0
+    for (let j = i - 1; j >= 0; j--) {
+      if (!isFiller(chunks[j])) {
+        low = chunks[j].end + guardSec
+        break
+      }
+    }
+    let high = Number.POSITIVE_INFINITY
+    for (let j = i + 1; j < chunks.length; j++) {
+      if (!isFiller(chunks[j])) {
+        high = chunks[j].start - guardSec
+        break
+      }
+    }
+
+    const start = Math.max(low, Math.min(chunk.start, high))
+    const end = Math.min(high, Math.max(chunk.end, low))
+    if (!(end > start) || end - start < 0.05) return
+
+    // Widen to the quietest moment on each side, but never outside the
+    // corridor the neighbouring words define.
+    ranges.push({
+      start: quietestBetween(levels, low, start, 'earliest') ?? start,
+      end: quietestBetween(levels, end, high, 'latest') ?? end,
+    })
+  })
+
+  return ranges
+}
+
+/** The time of the quietest level in [from, to], or null when the curve has
+ *  nothing in that span.
+ *
+ *  A gap is usually flat silence, so most of it ties for quietest. Which end
+ *  of that tie wins decides whether the cut opens out into the gap or stops
+ *  at its edge: the start of a cut wants the earliest such moment and the end
+ *  of one wants the latest, so between them they take the whole pause and
+ *  leave speech running into speech. */
+function quietestBetween(
+  levels: Level[],
+  from: number,
+  to: number,
+  tie: 'earliest' | 'latest',
+): number | null {
+  let best: Level | null = null
+  for (const level of levels) {
+    if (level.time < from) continue
+    if (level.time > to) break
+    if (!best || level.db < best.db || (tie === 'latest' && level.db === best.db)) best = level
+  }
+  return best ? best.time : null
 }

@@ -54,6 +54,32 @@ function levelDb(rms: number): number {
   return rms <= 0 ? -Infinity : 20 * Math.log10(rms)
 }
 
+/** 10-bit HEVC, which is what an iPhone's HDR video already is. Levels in
+ *  descending order: the first one the device will actually encode wins. */
+const HDR_CODEC_CANDIDATES = [
+  'hvc1.2.4.L153.B0', // Main 10, level 5.1 - 4K
+  'hvc1.2.4.L150.B0', // Main 10, level 5.0
+  'hvc1.2.4.L123.B0', // Main 10, level 4.1 - 1080p
+  'hvc1.2.4.L120.B0', // Main 10, level 4.0
+]
+
+/** Finds a 10-bit codec this device can actually encode at these dimensions,
+ *  so HDR footage can be re-encoded as HDR and come out looking exactly like
+ *  it went in. Returns null when the device has no 10-bit encoder, which is
+ *  the case in Chrome today - there the colour has to be converted instead. */
+async function findHdrCodec(width: number, height: number): Promise<string | null> {
+  if (typeof VideoEncoder === 'undefined') return null
+  for (const codec of HDR_CODEC_CANDIDATES) {
+    try {
+      const support = await VideoEncoder.isConfigSupported({ codec, width, height, bitrate: 12_000_000 })
+      if (support.supported) return codec
+    } catch {
+      // Not supported; try the next one.
+    }
+  }
+  return null
+}
+
 const ANALYSIS_WINDOW_SEC = 0.02 // 20ms, same grain ffmpeg's silencedetect uses by default
 
 /** Decodes the audio track once and returns whatever it was asked for: the
@@ -129,7 +155,17 @@ export async function planCut(
     if (wantFillerWords && mono16k) {
       await getTranscriberReady(options.onModelDownload)
       const words = await transcribeWithWordTimestamps(mono16k, options.onTranscribeProgress)
-      fillerWords = fillerWordRanges(words, settings.paddingSec)
+      // Each filler cut is fenced in by the real words either side of it, so
+      // it can never reach into one. See fillerWordRanges.
+      fillerWords = fillerWordRanges(words, levels, { guardSec: 0.04 })
+        // keepRanges pulls `paddingSec` off both ends of everything it is
+        // given, which is right for a silence but would leave half an "um"
+        // behind here. These ends are already exactly where they should be,
+        // so they are widened by the same amount first and come out unchanged.
+        .map((range) => ({
+          start: Math.max(0, range.start - settings.paddingSec),
+          end: Math.min(duration, range.end + settings.paddingSec),
+        }))
     }
 
     const toCut = mergeRanges([...silences, ...fillerWords])
@@ -149,6 +185,24 @@ export async function cutSilence(
   file: Blob,
   keep: Range[],
   onProgress?: (fraction: number) => void,
+): Promise<Blob> {
+  try {
+    return await renderCut(file, keep, onProgress, true)
+  } catch (error) {
+    if (error instanceof SilenceCutError) throw error
+    // Keeping HDR means asking for a 10-bit encoder that only some devices
+    // have, and it cannot be tested anywhere it does not exist. If the device
+    // said it could and then could not, convert the colour and go again -
+    // a video that looks slightly different beats an error and no video.
+    return await renderCut(file, keep, onProgress, false)
+  }
+}
+
+async function renderCut(
+  file: Blob,
+  keep: Range[],
+  onProgress: ((fraction: number) => void) | undefined,
+  allowHdr: boolean,
 ): Promise<Blob> {
   if (!(await isSilenceCutSupported())) {
     throw new SilenceCutError(
@@ -176,11 +230,19 @@ export async function cutSilence(
 
     // An iPhone records HDR by default, and HDR frames cannot go into an
     // 8-bit H.264 encoder as they are: Chrome refuses outright ("Encoding
-    // error"), and Safari accepts them and silently writes the wrong
-    // colours - which is what "it put a weird filter on it" actually was.
-    // So HDR frames get drawn through a canvas first, which converts them to
-    // ordinary sRGB, and the output is then tagged honestly as such.
-    const converting = isHdr
+    // error"), and Safari accepts them and silently writes something that
+    // looks like a filter has been dropped over the whole video.
+    //
+    // The right answer is not to convert the colour at all. Re-encoding HDR
+    // as HDR - 10-bit HEVC, which is what the phone shot in the first place -
+    // leaves it looking exactly as it went in, which is what the desktop
+    // Silence Cutter has always done. Converting to sRGB is only the fallback
+    // for devices with no 10-bit encoder, because a converted picture is
+    // still better than a broken one.
+    const hdrCodec = isHdr && allowHdr ? await findHdrCodec(displayWidth, displayHeight) : null
+    const keepingHdr = isHdr && hdrCodec !== null
+    const converting = isHdr && !keepingHdr
+
     let canvas: OffscreenCanvas | null = null
     let ctx: OffscreenCanvasRenderingContext2D | null = null
     if (converting) {
@@ -193,7 +255,19 @@ export async function cutSilence(
       if (!ctx) throw new SilenceCutError("This browser couldn't prepare the video for colour conversion.")
     }
 
-    const videoSource = new VideoSampleSource({ codec: 'avc', quality: QUALITY_HIGH })
+    const videoSource = keepingHdr
+      ? new VideoSampleSource({
+          codec: 'hevc',
+          quality: QUALITY_HIGH,
+          // mediabunny builds an 8-bit Main-profile codec string from the
+          // codec name alone; this rewrites it to the 10-bit one before the
+          // encoder is asked whether it can do it. Same object, checked and
+          // then used - see media-source.js.
+          onEncoderConfig: (config) => {
+            config.codec = hdrCodec
+          },
+        })
+      : new VideoSampleSource({ codec: 'avc', quality: QUALITY_HIGH })
     const audioSource = new AudioSampleSource({ codec: 'aac', quality: QUALITY_MEDIUM })
     // `draw` bakes the rotation into the pixels, so a converted track must
     // not *also* carry rotation metadata - that would turn it sideways.

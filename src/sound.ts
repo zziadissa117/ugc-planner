@@ -32,17 +32,59 @@ const MUTED_KEY = 'ugc-planner.muted'
  *  handles and eventually stops playing anything at all. */
 let context: AudioContext | null = null
 
-function audio(): AudioContext | null {
+/** The context, made only when there is one to make.
+ *
+ *  `create` is false for callers that are not inside a click. A context
+ *  constructed without a user gesture is born suspended, and a resume() from
+ *  outside a gesture is rejected - so building one at mount left the tab with
+ *  a context that could never start, and whether the till sounded came down to
+ *  what he happened to tap first. */
+function audio(create: boolean): AudioContext | null {
   try {
-    const Ctor = window.AudioContext ?? (window as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-    if (!Ctor) return null
-    context ??= new Ctor()
-    // Browsers suspend the context until a gesture. Every caller here is
-    // already inside a click, so this resolves immediately in practice.
-    if (context.state === 'suspended') void context.resume()
+    if (context === null) {
+      if (!create) return null
+      const Ctor =
+        window.AudioContext ??
+        (window as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+      if (!Ctor) return null
+      context = new Ctor()
+    }
     return context
   } catch {
     return null
+  }
+}
+
+/** Anything that is not 'running' and might be woken.
+ *
+ *  Checking only for 'suspended' missed the state that actually stranded him:
+ *  iOS Safari parks a context at 'interrupted' after a call, a lock screen or
+ *  an app switch, and it stays there until the app is killed - which is
+ *  exactly "sometimes i gotta close it all for it to play". */
+function wake(ctx: AudioContext): Promise<void> {
+  if (ctx.state === 'running') return Promise.resolve()
+  try {
+    return ctx.resume().catch(() => undefined)
+  } catch {
+    return Promise.resolve()
+  }
+}
+
+/** Resumes the context whenever the page comes back to the front.
+ *
+ *  A backgrounded tab has its context suspended by the browser, and nothing
+ *  was resuming it until the next tap - which is the tap that came out silent.
+ *  Registered once, and only ever on a context that already exists. */
+let watchingVisibility = false
+function watchVisibility(): void {
+  if (watchingVisibility || typeof document === 'undefined') return
+  watchingVisibility = true
+  try {
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && context !== null) void wake(context)
+    })
+  } catch {
+    /* no document to listen on - nothing to keep awake */
   }
 }
 
@@ -141,6 +183,7 @@ export function scheduleCashRegister(ctx: BaseAudioContext, at: number): void {
 export const CASH_REGISTER_URL = '/sounds/cha-ching.mp3'
 
 let sample: AudioBuffer | null = null
+let encoded: ArrayBuffer | null = null
 let loading: Promise<void> | null = null
 
 /** Fetches and decodes the recording, once.
@@ -152,14 +195,19 @@ let loading: Promise<void> | null = null
  *  exactly the order we want. */
 export function primeCashRegister(): void {
   if (sample !== null || loading !== null) return
-  const ctx = audio()
-  if (!ctx) return
 
   loading = (async () => {
     try {
+      // The bytes first. Fetching needs no AudioContext, so this runs at mount
+      // without creating one outside a gesture - that is what used to leave
+      // the tab holding a context it could never start.
       const response = await fetch(CASH_REGISTER_URL)
       if (!response.ok) return
-      sample = await ctx.decodeAudioData(await response.arrayBuffer())
+      encoded = await response.arrayBuffer()
+      // Decode now only if a context already exists, i.e. he has tapped
+      // something before. Otherwise the first tap decodes it.
+      const ctx = audio(false)
+      if (ctx !== null) await decodeInto(ctx)
     } catch {
       // Offline before the service worker cached it, a blocked fetch, a
       // browser that cannot decode mp3. The synth covers all three.
@@ -167,25 +215,64 @@ export function primeCashRegister(): void {
   })()
 }
 
+/** Turns the fetched bytes into a buffer, once. */
+async function decodeInto(ctx: AudioContext): Promise<void> {
+  if (sample !== null || encoded === null) return
+  try {
+    // decodeAudioData consumes the buffer, so it is decoded from a copy and
+    // the original kept - a failed decode must not leave us with nothing to
+    // retry from on the next tap.
+    sample = await ctx.decodeAudioData(encoded.slice(0))
+  } catch {
+    /* the synth covers it */
+  }
+}
+
 /** The money sound: his recording where it has loaded, the synth until then. */
 export function playCashRegister(): void {
   if (isMuted()) return
-  const ctx = audio()
+  // Inside a click, so this is where the context is allowed to be born.
+  const ctx = audio(true)
   if (!ctx) return
+  watchVisibility()
 
   try {
-    if (sample === null) {
-      // Start the load for next time, and make a noise now rather than none.
-      primeCashRegister()
-      scheduleCashRegister(ctx, ctx.currentTime)
+    const ready = wake(ctx)
+
+    if (ctx.state === 'running' && sample !== null) {
+      // The common case, and the only one that must not wait: fire it now so
+      // the sound lands with the finger rather than a frame later.
+      fire(ctx, sample)
       return
     }
 
+    // Otherwise the context was asleep, or the recording is not decoded yet.
+    // Wait for whichever it was and then play - scheduling into a suspended
+    // context is what made a tap come out silent, because currentTime does not
+    // advance until it resumes.
+    void ready
+      .then(async () => {
+        if (sample === null) {
+          primeCashRegister()
+          await loading
+          await decodeInto(ctx)
+        }
+        if (sample !== null) fire(ctx, sample)
+        else scheduleCashRegister(ctx, ctx.currentTime)
+      })
+      .catch(() => undefined)
+  } catch {
+    /* nothing to do - the tick already landed, which is the part that counts */
+  }
+}
+
+function fire(ctx: AudioContext, buffer: AudioBuffer): void {
+  try {
     const source = ctx.createBufferSource()
-    source.buffer = sample
+    source.buffer = buffer
     source.connect(ctx.destination)
     source.start(ctx.currentTime)
   } catch {
-    /* nothing to do - the tick already landed, which is the part that counts */
+    /* audio is allowed to fail silently; the tick is what matters */
   }
 }

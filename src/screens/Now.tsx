@@ -408,17 +408,19 @@ function EditBacklog({
   if (count === 0) return null
 
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border border-edge bg-surface px-3 py-2">
+    <div className="flex flex-col gap-2 rounded-lg border border-edge bg-surface px-3 py-2">
       <p className="text-sm text-text">{count} filmed, ready to edit</p>
       {/* Cutting silence first is entirely optional - it never has to happen
           before a video can be marked edited, the same way editing itself is
           never gated on anything. It just sits next to the button for
-          whoever wants the browser to take a first pass at a raw clip. */}
-      <div className="flex shrink-0 gap-2">
+          whoever wants the browser to take a first pass at a raw clip.
+          Stacked below the count rather than squeezed beside it, so neither
+          button gets crushed on a narrow phone. */}
+      <div className="flex gap-2">
         <button
           type="button"
           onClick={onCutSilence}
-          className="min-h-tap rounded-md border border-edge bg-surface px-3 text-sm font-semibold text-state-later active:bg-surface-raised"
+          className="min-h-tap flex-1 rounded-md border border-edge bg-surface px-3 text-sm font-semibold text-state-later active:bg-surface-raised"
         >
           Cut silence
         </button>
@@ -426,7 +428,7 @@ function EditBacklog({
           type="button"
           onClick={onMarkEdited}
           disabled={busy}
-          className="min-h-tap rounded-md border border-edge bg-surface-raised px-3 text-sm font-semibold text-text active:bg-surface disabled:text-state-later"
+          className="min-h-tap flex-1 rounded-md border border-edge bg-surface-raised px-3 text-sm font-semibold text-text active:bg-surface disabled:text-state-later"
         >
           {busy ? '·' : 'Mark edited'}
         </button>

@@ -88,6 +88,25 @@ export function keepRanges(silences: Range[], duration: number, paddingSec: numb
   return keeps.filter((r) => r.end - r.start >= MIN_KEEP_SEC)
 }
 
+/** Sorts and collapses overlapping/touching ranges into one, so a list built
+ *  from two different sources (silence, spoken filler words) can be fed to
+ *  keepRanges as a single well-ordered set - it walks the list assuming each
+ *  range starts no earlier than the one before it. */
+export function mergeRanges(ranges: Range[]): Range[] {
+  if (ranges.length === 0) return []
+  const sorted = [...ranges].sort((a, b) => a.start - b.start)
+  const merged: Range[] = [{ ...sorted[0] }]
+  for (const range of sorted.slice(1)) {
+    const last = merged[merged.length - 1]
+    if (range.start <= last.end) {
+      last.end = Math.max(last.end, range.end)
+    } else {
+      merged.push({ ...range })
+    }
+  }
+  return merged
+}
+
 export function totalDuration(ranges: Range[]): number {
   return ranges.reduce((sum, r) => sum + (r.end - r.start), 0)
 }

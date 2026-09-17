@@ -25,7 +25,15 @@ import {
   VideoSampleSource,
 } from 'mediabunny'
 
-import { BALANCED_SETTINGS, findSilentRanges, keepRanges, totalDuration, type Level, type Range } from './silenceMath'
+import {
+  fillerWordRanges,
+  getTranscriberReady,
+  isFillerWordDetectionSupported,
+  resampleToMono16k,
+  transcribeWithWordTimestamps,
+  concatFloat32,
+} from './fillerWords'
+import { BALANCED_SETTINGS, findSilentRanges, keepRanges, mergeRanges, totalDuration, type Level, type Range, type SilenceSettings } from './silenceMath'
 
 export class SilenceCutError extends Error {}
 
@@ -47,10 +55,16 @@ function levelDb(rms: number): number {
 
 const ANALYSIS_WINDOW_SEC = 0.02 // 20ms, same grain ffmpeg's silencedetect uses by default
 
-/** Decodes the audio track and returns a loudness curve for silenceMath to read. */
-async function measureLevels(audioTrack: NonNullable<Awaited<ReturnType<Input['getPrimaryAudioTrack']>>>): Promise<Level[]> {
+/** Decodes the audio track once and returns whatever it was asked for: the
+ *  loudness curve silenceMath reads, and/or a 16kHz mono copy for Whisper.
+ *  One pass either way, so asking for both doesn't mean decoding twice. */
+async function decodeAudio(
+  audioTrack: NonNullable<Awaited<ReturnType<Input['getPrimaryAudioTrack']>>>,
+  wantMono16k: boolean,
+): Promise<{ levels: Level[]; mono16k: Float32Array | null }> {
   const sink = new AudioBufferSink(audioTrack)
   const levels: Level[] = []
+  const monoChunks: Float32Array[] = []
 
   for await (const { buffer, timestamp } of sink.buffers()) {
     const channel = buffer.getChannelData(0) // any one channel is enough to judge loudness
@@ -62,8 +76,9 @@ async function measureLevels(audioTrack: NonNullable<Awaited<ReturnType<Input['g
       const rms = Math.sqrt(sumSquares / (end - i))
       levels.push({ time: timestamp + i / buffer.sampleRate, db: levelDb(rms) })
     }
+    if (wantMono16k) monoChunks.push(resampleToMono16k(buffer))
   }
-  return levels
+  return { levels, mono16k: wantMono16k ? concatFloat32(monoChunks) : null }
 }
 
 export interface SilenceCutResult {
@@ -72,29 +87,56 @@ export interface SilenceCutResult {
   newDurationSec: number
   /** Number of pauses removed. */
   cuts: number
+  /** Number of spoken filler words removed ("um", "uh"...), only present
+   *  when filler-word detection was turned on for this video. */
+  fillerWords?: number
+}
+
+export interface CutOptions {
+  /** Also transcribe the video (on-device, English only) and cut spoken
+   *  filler words like "um"/"uh". Doesn't catch coughs, laughs or other
+   *  non-speech noise - Whisper transcribes words, and a cough isn't one. */
+  detectFillerWords?: boolean
+  /** 0-1 while the model downloads the first time it's used in this tab -
+   *  fast on every call after, since transformers.js caches it. */
+  onModelDownload?: (fraction: number) => void
+  /** 0-1 while the video is being transcribed, before the cut render starts.
+   *  Only called when `detectFillerWords` is on. */
+  onTranscribeProgress?: (fraction: number) => void
 }
 
 /** Finds the ranges of this video worth keeping - i.e. the file with its
- *  pauses cut out, before anything is actually re-encoded. Call this first so
- *  the UI can show "12s of dead air found" before committing to the slower
- *  cut pass. */
+ *  pauses (and, optionally, filler words) cut out, before anything is
+ *  actually re-encoded. Call this first so the UI can show "12s of dead air
+ *  found" before committing to the slower cut pass. */
 export async function planCut(
   file: Blob,
-  settings = BALANCED_SETTINGS,
-): Promise<{ keep: Range[]; duration: number; silences: number }> {
+  settings: SilenceSettings = BALANCED_SETTINGS,
+  options: CutOptions = {},
+): Promise<{ keep: Range[]; duration: number; silences: number; fillerWords: number }> {
   const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS })
   try {
     const [duration, audioTrack] = await Promise.all([input.computeDuration(), input.getPrimaryAudioTrack()])
     if (!audioTrack) {
       throw new SilenceCutError('This video has no sound, so there is nothing to detect silence from.')
     }
-    const levels = await measureLevels(audioTrack)
+    const wantFillerWords = !!options.detectFillerWords && isFillerWordDetectionSupported()
+    const { levels, mono16k } = await decodeAudio(audioTrack, wantFillerWords)
     const silences = findSilentRanges(levels, settings)
-    const keep = keepRanges(silences, duration, settings.paddingSec)
+
+    let fillerWords: Range[] = []
+    if (wantFillerWords && mono16k) {
+      await getTranscriberReady(options.onModelDownload)
+      const words = await transcribeWithWordTimestamps(mono16k, options.onTranscribeProgress)
+      fillerWords = fillerWordRanges(words, settings.paddingSec)
+    }
+
+    const toCut = mergeRanges([...silences, ...fillerWords])
+    const keep = keepRanges(toCut, duration, settings.paddingSec)
     if (keep.length === 0) {
       throw new SilenceCutError('The whole video looks silent. Try recording somewhere quieter.')
     }
-    return { keep, duration, silences: silences.length }
+    return { keep, duration, silences: silences.length, fillerWords: fillerWords.length }
   } finally {
     input.dispose()
   }
@@ -192,14 +234,24 @@ export async function cutSilence(
   }
 }
 
-/** The whole job in one call: plan, then cut. Kept separate above so a UI
- *  that wants to show the plan before committing to the slow pass still can. */
+/** The whole job in one call: plan (silence, and optionally filler words),
+ *  then cut. Kept separate above so a UI that wants to show the plan before
+ *  committing to the slow pass still can. */
 export async function cutSilenceFromFile(
   file: Blob,
   onProgress?: (fraction: number) => void,
-  settings = BALANCED_SETTINGS,
+  settings: SilenceSettings = BALANCED_SETTINGS,
+  options: CutOptions = {},
 ): Promise<SilenceCutResult> {
-  const { keep, duration, silences } = await planCut(file, settings)
+  const { keep, duration, silences, fillerWords } = await planCut(file, settings, options)
   const blob = await cutSilence(file, keep, onProgress)
-  return { blob, originalDurationSec: duration, newDurationSec: totalDuration(keep), cuts: silences }
+  return {
+    blob,
+    originalDurationSec: duration,
+    newDurationSec: totalDuration(keep),
+    cuts: silences,
+    ...(options.detectFillerWords ? { fillerWords } : {}),
+  }
 }
+
+export { isFillerWordDetectionSupported } from './fillerWords'

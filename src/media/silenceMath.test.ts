@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { BALANCED_SETTINGS, findSilentRanges, keepRanges, totalDuration, type Level } from './silenceMath'
+import { BALANCED_SETTINGS, findSilentRanges, keepRanges, mergeRanges, totalDuration, type Level } from './silenceMath'
 
 /** Builds a level curve: loud for `loudSec`, then quiet for `quietSec`, repeated. */
 function pattern(pairs: Array<[loudSec: number, quietSec: number]>, stepSec = 0.05): Level[] {
@@ -104,5 +104,55 @@ describe('totalDuration', () => {
         { start: 5, end: 6.5 },
       ]),
     ).toBeCloseTo(3.5)
+  })
+})
+
+describe('mergeRanges', () => {
+  it('sorts out-of-order ranges', () => {
+    expect(mergeRanges([{ start: 5, end: 6 }, { start: 0, end: 1 }])).toEqual([
+      { start: 0, end: 1 },
+      { start: 5, end: 6 },
+    ])
+  })
+
+  it('merges overlapping ranges into one - a filler word landing inside a silent pause', () => {
+    expect(
+      mergeRanges([
+        { start: 1, end: 3 },
+        { start: 2, end: 4 },
+      ]),
+    ).toEqual([{ start: 1, end: 4 }])
+  })
+
+  it('merges touching ranges, not just overlapping ones', () => {
+    expect(
+      mergeRanges([
+        { start: 1, end: 2 },
+        { start: 2, end: 3 },
+      ]),
+    ).toEqual([{ start: 1, end: 3 }])
+  })
+
+  it('leaves genuinely separate ranges apart', () => {
+    expect(
+      mergeRanges([
+        { start: 1, end: 2 },
+        { start: 5, end: 6 },
+      ]),
+    ).toEqual([
+      { start: 1, end: 2 },
+      { start: 5, end: 6 },
+    ])
+  })
+
+  it('does not mutate its input', () => {
+    const input = [{ start: 1, end: 2 }]
+    const merged = mergeRanges(input)
+    merged[0].end = 99
+    expect(input[0].end).toBe(2)
+  })
+
+  it('handles an empty list', () => {
+    expect(mergeRanges([])).toEqual([])
   })
 })

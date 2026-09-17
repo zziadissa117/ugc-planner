@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { isFillerWordDetectionSupported } from '../media/fillerWords'
 import { PRESETS, type PresetName, type SilenceSettings } from '../media/silenceMath'
 import { SilenceCutError, cutSilenceFromFile, isSilenceCutSupported, type SilenceCutResult } from '../media/silenceCut'
 
@@ -27,13 +28,23 @@ const PRESET_HINT: Record<PresetName | 'custom', string> = {
   custom: 'Custom settings.',
 }
 
+const PHASE_LABEL: Record<Job['phase'], string> = {
+  downloading: 'Downloading the filler-word model',
+  transcribing: 'Listening for filler words',
+  cutting: 'Cutting',
+}
+
 type Settings = SilenceSettings & { preset: PresetName | 'custom' }
 
 type Job = {
   id: string
   file: File
   settings: SilenceSettings
+  detectFillerWords: boolean
   status: 'queued' | 'working' | 'done' | 'failed'
+  /** Which stage "working" is in - only ever more than "cutting" when this
+   *  job asked for filler-word detection. */
+  phase: 'downloading' | 'transcribing' | 'cutting'
   progress: number
   result?: SilenceCutResult
   url?: string
@@ -72,9 +83,11 @@ export function CutSilence({ onBack }: { onBack: () => void }) {
   const [supported, setSupported] = useState<boolean | null>(null)
   const [settings, setSettings] = useState<Settings>({ ...PRESETS.balanced, preset: 'balanced' })
   const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [detectFillerWords, setDetectFillerWords] = useState(false)
   const [jobs, setJobs] = useState<Job[]>([])
   const fileInput = useRef<HTMLInputElement>(null)
   const processing = useRef(false)
+  const fillerWordsSupported = useMemo(() => isFillerWordDetectionSupported(), [])
 
   useEffect(() => {
     let cancelled = false
@@ -114,14 +127,23 @@ export function CutSilence({ onBack }: { onBack: () => void }) {
     const next = jobs.find((j) => j.status === 'queued')
     if (!next) return
     processing.current = true
-    setJobs((current) => current.map((j) => (j.id === next.id ? { ...j, status: 'working' } : j)))
+    const setPhase = (phase: Job['phase'], progress: number) =>
+      setJobs((js) => js.map((j) => (j.id === next.id ? { ...j, status: 'working', phase, progress } : j)))
+    setPhase(next.detectFillerWords ? 'downloading' : 'cutting', 0)
 
     void (async () => {
       try {
         const result = await cutSilenceFromFile(
           next.file,
-          (progress) => setJobs((js) => js.map((j) => (j.id === next.id ? { ...j, progress } : j))),
+          (progress) => setPhase('cutting', progress),
           next.settings,
+          next.detectFillerWords
+            ? {
+                detectFillerWords: true,
+                onModelDownload: (progress) => setPhase('downloading', progress),
+                onTranscribeProgress: (progress) => setPhase('transcribing', progress),
+              }
+            : {},
         )
         const url = URL.createObjectURL(result.blob)
         setJobs((js) => js.map((j) => (j.id === next.id ? { ...j, status: 'done', result, url } : j)))
@@ -142,12 +164,14 @@ export function CutSilence({ onBack }: { onBack: () => void }) {
         id: String(nextId++),
         file,
         settings: snapshot,
+        detectFillerWords: detectFillerWords && fillerWordsSupported,
         status: 'queued',
+        phase: 'cutting',
         progress: 0,
       }))
       setJobs((current) => [...current, ...added])
     },
-    [settings],
+    [detectFillerWords, fillerWordsSupported, settings],
   )
 
   const onFilesChosen = useCallback(
@@ -236,6 +260,26 @@ export function CutSilence({ onBack }: { onBack: () => void }) {
               </p>
             </div>
           </details>
+
+          {fillerWordsSupported ? (
+            <label className="flex items-start gap-3 rounded-lg border border-edge bg-surface px-3 py-3">
+              <input
+                type="checkbox"
+                checked={detectFillerWords}
+                onChange={(e) => setDetectFillerWords(e.target.checked)}
+                className="mt-0.5 h-4 w-4 accent-state-now"
+              />
+              <span className="flex flex-col gap-0.5">
+                <span className="text-sm font-semibold text-text">Also cut "um" and "uh"</span>
+                <span className="text-[11px] leading-relaxed text-state-later">
+                  Listens to every word (on-device, English only) and cuts spoken filler words the same way a
+                  pause gets cut. Doesn't catch coughs or laughs - those aren't words, so nothing that listens for
+                  words can find them. Downloads a small model the first time, and each video takes noticeably
+                  longer with this on.
+                </span>
+              </span>
+            </label>
+          ) : null}
 
           <input
             ref={fileInput}
@@ -382,7 +426,7 @@ function JobCard({ job }: { job: Job }) {
             />
           </div>
           <p className="text-[10px] uppercase tracking-[0.14em] text-state-later">
-            Cutting… {Math.round(job.progress * 100)}%
+            {PHASE_LABEL[job.phase]}… {Math.round(job.progress * 100)}%
           </p>
         </>
       ) : job.status === 'done' && job.result && job.url ? (
@@ -390,6 +434,9 @@ function JobCard({ job }: { job: Job }) {
           <p className="text-sm text-state-posted">
             {formatTime(job.result.originalDurationSec)} → {formatTime(job.result.newDurationSec)} ·{' '}
             {job.result.cuts} pause{job.result.cuts === 1 ? '' : 's'} removed
+            {job.result.fillerWords != null
+              ? ` · ${job.result.fillerWords} filler word${job.result.fillerWords === 1 ? '' : 's'} removed`
+              : ''}
           </p>
           {canShare && !shareFailed ? (
             <>

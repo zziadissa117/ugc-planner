@@ -21,6 +21,7 @@ import {
   Output,
   QUALITY_HIGH,
   QUALITY_MEDIUM,
+  VideoSample,
   VideoSampleSink,
   VideoSampleSource,
 } from 'mediabunny'
@@ -166,10 +167,37 @@ export async function cutSilence(
     if (!videoTrack) throw new SilenceCutError('No video track found in this file.')
     if (!audioTrack) throw new SilenceCutError('This video has no sound, so there is nothing to detect silence from.')
 
-    const rotation = await videoTrack.getRotation()
+    const [isHdr, rotation, displayWidth, displayHeight] = await Promise.all([
+      videoTrack.hasHighDynamicRange(),
+      videoTrack.getRotation(),
+      videoTrack.getDisplayWidth(),
+      videoTrack.getDisplayHeight(),
+    ])
+
+    // An iPhone records HDR by default, and HDR frames cannot go into an
+    // 8-bit H.264 encoder as they are: Chrome refuses outright ("Encoding
+    // error"), and Safari accepts them and silently writes the wrong
+    // colours - which is what "it put a weird filter on it" actually was.
+    // So HDR frames get drawn through a canvas first, which converts them to
+    // ordinary sRGB, and the output is then tagged honestly as such.
+    const converting = isHdr
+    let canvas: OffscreenCanvas | null = null
+    let ctx: OffscreenCanvasRenderingContext2D | null = null
+    if (converting) {
+      // H.264 wants even dimensions, and `draw` writes the frame already
+      // rotated, so the canvas is the *display* size, not the coded size.
+      const width = displayWidth - (displayWidth % 2)
+      const height = displayHeight - (displayHeight % 2)
+      canvas = new OffscreenCanvas(width, height)
+      ctx = canvas.getContext('2d')
+      if (!ctx) throw new SilenceCutError("This browser couldn't prepare the video for colour conversion.")
+    }
+
     const videoSource = new VideoSampleSource({ codec: 'avc', quality: QUALITY_HIGH })
     const audioSource = new AudioSampleSource({ codec: 'aac', quality: QUALITY_MEDIUM })
-    output.addVideoTrack(videoSource, { rotation })
+    // `draw` bakes the rotation into the pixels, so a converted track must
+    // not *also* carry rotation metadata - that would turn it sideways.
+    output.addVideoTrack(videoSource, converting ? {} : { rotation })
     output.addAudioTrack(audioSource)
     await output.start()
 
@@ -201,10 +229,22 @@ export async function cutSilence(
         (async () => {
           for await (const sample of videoSink.samples(start, end)) {
             videoShift ??= cursor - sample.timestamp
-            sample.setTimestamp(sample.timestamp + videoShift)
-            videoEnd = sample.timestamp + sample.duration
-            await videoSource.add(sample)
-            sample.close()
+            const timestamp = sample.timestamp + videoShift
+            videoEnd = timestamp + sample.duration
+            if (ctx && canvas) {
+              // Drawing to the canvas is what performs the colour
+              // conversion. The new sample copies the canvas's pixels, so
+              // one canvas can be reused for every frame.
+              sample.draw(ctx, 0, 0)
+              const converted = new VideoSample(canvas, { timestamp, duration: sample.duration })
+              sample.close()
+              await videoSource.add(converted)
+              converted.close()
+            } else {
+              sample.setTimestamp(timestamp)
+              await videoSource.add(sample)
+              sample.close()
+            }
           }
         })(),
         (async () => {

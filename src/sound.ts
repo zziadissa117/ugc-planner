@@ -39,6 +39,31 @@ let context: AudioContext | null = null
  *  outside a gesture is rejected - so building one at mount left the tab with
  *  a context that could never start, and whether the till sounded came down to
  *  what he happened to tap first. */
+/** Tells iOS this is media playback rather than an ambient noise.
+ *
+ *  THE reason he could not hear it. On iOS, Web Audio defaults to the ambient
+ *  audio session, which the hardware silent switch mutes - while Safari still
+ *  shows the tab's "audio playing" indicator, because the sound really is
+ *  being produced. It is just routed nowhere. "it does the visual inside my
+ *  safari browser that a sound is being played but its not i dont hear it" is
+ *  that, exactly, and no amount of resuming the context would have fixed it.
+ *
+ *  navigator.audioSession is Safari 16.4 and up. Everywhere else it is absent
+ *  and the guard does nothing, which is correct: no other platform silences
+ *  Web Audio behind a physical switch.
+ *
+ *  'playback' is the category that ignores the switch. It can interrupt other
+ *  audio on the device, so a till sound may duck music for its half second -
+ *  worth it, since a sound he cannot hear is worth nothing at all. */
+function claimPlaybackSession(): void {
+  try {
+    const session = (navigator as { audioSession?: { type: string } }).audioSession
+    if (session && session.type !== 'playback') session.type = 'playback'
+  } catch {
+    /* not Safari, or the property is read-only here - nothing to claim */
+  }
+}
+
 function audio(create: boolean): AudioContext | null {
   try {
     if (context === null) {
@@ -47,6 +72,10 @@ function audio(create: boolean): AudioContext | null {
         window.AudioContext ??
         (window as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
       if (!Ctor) return null
+      // Before the context exists: the session category decides where its
+      // output goes, and setting it afterwards can leave the first sound in
+      // the wrong one.
+      claimPlaybackSession()
       context = new Ctor()
     }
     return context
@@ -231,6 +260,12 @@ async function decodeInto(ctx: AudioContext): Promise<void> {
 /** The money sound: his recording where it has loaded, the synth until then. */
 export function playCashRegister(): void {
   if (isMuted()) return
+  // Every tap, not just the first. The category can be taken back by the
+  // system after an interruption, and a context that already exists never
+  // goes through the branch in audio() that claims it - so claiming it here
+  // is what keeps the sound audible on the hundredth tick as well as the
+  // first.
+  claimPlaybackSession()
   // Inside a click, so this is where the context is allowed to be born.
   const ctx = audio(true)
   if (!ctx) return

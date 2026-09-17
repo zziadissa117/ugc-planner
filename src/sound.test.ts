@@ -77,6 +77,61 @@ describe('playing it', () => {
   })
 })
 
+describe('being audible on iOS at all', () => {
+  // He could see Safari's "audio playing" indicator and hear nothing. On iOS,
+  // Web Audio defaults to the ambient session, which the hardware silent
+  // switch mutes - the sound is produced and routed nowhere.
+  it('claims the playback session before building the context', () => {
+    const session = { type: 'auto' }
+    vi.stubGlobal('navigator', { ...navigator, audioSession: session })
+    vi.stubGlobal('AudioContext', function (this: Record<string, unknown>) {
+      // If the category is claimed after the context is built, the first
+      // sound can still go out on the old one.
+      expect(session.type).toBe('playback')
+      this.state = 'running'
+      this.currentTime = 0
+      this.destination = {}
+      this.createBufferSource = () => ({
+        buffer: null,
+        connect: () => undefined,
+        start: () => undefined,
+        stop: () => undefined,
+      })
+      this.createBuffer = () => ({ getChannelData: () => new Float32Array(8) })
+      this.createGain = () => ({
+        gain: {
+          setValueAtTime: () => undefined,
+          linearRampToValueAtTime: () => undefined,
+          exponentialRampToValueAtTime: () => undefined,
+        },
+        connect: (next: unknown) => next,
+      })
+      this.createBiquadFilter = () => ({
+        type: '',
+        frequency: { setValueAtTime: () => undefined },
+        Q: { setValueAtTime: () => undefined },
+        connect: (next: unknown) => next,
+      })
+      this.createOscillator = () => ({
+        type: '',
+        frequency: { setValueAtTime: () => undefined },
+        connect: (next: unknown) => next,
+        start: () => undefined,
+        stop: () => undefined,
+      })
+    })
+
+    playCashRegister()
+    expect(session.type).toBe('playback')
+  })
+
+  it('does nothing where there is no audio session to claim', () => {
+    // Every platform but Safari. Nothing else mutes Web Audio behind a switch.
+    vi.stubGlobal('navigator', { ...navigator, audioSession: undefined })
+    expect(() => playCashRegister()).not.toThrow()
+  })
+})
+
 describe('the shape of the sound', () => {
   // What separates a till from a doorbell, checked against a recording
   // context rather than by ear. Rendered offline in a real browser it comes

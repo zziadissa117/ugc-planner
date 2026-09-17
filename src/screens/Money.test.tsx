@@ -178,9 +178,10 @@ describe('campaigns without a ready account', () => {
     await makeBlockedCampaign()
     await renderMoney()
 
-    // Inflow only: $35 x 1 x 30. Lock in App would add $535.50 and does not.
+    // Inflow only: $35 x 1 x 30. Lock in App's $535.50 is not in the total,
+    // it is in what he could make.
     expect(screen.getByText('$1050.00')).toBeInTheDocument()
-    expect(screen.queryByText('$1585.50')).toBeNull()
+    expect(screen.getAllByText('Could make')).toHaveLength(3)
   })
 
   it('says on the campaign what finishing onboarding would be worth', async () => {
@@ -221,25 +222,37 @@ describe('campaigns without a ready account', () => {
   })
 })
 
-describe('what it could be', () => {
-  it('shows the held-back amount against every period', async () => {
+describe('what he could make', () => {
+  it('shows the finished figure, not the gap', async () => {
+    // His own words: if he makes 100 and could make 100 more, show 200.
+    // Inflow $35/day plus Lock in App $17.85/day = $52.85, and so on up.
     await makeCampaign()
     await makeBlockedCampaign()
     await renderMoney()
 
-    // Lock in App: $17.85 a day, $124.95 a week, $535.50 a month.
-    expect(screen.getAllByText('Could be')).toHaveLength(3)
-    expect(screen.getByText('+$17.85')).toBeInTheDocument()
-    expect(screen.getByText('+$124.95')).toBeInTheDocument()
-    expect(screen.getByText('+$535.50')).toBeInTheDocument()
+    expect(screen.getAllByText('Could make')).toHaveLength(3)
+    expect(screen.getByText('$52.85')).toBeInTheDocument()
+    expect(screen.getByText('$369.95')).toBeInTheDocument()
+    expect(screen.getByText('$1585.50')).toBeInTheDocument()
+  })
+
+  it('never shows the gap on its own', async () => {
+    // The old version put "+$535.50" on each card, which is the difference
+    // rather than the number he wanted to look at.
+    await makeCampaign()
+    await makeBlockedCampaign()
+    await renderMoney()
+
+    expect(screen.queryByText('+$535.50')).toBeNull()
+    expect(screen.queryByText('Could be')).toBeNull()
   })
 
   it('says nothing when every campaign is already counting', async () => {
-    // An empty bubble reading zero would sit on every card, every day.
+    // A row reading the same as the totals above it would be noise.
     await makeCampaign()
     await renderMoney()
 
-    expect(screen.queryByText('Could be')).toBeNull()
+    expect(screen.queryByText('Could make')).toBeNull()
   })
 
   it('stops showing it once the campaign is ready', async () => {
@@ -248,7 +261,7 @@ describe('what it could be', () => {
     await adapter.updateCampaignAccount(accounts[0].id, { status: 'ready' })
     await renderMoney()
 
-    expect(screen.queryByText('Could be')).toBeNull()
+    expect(screen.queryByText('Could make')).toBeNull()
   })
 })
 

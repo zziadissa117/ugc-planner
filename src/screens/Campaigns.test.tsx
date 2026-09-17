@@ -58,8 +58,7 @@ describe('pay per month on each brief', () => {
     await renderBriefs()
 
     // $35 x 1/day x 30.
-    expect(await screen.findByText('~$1050.00/mo')).toBeInTheDocument()
-    expect(screen.getByText('estimate')).toBeInTheDocument()
+    expect(await screen.findByText(/~\$1050\.00\/mo · estimate/)).toBeInTheDocument()
   })
 
   it('says so plainly when there is no rate to estimate from', async () => {
@@ -67,7 +66,7 @@ describe('pay per month on each brief', () => {
     await renderBriefs()
 
     expect(await screen.findByText('no rate')).toBeInTheDocument()
-    expect(screen.getByText('tap to set')).toBeInTheDocument()
+    expect(screen.getByText(/tap to set pay per month/)).toBeInTheDocument()
   })
 
   it('takes his own figure and marks it as his', async () => {
@@ -76,15 +75,14 @@ describe('pay per month on each brief', () => {
     await makeCampaign({ name: 'Pump.Fun', pay_per_video_cents: 1666, daily_post_quota: 3 })
     await renderBriefs()
 
-    expect(await screen.findByText('~$1499.40/mo')).toBeInTheDocument()
+    expect(await screen.findByText(/~\$1499\.40\/mo · estimate/)).toBeInTheDocument()
 
     await user.click(screen.getByLabelText('Pay per month for Pump.Fun'))
     await user.type(screen.getByLabelText('Pay per month for Pump.Fun'), '2000')
     await user.click(screen.getByRole('button', { name: 'Save' }))
 
-    expect(await screen.findByText('$2000.00/mo')).toBeInTheDocument()
-    expect(screen.getByText('your figure')).toBeInTheDocument()
-    expect(screen.queryByText('~$1499.40/mo')).toBeNull()
+    expect(await screen.findByText(/\$2000\.00\/mo · your figure/)).toBeInTheDocument()
+    expect(screen.queryByText(/~\$1499\.40/)).toBeNull()
   })
 
   it('stores it as integer cents on the campaign', async () => {
@@ -106,13 +104,12 @@ describe('pay per month on each brief', () => {
     const campaign = await makeCampaign({ monthly_pay_override_cents: 200000 })
     await renderBriefs()
 
-    expect(await screen.findByText('$2000.00/mo')).toBeInTheDocument()
+    expect(await screen.findByText(/\$2000\.00\/mo · your figure/)).toBeInTheDocument()
 
     await user.click(screen.getByLabelText('Pay per month for Inflow'))
     await user.click(screen.getByRole('button', { name: 'Reset' }))
 
-    expect(await screen.findByText('~$1050.00/mo')).toBeInTheDocument()
-    expect(screen.getByText('estimate')).toBeInTheDocument()
+    expect(await screen.findByText(/~\$1050\.00\/mo · estimate/)).toBeInTheDocument()
     // Null, never zero: a campaign he has un-corrected is not one paying
     // nothing.
     expect((await adapter.getCampaign(campaign.id))?.monthly_pay_override_cents).toBeNull()
@@ -145,7 +142,7 @@ describe('pay per month on each brief', () => {
     await makeCampaign({ pay_per_video_cents: null, daily_post_quota: 2 })
     await renderBriefs()
 
-    expect(await screen.findByText(/no rate yet/)).toBeInTheDocument()
+    expect(await screen.findByText('no rate')).toBeInTheDocument()
     expect(screen.getByText(/2\/day/)).toBeInTheDocument()
   })
 

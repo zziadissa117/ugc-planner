@@ -6,19 +6,12 @@ import { centsToDollarsInput, parseDollarsToCents } from '../data/campaignFields
 import { useData } from '../data/useData'
 import { formatCents, hasMonthlyOverride, monthlyPayCents } from '../money'
 
-/** Every campaign at a glance: what it pays per video, what it owes per day,
- *  what that comes to in a month, and where it posts.
+/** Every campaign at a glance.
  *
- *  The per-video rate is the number he negotiated and the one he checks, so it
- *  is shown as itself rather than folded into a daily total. A per-day figure
- *  hid it completely on any campaign not posting once a day: Pump.Fun at
- *  $16.66 x 3 read as "$49.98/day", with the rate he actually agreed nowhere
- *  on the screen.
- *
- *  The month is an estimate - rate x posts per day x 30 - and is marked as
- *  one, because for two of his campaigns it is simply wrong: Pump.Fun is a
- *  monthly retainer and Inflow pays per completed 60-post cycle. Tapping it
- *  lets him put the real number in, and that number then wins everywhere. */
+ *  The per-video rate is the headline on the right: it is the number he
+ *  negotiated and the one he checks. The month sits under the name, because it
+ *  is derived - rate x posts per day x 30 - and because it is the one he
+ *  corrects, so it has to be a control rather than part of the link. */
 export function Campaigns() {
   const data = useData()
   const [campaigns, setCampaigns] = useState<Campaign[] | null>(null)
@@ -60,31 +53,40 @@ export function Campaigns() {
             return (
               <li
                 key={campaign.id}
-                className="flex items-center gap-2 rounded-lg border border-edge bg-surface pr-2"
+                className="flex items-center gap-3 rounded-lg border border-edge bg-surface px-3 py-2"
               >
-                {/* The month is editable, so it cannot live inside the link -
-                    a control inside an anchor is a tap he cannot aim. */}
+                <div className="min-w-0 flex-1">
+                  <Link
+                    to={`/campaigns/${campaign.id}`}
+                    className="block min-w-0 active:opacity-70"
+                  >
+                    <span className="block truncate font-semibold text-text">{campaign.name}</span>
+                    <span className="block truncate text-xs text-state-later">
+                      {platforms.length === 0 ? 'no platforms yet' : platforms.join(' · ')}
+                    </span>
+                  </Link>
+
+                  {/* The month is editable, so it cannot sit inside the link -
+                      a control inside an anchor is a tap he cannot aim. */}
+                  <MonthlyPay
+                    campaign={campaign}
+                    onSave={(cents) => saveMonthly(campaign.id, cents)}
+                  />
+                </div>
+
                 <Link
                   to={`/campaigns/${campaign.id}`}
-                  className="flex min-h-tap min-w-0 flex-1 flex-col justify-center px-3 py-2 active:bg-surface-raised"
+                  className="shrink-0 text-right active:opacity-70"
                 >
-                  <span className="truncate font-semibold text-text">{campaign.name}</span>
-                  <span className="truncate text-xs text-state-later">
-                    {platforms.length === 0 ? 'no platforms yet' : platforms.join(' · ')}
-                  </span>
-                  {/* The rate he negotiated, as itself, beside what it owes. */}
-                  <span className="truncate text-xs tabular-nums text-state-later">
+                  <span className="block text-sm font-semibold tabular-nums text-text">
                     {campaign.pay_per_video_cents === null
-                      ? 'no rate yet'
+                      ? 'no rate'
                       : `${formatCents(campaign.pay_per_video_cents)}/video`}
-                    {` · ${campaign.daily_post_quota}/day`}
+                  </span>
+                  <span className="block text-xs tabular-nums text-state-later">
+                    {campaign.daily_post_quota}/day
                   </span>
                 </Link>
-
-                <MonthlyPay
-                  campaign={campaign}
-                  onSave={(cents) => saveMonthly(campaign.id, cents)}
-                />
               </li>
             )
           })}
@@ -103,9 +105,9 @@ export function Campaigns() {
 
 /** The month, and a way to correct it.
  *
- *  Estimates carry a "~" and say so; his own number does not, and is labelled
- *  as his. Clearing the box puts the estimate back rather than storing a zero -
- *  a campaign he has un-corrected is not one paying nothing. */
+ *  An estimate carries a "~" and says so; his own number does not. Clearing it
+ *  puts the estimate back rather than storing a zero - a campaign he has
+ *  un-corrected is not one paying nothing. */
 function MonthlyPay({
   campaign,
   onSave,
@@ -145,7 +147,7 @@ function MonthlyPay({
 
   if (editing) {
     return (
-      <span className="flex shrink-0 items-center gap-1 py-2">
+      <span className="mt-1 flex items-center gap-1">
         <input
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
@@ -190,14 +192,11 @@ function MonthlyPay({
         setDraft(monthly === null || !mine ? '' : centsToDollarsInput(monthly))
         setEditing(true)
       }}
-      className="min-h-tap shrink-0 rounded-md px-2 text-right active:bg-surface-raised"
+      className="mt-0.5 block rounded text-left text-xs tabular-nums text-state-later active:opacity-70"
     >
-      <span className="block text-sm font-semibold tabular-nums text-text">
-        {monthly === null ? 'no rate' : `${mine ? '' : '~'}${formatCents(monthly)}/mo`}
-      </span>
-      <span className="block text-[10px] uppercase tracking-[0.14em] text-state-later">
-        {monthly === null ? 'tap to set' : mine ? 'your figure' : 'estimate'}
-      </span>
+      {monthly === null
+        ? 'tap to set pay per month'
+        : `${mine ? '' : '~'}${formatCents(monthly)}/mo · ${mine ? 'your figure' : 'estimate'}`}
     </button>
   )
 }

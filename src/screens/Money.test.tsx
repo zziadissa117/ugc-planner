@@ -24,8 +24,12 @@ beforeEach(async () => {
   await db.open()
 })
 
+/** A campaign that counts. MONEY only totals campaigns with an account he can
+ *  actually post from, so the default fixture has one. It is on Facebook
+ *  because the platform-count test below adds Instagram, TikTok and YouTube
+ *  itself, and an account is unique per campaign and platform. */
 async function makeCampaign(overrides: Partial<Campaign> = {}) {
-  return adapter.createCampaign({
+  const created = await adapter.createCampaign({
     name: 'Inflow',
     company: 'Inflowpay',
     default_setup: 'face',
@@ -35,6 +39,37 @@ async function makeCampaign(overrides: Partial<Campaign> = {}) {
     cycle_size: null,
     ...overrides,
   })
+  await adapter.addCampaignAccount({
+    campaign_id: created.id,
+    platform: 'Facebook',
+    handle: '@michael.financier',
+    status: 'ready',
+  })
+  return created
+}
+
+/** A campaign nobody can post from yet: accounts exist, none of them ready.
+ *  Lock in App's real numbers - $17.85 a post, one a day, two New accounts. */
+async function makeBlockedCampaign(overrides: Partial<Campaign> = {}) {
+  const created = await adapter.createCampaign({
+    name: 'Lock in App',
+    company: null,
+    default_setup: 'face',
+    approval_mode: 'none',
+    daily_post_quota: 1,
+    pay_per_video_cents: 1785,
+    cycle_size: null,
+    ...overrides,
+  })
+  for (const platform of ['Instagram', 'TikTok']) {
+    await adapter.addCampaignAccount({
+      campaign_id: created.id,
+      platform,
+      handle: null,
+      status: 'new',
+    })
+  }
+  return created
 }
 
 async function renderMoney() {
@@ -133,5 +168,71 @@ describe('the money screen', () => {
     for (const gone of [/this cycle/i, /opening balance/i, /accrued/i, /carried over/i, /documented/i]) {
       expect(screen.queryByText(gone)).toBeNull()
     }
+  })
+})
+
+
+describe('campaigns without a ready account', () => {
+  it('keeps them out of the total', async () => {
+    await makeCampaign()
+    await makeBlockedCampaign()
+    await renderMoney()
+
+    // Inflow only: $35 x 1 x 30. Lock in App would add $535.50 and does not.
+    expect(screen.getByText('$1050.00')).toBeInTheDocument()
+    expect(screen.queryByText('$1585.50')).toBeNull()
+  })
+
+  it('says on the campaign what finishing onboarding would be worth', async () => {
+    await makeCampaign()
+    await makeBlockedCampaign()
+    await renderMoney()
+
+    expect(screen.getByText(/once an account is ready/)).toHaveTextContent('$535.50')
+    expect(screen.getByText(/2 accounts still New/)).toBeInTheDocument()
+  })
+
+  it('names the real statuses rather than saying not ready', async () => {
+    const blocked = await makeBlockedCampaign()
+    const accounts = await adapter.listCampaignAccounts(blocked.id)
+    await adapter.updateCampaignAccount(accounts[0].id, { status: 'warming' })
+    await renderMoney()
+
+    expect(screen.getByText(/1 New, 1 Warming/)).toBeInTheDocument()
+  })
+
+  it('counts it as soon as one account is ready', async () => {
+    const blocked = await makeBlockedCampaign()
+    const accounts = await adapter.listCampaignAccounts(blocked.id)
+    await adapter.updateCampaignAccount(accounts[0].id, { status: 'ready' })
+    await renderMoney()
+
+    expect(screen.getByText('$535.50')).toBeInTheDocument()
+    expect(screen.queryByText(/once an account is ready/)).toBeNull()
+  })
+
+  it('ignores a ready account that is switched off', async () => {
+    const blocked = await makeBlockedCampaign()
+    const accounts = await adapter.listCampaignAccounts(blocked.id)
+    await adapter.updateCampaignAccount(accounts[0].id, { status: 'ready', is_active: false })
+    await renderMoney()
+
+    expect(screen.getByText(/once an account is ready/)).toBeInTheDocument()
+  })
+})
+
+describe('his own monthly figure', () => {
+  it('replaces the estimate in the total', async () => {
+    // Pump.Fun is a retainer: the estimate says $1,499.40, he is paid $2,000.
+    await makeCampaign({
+      name: 'Pump.Fun',
+      pay_per_video_cents: 1666,
+      daily_post_quota: 3,
+      monthly_pay_override_cents: 200000,
+    })
+    await renderMoney()
+
+    expect(screen.getByText('$2000.00')).toBeInTheDocument()
+    expect(screen.queryByText('$1499.40')).toBeNull()
   })
 })

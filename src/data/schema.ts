@@ -140,6 +140,7 @@ export interface Campaign {
   daily_post_quota: number
   pay_per_video_cents: number | null
   cycle_size: number | null
+  monthly_pay_override_cents: number | null
   opening_post_count: number
   brief_is_incomplete: boolean
   created_at: string
@@ -148,8 +149,8 @@ export interface Campaign {
 
 /** `campaigns` as supplied by a caller: user_id comes from the session, and
  *  columns the database defaults are optional. */
-export type NewCampaign = Omit<Campaign, 'user_id' | 'id' | 'is_active' | 'approval_mode' | 'daily_post_quota' | 'opening_post_count' | 'brief_is_incomplete' | 'created_at' | 'updated_at'> &
-  Partial<Pick<Campaign, 'id' | 'is_active' | 'approval_mode' | 'daily_post_quota' | 'opening_post_count' | 'brief_is_incomplete' | 'created_at' | 'updated_at'>>
+export type NewCampaign = Omit<Campaign, 'user_id' | 'id' | 'is_active' | 'approval_mode' | 'daily_post_quota' | 'monthly_pay_override_cents' | 'opening_post_count' | 'brief_is_incomplete' | 'created_at' | 'updated_at'> &
+  Partial<Pick<Campaign, 'id' | 'is_active' | 'approval_mode' | 'daily_post_quota' | 'monthly_pay_override_cents' | 'opening_post_count' | 'brief_is_incomplete' | 'created_at' | 'updated_at'>>
 
 /** Mirrors `campaign_accounts`. */
 export interface CampaignAccount {
@@ -522,6 +523,7 @@ export const SQL_COLUMN_CHECKS: Readonly<Record<string, Readonly<Record<string, 
     daily_post_quota: ["check (daily_post_quota >= 0)"],
     pay_per_video_cents: ["check (pay_per_video_cents >= 0)"],
     cycle_size: ["check (cycle_size > 0)"],
+    monthly_pay_override_cents: ["check (monthly_pay_override_cents >= 0)"],
     opening_post_count: ["check (opening_post_count >= 0)"],
   },
   campaign_accounts: {

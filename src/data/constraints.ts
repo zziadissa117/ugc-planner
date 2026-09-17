@@ -174,6 +174,10 @@ export function assertCampaign(row: Campaign): void {
   integer(t, 'daily_post_quota', row.daily_post_quota, { min: 0, nullable: false })
   integer(t, 'pay_per_video_cents', row.pay_per_video_cents, { min: 0, nullable: true })
   integer(t, 'cycle_size', row.cycle_size, { exclusiveMin: 0, nullable: true })
+  integer(t, 'monthly_pay_override_cents', row.monthly_pay_override_cents, {
+    min: 0,
+    nullable: true,
+  })
   integer(t, 'opening_post_count', row.opening_post_count, { min: 0, nullable: false })
   boolean(t, 'brief_is_incomplete', row.brief_is_incomplete)
   timestamp(t, 'created_at', row.created_at, { nullable: false })

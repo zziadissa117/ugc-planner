@@ -8,12 +8,15 @@
 
 import { describe, expect, it } from 'vitest'
 
-import type { Campaign } from './data'
+import type { Campaign, CampaignAccount } from './data'
 import {
   campaignEarnings,
+  campaignIsLive,
   campaignsWithoutRate,
   dailyEarningsCents,
   formatCents,
+  hasMonthlyOverride,
+  monthlyPayCents,
   toCadCents,
   totalEarnings,
 } from './money'
@@ -30,6 +33,7 @@ function campaign(overrides: Partial<Campaign> = {}): Campaign {
     daily_post_quota: 1,
     pay_per_video_cents: 3500,
     cycle_size: null,
+    monthly_pay_override_cents: null,
     opening_post_count: 0,
     brief_is_incomplete: false,
     created_at: '2026-09-01T00:00:00.000Z',
@@ -98,5 +102,132 @@ describe('display', () => {
     const cad = toCadCents(3500)
     expect(Number.isInteger(cad)).toBe(true)
     expect(cad).toBe(4795)
+  })
+})
+
+
+describe('what a month pays', () => {
+  it('estimates it as rate x posts per day x 30', () => {
+    expect(monthlyPayCents(campaign())).toBe(105000)
+    expect(monthlyPayCents(campaign({ daily_post_quota: 3, pay_per_video_cents: 1666 }))).toBe(
+      149940,
+    )
+  })
+
+  it('is unknown when there is no rate and no correction', () => {
+    expect(monthlyPayCents(campaign({ pay_per_video_cents: null }))).toBeNull()
+  })
+
+  it('uses his own figure over the estimate', () => {
+    // Pump.Fun is a retainer and Inflow pays per completed 60-post cycle:
+    // neither can be said as a per-video rate, so the estimate is wrong and he
+    // corrects it.
+    const corrected = campaign({ monthly_pay_override_cents: 200000 })
+    expect(hasMonthlyOverride(corrected)).toBe(true)
+    expect(monthlyPayCents(corrected)).toBe(200000)
+  })
+
+  it('treats a missing field as no correction rather than as a figure', () => {
+    // A row pulled from the server before this column existed arrives without
+    // it. Reading that absence as a number turned every total into NaN.
+    const stale = campaign()
+    delete (stale as Partial<Campaign>).monthly_pay_override_cents
+    expect(hasMonthlyOverride(stale)).toBe(false)
+    expect(monthlyPayCents(stale)).toBe(105000)
+  })
+
+  it('works the day and week back from his figure so the three agree', () => {
+    const corrected = campaign({ monthly_pay_override_cents: 90000 })
+    expect(campaignEarnings(corrected)).toEqual({
+      dayCents: 3000,
+      weekCents: 21000,
+      monthCents: 90000,
+    })
+  })
+
+  it('adds his corrected months up exactly, not from a rounded day', () => {
+    // 100001 does not divide evenly by thirty. The month he typed is the
+    // number he is owed, so it is summed as typed.
+    const totals = totalEarnings([campaign({ monthly_pay_override_cents: 100001 })])
+    expect(totals.monthCents).toBe(100001)
+  })
+
+  it('stops calling a campaign unrated once he has given it a month', () => {
+    const corrected = campaign({ pay_per_video_cents: null, monthly_pay_override_cents: 50000 })
+    expect(campaignsWithoutRate([corrected])).toEqual([])
+  })
+})
+
+describe('whether a campaign counts at all', () => {
+  function account(overrides: Partial<CampaignAccount> = {}): CampaignAccount {
+    return {
+      id: 'a1',
+      user_id: 'u1',
+      campaign_id: 'c1',
+      platform: 'Instagram',
+      handle: '@me',
+      email: null,
+      password: null,
+      posts_per_day: 0,
+      status: 'ready',
+      is_active: true,
+      sort_order: 0,
+      created_at: '2026-09-01T00:00:00.000Z',
+      updated_at: '2026-09-01T00:00:00.000Z',
+      ...overrides,
+    }
+  }
+
+  it('counts when one switched-on account is ready', () => {
+    expect(campaignIsLive(campaign(), [account()])).toBe(true)
+  })
+
+  it('does not count a campaign with no accounts', () => {
+    expect(campaignIsLive(campaign(), [])).toBe(false)
+  })
+
+  it('does not count while every account is new or warming', () => {
+    expect(campaignIsLive(campaign(), [account({ status: 'new' })])).toBe(false)
+    expect(campaignIsLive(campaign(), [account({ status: 'warming' })])).toBe(false)
+  })
+
+  it('ignores an account that is switched off, however ready it is', () => {
+    expect(campaignIsLive(campaign(), [account({ is_active: false })])).toBe(false)
+  })
+
+  it('never counts an archived campaign', () => {
+    expect(campaignIsLive(campaign({ is_active: false }), [account()])).toBe(false)
+  })
+
+  it('does not pay more for a second ready account', () => {
+    // Pay is per campaign. One ready account is the whole test; a second adds
+    // a destination, not a payment.
+    const one = campaignIsLive(campaign(), [account()])
+    const two = campaignIsLive(campaign(), [account(), account({ id: 'a2', platform: 'TikTok' })])
+    expect(one).toBe(two)
+    expect(totalEarnings([campaign()]).monthCents).toBe(105000)
+  })
+
+  it('adds up his real campaigns the way the screen will', () => {
+    // From the live database on 16 Sep. Lock in App has two accounts, both
+    // New, so it is the one left out.
+    const inflow = campaign({ id: 'inflow', pay_per_video_cents: 3500, daily_post_quota: 1 })
+    const pump = campaign({ id: 'pump', pay_per_video_cents: 1666, daily_post_quota: 3 })
+    const vertus = campaign({ id: 'vertus', pay_per_video_cents: 1000, daily_post_quota: 2 })
+    const lockIn = campaign({ id: 'lockin', pay_per_video_cents: 1785, daily_post_quota: 1 })
+
+    const accounts = [
+      account({ id: 'i1', campaign_id: 'inflow' }),
+      account({ id: 'p1', campaign_id: 'pump' }),
+      account({ id: 'v1', campaign_id: 'vertus' }),
+      account({ id: 'l1', campaign_id: 'lockin', status: 'new' }),
+      account({ id: 'l2', campaign_id: 'lockin', platform: 'TikTok', status: 'new' }),
+    ]
+
+    const all = [inflow, pump, vertus, lockIn]
+    const live = all.filter((c) => campaignIsLive(c, accounts))
+    expect(live.map((c) => c.id)).toEqual(['inflow', 'pump', 'vertus'])
+    expect(totalEarnings(live).monthCents).toBe(314940)
+    expect(monthlyPayCents(lockIn)).toBe(53550)
   })
 })

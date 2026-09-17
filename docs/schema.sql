@@ -82,6 +82,22 @@ create table campaigns (
   pay_per_video_cents integer check (pay_per_video_cents >= 0),
   cycle_size          integer check (cycle_size > 0),
 
+  -- What the campaign really pays a month, when he has told us.
+  --
+  -- The app estimates a month as pay_per_video_cents x daily_post_quota x 30,
+  -- and that is often wrong for a reason no rate can express: Pump.Fun is a
+  -- $1,000-3,000 monthly retainer, and Inflow pays out per completed 60-post
+  -- cycle rather than per day. So this is his own figure, and where it is set
+  -- it replaces the estimate everywhere.
+  --
+  -- Null means "no correction, use the estimate" - never zero. A campaign he
+  -- has not corrected is not a campaign paying nothing.
+  --
+  -- `default null` on purpose: the generator makes a column optional in the
+  -- New* insert types only when it has a default, and without one every
+  -- createCampaign call site would have to pass it explicitly.
+  monthly_pay_override_cents integer default null check (monthly_pay_override_cents >= 0),
+
   -- Posts made before this app existed. User-entered, never fabricated.
   opening_post_count  integer not null default 0 check (opening_post_count >= 0),
 

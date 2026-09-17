@@ -12,13 +12,19 @@
 //     week  = day x 7
 //     month = day x 30
 //
-// Nothing here reads the account list, the video list or the post list. There
-// is no path by which a UI element, a duplicated row or a busy afternoon can
-// change what a day is worth.
+// with one exception he asked for: where he has corrected the month by hand,
+// his figure wins. Some deals cannot be expressed as a per-video rate at all -
+// Pump.Fun is a monthly retainer, Inflow pays per completed 60-post cycle -
+// and an estimate that is confidently wrong is worse than one he can fix.
+//
+// No arithmetic here counts videos, posts or platforms. The one thing that
+// reads the account list is campaignIsLive, and it is a yes/no about whether a
+// campaign counts at all - never a multiplier on what it is worth.
 //
 // Everything is integer cents. Division happens only at the display edge.
 
-import type { Campaign } from './data'
+import type { Campaign, CampaignAccount } from './data'
+import { canPostFrom } from './data'
 
 /** Days used for the week and month figures. Fixed rather than calendar-aware
  *  on purpose: this is what the work pays at his current quota, not a ledger
@@ -32,7 +38,8 @@ export interface PeriodEarnings {
   monthCents: number
 }
 
-/** What one day of this campaign pays, or null when it has no rate saved.
+/** What one day of this campaign pays at its rate, or null when it has no rate
+ *  saved.
  *
  *  Null rather than zero: a campaign whose rate nobody has typed yet pays an
  *  unknown amount, and showing $0.00 would be a claim about his earnings
@@ -50,20 +57,78 @@ export function periodsFor(dayCents: number): PeriodEarnings {
   }
 }
 
+/** True when the month shown is his own correction rather than the estimate.
+ *
+ *  Loose `!= null` on purpose, so an undefined reads as "no correction" too. A
+ *  campaign row pulled from the server before this column existed arrives
+ *  without the field at all, and a strict check would have treated that
+ *  absence as a figure and turned every total into NaN. */
+export function hasMonthlyOverride(campaign: Campaign): boolean {
+  return campaign.monthly_pay_override_cents != null
+}
+
+/** What this campaign pays in a month: his figure where he has given one, the
+ *  estimate otherwise, and null when there is neither. */
+export function monthlyPayCents(campaign: Campaign): number | null {
+  if (hasMonthlyOverride(campaign)) return campaign.monthly_pay_override_cents as number
+  const day = dailyEarningsCents(campaign)
+  return day === null ? null : day * DAYS_PER_MONTH
+}
+
 export function campaignEarnings(campaign: Campaign): PeriodEarnings | null {
   const day = dailyEarningsCents(campaign)
-  return day === null ? null : periodsFor(day)
+  if (!hasMonthlyOverride(campaign)) return day === null ? null : periodsFor(day)
+
+  // Working back from his monthly figure, so the three periods agree with each
+  // other rather than one of them quietly contradicting the number he typed.
+  // The month stays exactly what he said; the day is what it divides into.
+  const month = campaign.monthly_pay_override_cents as number
+  const perDay = Math.round(month / DAYS_PER_MONTH)
+  return { dayCents: perDay, weekCents: perDay * DAYS_PER_WEEK, monthCents: month }
 }
 
-/** Every campaign that has a rate, added together. Campaigns without one are
- *  left out rather than counted as zero, and the screen says how many. */
+/** True when this campaign's pay counts right now.
+ *
+ *  Active, and with at least one account he can actually post from: switched
+ *  on, and marked ready. Pay is per campaign and not per account, so a second
+ *  ready account adds nothing - one is the whole test.
+ *
+ *  `canPostFrom` is the same function the Post tab uses, deliberately. If this
+ *  screen decided "ready" for itself the two would drift, and MONEY would be
+ *  counting campaigns POST refuses to show him a box for. */
+export function campaignIsLive(
+  campaign: Campaign,
+  accounts: readonly CampaignAccount[],
+): boolean {
+  if (!campaign.is_active) return false
+  return accounts.some(
+    (account) => account.campaign_id === campaign.id && account.is_active && canPostFrom(account),
+  )
+}
+
+/** Every campaign that has a figure, added together.
+ *
+ *  Months are summed exactly rather than multiplied back up from the day
+ *  total: where he has corrected a month, that number is the one he is owed,
+ *  and a rounded day times thirty would quietly disagree with it. */
 export function totalEarnings(campaigns: readonly Campaign[]): PeriodEarnings {
-  const day = campaigns.reduce((sum, campaign) => sum + (dailyEarningsCents(campaign) ?? 0), 0)
-  return periodsFor(day)
+  return campaigns.reduce<PeriodEarnings>(
+    (sum, campaign) => {
+      const earnings = campaignEarnings(campaign)
+      if (earnings === null) return sum
+      return {
+        dayCents: sum.dayCents + earnings.dayCents,
+        weekCents: sum.weekCents + earnings.weekCents,
+        monthCents: sum.monthCents + earnings.monthCents,
+      }
+    },
+    { dayCents: 0, weekCents: 0, monthCents: 0 },
+  )
 }
 
+/** Campaigns with no figure at all - no rate, and no month he has corrected. */
 export function campaignsWithoutRate(campaigns: readonly Campaign[]): Campaign[] {
-  return campaigns.filter((campaign) => campaign.pay_per_video_cents === null)
+  return campaigns.filter((campaign) => monthlyPayCents(campaign) === null)
 }
 
 /** A fixed approximation, not a live rate - the app is local-first and works

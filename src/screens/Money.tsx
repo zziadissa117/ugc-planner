@@ -1,28 +1,46 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
-import type { Campaign } from '../data'
+import type { Campaign, CampaignAccount } from '../data'
+import { canPostFrom } from '../data'
 import { useData } from '../data/useData'
 import {
   campaignEarnings,
+  campaignIsLive,
   campaignsWithoutRate,
   formatCents,
+  hasMonthlyOverride,
+  monthlyPayCents,
   toCadCents,
   totalEarnings,
 } from '../money'
 
-/** What the work pays, from one formula: rate x posts per day.
+/** What the work pays, from one formula: rate x posts per day, or his own
+ *  monthly figure where he has corrected it.
  *
  *  Nothing on this screen counts videos, posts or platforms. That is the
  *  point: every wrong figure this screen has ever shown came from counting
  *  something - a backlog cleared in one sitting, an account list mistaken for
- *  a quota - rather than reading the campaign's own two numbers. */
+ *  a quota - rather than reading the campaign's own numbers.
+ *
+ *  The account list is read for exactly one thing: whether a campaign counts
+ *  at all. An account he has not marked ready is one he must not post from, so
+ *  a campaign with no ready account is not earning yet and is kept out of the
+ *  total. It is not hidden - it stays in the list with the amount it would add
+ *  once onboarding is done, which is the FYI he asked for rather than a
+ *  section of its own. */
 export function Money() {
   const data = useData()
   const [campaigns, setCampaigns] = useState<Campaign[] | null>(null)
+  const [accounts, setAccounts] = useState<CampaignAccount[]>([])
 
   const load = useCallback(async () => {
-    setCampaigns(await data.listCampaigns())
+    const [rows, theirAccounts] = await Promise.all([
+      data.listCampaigns(),
+      data.listCampaignAccounts(),
+    ])
+    setCampaigns(rows)
+    setAccounts(theirAccounts)
   }, [data])
 
   useEffect(() => {
@@ -31,15 +49,16 @@ export function Money() {
 
   if (campaigns === null) return null
 
-  const totals = totalEarnings(campaigns)
-  const unrated = campaignsWithoutRate(campaigns)
+  const live = campaigns.filter((campaign) => campaignIsLive(campaign, accounts))
+  const totals = totalEarnings(live)
+  const unrated = campaignsWithoutRate(live)
 
   return (
     <section className="mx-auto flex max-w-3xl flex-col gap-4">
       <header>
         <h1 className="text-xl font-semibold text-text">Money</h1>
         <p className="text-sm text-state-later">
-          What you earn at your current rates and daily posts.
+          What you earn from campaigns with a ready account.
         </p>
       </header>
 
@@ -52,7 +71,11 @@ export function Money() {
       <ul className="flex flex-col gap-1.5">
         {campaigns.map((campaign) => (
           <li key={campaign.id}>
-            <CampaignLine campaign={campaign} />
+            <CampaignLine
+              campaign={campaign}
+              counting={campaignIsLive(campaign, accounts)}
+              accounts={accounts}
+            />
           </li>
         ))}
       </ul>
@@ -85,23 +108,73 @@ function Figure({ label, cents, big }: { label: string; cents: number; big?: boo
   )
 }
 
-function CampaignLine({ campaign }: { campaign: Campaign }) {
+/** What is standing between this campaign and the total.
+ *
+ *  Counted off the accounts that are switched on, using the same readiness the
+ *  Post tab uses. He agreed to this line only if it is accurate, so it names
+ *  the real statuses rather than saying "not ready" over whatever is there. */
+function blockerLabel(campaign: Campaign, accounts: readonly CampaignAccount[]): string {
+  const switchedOn = accounts.filter(
+    (account) => account.campaign_id === campaign.id && account.is_active,
+  )
+  if (switchedOn.length === 0) return 'no accounts switched on'
+
+  const waiting = switchedOn.filter((account) => !canPostFrom(account))
+  const isNew = waiting.filter((account) => account.status === 'new').length
+  const warming = waiting.filter((account) => account.status === 'warming').length
+
+  if (warming === 0) return `${isNew} account${isNew === 1 ? '' : 's'} still New`
+  if (isNew === 0) return `${warming} account${warming === 1 ? '' : 's'} Warming`
+  return `${isNew} New, ${warming} Warming`
+}
+
+function CampaignLine({
+  campaign,
+  counting,
+  accounts,
+}: {
+  campaign: Campaign
+  counting: boolean
+  accounts: readonly CampaignAccount[]
+}) {
   const earnings = campaignEarnings(campaign)
+  const monthly = monthlyPayCents(campaign)
+  const mine = hasMonthlyOverride(campaign)
 
   return (
     <Link
       to={`/campaigns/${campaign.id}`}
-      className="flex min-h-tap items-center justify-between gap-3 rounded-lg border border-edge bg-surface px-3 py-2 active:bg-surface-raised"
+      className="flex min-h-tap flex-col justify-center gap-0.5 rounded-lg border border-edge bg-surface px-3 py-2 active:bg-surface-raised"
     >
-      <span className="min-w-0 flex-1 truncate text-sm text-text">{campaign.name}</span>
-      <span className="shrink-0 text-sm tabular-nums text-state-later">
-        {campaign.pay_per_video_cents === null
-          ? 'no rate saved'
-          : `${formatCents(campaign.pay_per_video_cents)} x ${campaign.daily_post_quota}/day`}
+      <span className="flex items-center justify-between gap-3">
+        <span
+          className={`min-w-0 flex-1 truncate text-sm ${counting ? 'text-text' : 'text-state-later'}`}
+        >
+          {campaign.name}
+        </span>
+        <span className="shrink-0 text-sm tabular-nums text-state-later">
+          {campaign.pay_per_video_cents === null
+            ? mine
+              ? 'your figure'
+              : 'no rate saved'
+            : `${formatCents(campaign.pay_per_video_cents)} x ${campaign.daily_post_quota}/day`}
+        </span>
+        <span
+          className={`w-24 shrink-0 text-right text-sm font-semibold tabular-nums ${
+            counting ? 'text-text' : 'text-state-later line-through'
+          }`}
+        >
+          {earnings === null ? '-' : `${mine ? '' : '~'}${formatCents(earnings.monthCents)}/mo`}
+        </span>
       </span>
-      <span className="w-20 shrink-0 text-right text-sm font-semibold tabular-nums text-text">
-        {earnings === null ? '-' : `${formatCents(earnings.dayCents)}`}
-      </span>
+
+      {/* Not a section of its own and not a total - one line on the campaign
+          it belongs to, saying what finishing onboarding is worth. */}
+      {!counting && monthly !== null ? (
+        <span className="text-xs text-state-waiting">
+          +{formatCents(monthly)}/mo once an account is ready · {blockerLabel(campaign, accounts)}
+        </span>
+      ) : null}
     </Link>
   )
 }

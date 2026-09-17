@@ -51,6 +51,21 @@ function cutName(originalName: string): string {
   return `${base || 'video'}_cut.mp4`
 }
 
+/** True when this browser can hand a video file to the OS share sheet - on
+ *  iOS that sheet has a one-tap "Save Video" that writes straight to Camera
+ *  Roll, which is what makes it show up for CapCut to import like anything
+ *  he filmed. No browser can write to Photos with zero taps at all - that
+ *  would be a website silently dropping files into your photo library,
+ *  which every browser blocks on purpose. This is the closest real path. */
+function canShareVideo(): boolean {
+  if (typeof navigator === 'undefined' || !navigator.canShare) return false
+  try {
+    return navigator.canShare({ files: [new File([], 'test.mp4', { type: 'video/mp4' })] })
+  } catch {
+    return false
+  }
+}
+
 let nextId = 0
 
 export function CutSilence({ onBack }: { onBack: () => void }) {
@@ -336,6 +351,22 @@ function Slider({
 }
 
 function JobCard({ job }: { job: Job }) {
+  const [shareFailed, setShareFailed] = useState(false)
+  const canShare = useMemo(() => canShareVideo(), [])
+
+  const saveToPhotos = useCallback(async () => {
+    if (!job.result) return
+    const file = new File([job.result.blob], cutName(job.file.name), { type: 'video/mp4' })
+    try {
+      await navigator.share({ files: [file] })
+    } catch (err) {
+      // AbortError just means he closed the share sheet without picking
+      // anything - not a failure, nothing to show for it.
+      if (err instanceof Error && err.name === 'AbortError') return
+      setShareFailed(true)
+    }
+  }, [job.file.name, job.result])
+
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-edge bg-surface px-3 py-2">
       <p className="truncate text-sm text-text">{job.file.name}</p>
@@ -360,13 +391,28 @@ function JobCard({ job }: { job: Job }) {
             {formatTime(job.result.originalDurationSec)} → {formatTime(job.result.newDurationSec)} ·{' '}
             {job.result.cuts} pause{job.result.cuts === 1 ? '' : 's'} removed
           </p>
-          <a
-            href={job.url}
-            download={cutName(job.file.name)}
-            className="flex min-h-tap items-center justify-center rounded-lg border border-state-now/70 bg-surface-raised text-sm font-semibold text-state-now active:bg-surface"
-          >
-            Save {cutName(job.file.name)}
-          </a>
+          {canShare && !shareFailed ? (
+            <>
+              <button
+                type="button"
+                onClick={() => void saveToPhotos()}
+                className="flex min-h-tap items-center justify-center rounded-lg border border-state-now/70 bg-surface-raised text-sm font-semibold text-state-now active:bg-surface"
+              >
+                Save to Photos
+              </button>
+              <p className="text-[10px] text-state-later">
+                Opens the share sheet - tap "Save Video" and it lands in Camera Roll, ready for CapCut.
+              </p>
+            </>
+          ) : (
+            <a
+              href={job.url}
+              download={cutName(job.file.name)}
+              className="flex min-h-tap items-center justify-center rounded-lg border border-state-now/70 bg-surface-raised text-sm font-semibold text-state-now active:bg-surface"
+            >
+              Save {cutName(job.file.name)}
+            </a>
+          )}
         </>
       ) : (
         <p className="text-sm text-state-blocked">{job.error}</p>

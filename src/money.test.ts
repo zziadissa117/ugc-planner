@@ -17,6 +17,7 @@ import {
   formatCents,
   hasMonthlyOverride,
   monthlyPayCents,
+  payingPlatforms,
   toCadCents,
   totalEarnings,
 } from './money'
@@ -34,6 +35,7 @@ function campaign(overrides: Partial<Campaign> = {}): Campaign {
     pay_per_video_cents: 3500,
     cycle_size: null,
     monthly_pay_override_cents: null,
+    pays_per_platform: false,
     opening_post_count: 0,
     brief_is_incomplete: false,
     created_at: '2026-09-01T00:00:00.000Z',
@@ -229,5 +231,101 @@ describe('whether a campaign counts at all', () => {
     expect(live.map((c) => c.id)).toEqual(['inflow', 'pump', 'vertus'])
     expect(totalEarnings(live).monthCents).toBe(314940)
     expect(monthlyPayCents(lockIn)).toBe(53550)
+  })
+})
+
+
+describe('campaigns that pay for each platform', () => {
+  // "pump.fun pay lets say 16$ per post and it includes cross posting. So if i
+  // post the same video to ig and tiktok and yt its seperately 16$"
+  //
+  // This is the one case that looks exactly like the bug this file exists to
+  // prevent. The difference is that the campaign carries a flag he set: the
+  // app never decides this for itself, and the default is off.
+  function account(overrides: Partial<CampaignAccount> = {}): CampaignAccount {
+    return {
+      id: 'a1',
+      user_id: 'u1',
+      campaign_id: 'c1',
+      platform: 'Instagram',
+      handle: '@me',
+      email: null,
+      password: null,
+      posts_per_day: 0,
+      status: 'ready',
+      is_active: true,
+      sort_order: 0,
+      created_at: '2026-09-01T00:00:00.000Z',
+      updated_at: '2026-09-01T00:00:00.000Z',
+      ...overrides,
+    }
+  }
+
+  const three = [
+    account({ id: 'a1', platform: 'Instagram' }),
+    account({ id: 'a2', platform: 'TikTok' }),
+    account({ id: 'a3', platform: 'YouTube' }),
+  ]
+
+  it('pays once per deliverable by default, whatever the platform count', () => {
+    // The old $105/day, and it must stay impossible without the flag.
+    const inflow = campaign({ pay_per_video_cents: 3500, daily_post_quota: 1 })
+    expect(payingPlatforms(inflow, three)).toBe(1)
+    expect(dailyEarningsCents(inflow, three)).toBe(3500)
+  })
+
+  it('pays once per platform when the campaign says so', () => {
+    // Pump.Fun: $16.66 a post, three a day, three platforms.
+    const pump = campaign({
+      pay_per_video_cents: 1666,
+      daily_post_quota: 3,
+      pays_per_platform: true,
+    })
+    expect(payingPlatforms(pump, three)).toBe(3)
+    expect(dailyEarningsCents(pump, three)).toBe(1666 * 3 * 3)
+    expect(monthlyPayCents(pump, three)).toBe(1666 * 3 * 3 * 30)
+  })
+
+  it('counts only the platforms he can actually post from', () => {
+    // An account still warming up earns nothing yet, so it must not multiply
+    // the pay either - the same readiness the Post tab uses.
+    const pump = campaign({ pay_per_video_cents: 1666, pays_per_platform: true })
+    const mixed = [
+      account({ id: 'a1', platform: 'Instagram', status: 'ready' }),
+      account({ id: 'a2', platform: 'TikTok', status: 'new' }),
+      account({ id: 'a3', platform: 'YouTube', status: 'ready', is_active: false }),
+    ]
+    expect(payingPlatforms(pump, mixed)).toBe(1)
+    expect(dailyEarningsCents(pump, mixed)).toBe(1666)
+  })
+
+  it('never multiplies by zero when nothing is ready', () => {
+    // campaignIsLive keeps such a campaign out of the total; returning zero
+    // here would report a rate of nothing instead of the rate it pays.
+    const pump = campaign({ pay_per_video_cents: 1666, pays_per_platform: true })
+    const none = [account({ status: 'new' })]
+    expect(payingPlatforms(pump, none)).toBe(1)
+    expect(dailyEarningsCents(pump, none)).toBe(1666)
+  })
+
+  it('ignores another campaign\u2019s accounts', () => {
+    const pump = campaign({ id: 'pump', pay_per_video_cents: 1666, pays_per_platform: true })
+    const theirs = [
+      account({ id: 'a1', campaign_id: 'pump', platform: 'Instagram' }),
+      account({ id: 'a2', campaign_id: 'other', platform: 'TikTok' }),
+      account({ id: 'a3', campaign_id: 'other', platform: 'YouTube' }),
+    ]
+    expect(payingPlatforms(pump, theirs)).toBe(1)
+  })
+
+  it('still lets his own monthly figure win', () => {
+    // A corrected month is what he is owed, whatever the platforms multiply to.
+    const pump = campaign({
+      pay_per_video_cents: 1666,
+      daily_post_quota: 3,
+      pays_per_platform: true,
+      monthly_pay_override_cents: 200000,
+    })
+    expect(monthlyPayCents(pump, three)).toBe(200000)
   })
 })

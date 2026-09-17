@@ -205,6 +205,7 @@ export class LocalAdapter implements DataAdapter {
       pay_per_video_cents: campaign.pay_per_video_cents,
       cycle_size: campaign.cycle_size,
       monthly_pay_override_cents: campaign.monthly_pay_override_cents ?? null,
+      pays_per_platform: campaign.pays_per_platform ?? false,
       opening_post_count: campaign.opening_post_count ?? 0,
       brief_is_incomplete: campaign.brief_is_incomplete ?? false,
       created_at: campaign.created_at ?? timestamp,

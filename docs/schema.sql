@@ -98,6 +98,24 @@ create table campaigns (
   -- createCampaign call site would have to pass it explicitly.
   monthly_pay_override_cents integer default null check (monthly_pay_override_cents >= 0),
 
+  -- Whether each platform is paid separately for the same video.
+  --
+  -- The default is false and that is the rule almost everywhere: one video
+  -- cross-posted to Instagram, TikTok and YouTube is ONE deliverable earning
+  -- once, which is why nothing derives a quota from the account list and why
+  -- this app once showed "$105/day" for a campaign paying $35.
+  --
+  -- But some contracts really do pay per platform - "pump.fun pay lets say 16$
+  -- per post and it includes cross posting. So if i post the same video to ig
+  -- and tiktok and yt its seperately 16$". That is a fact about the deal, not
+  -- a miscount, and the only honest way to hold both is to let the campaign
+  -- say which it is.
+  --
+  -- It changes what a deliverable EARNS and nothing else. The day still owes
+  -- daily_post_quota videos, the Post grid still shows one column per
+  -- deliverable, and a video is still posted once to each account.
+  pays_per_platform boolean not null default false,
+
   -- Posts made before this app existed. User-entered, never fabricated.
   opening_post_count  integer not null default 0 check (opening_post_count >= 0),
 

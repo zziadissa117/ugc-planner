@@ -11,6 +11,7 @@ import {
   formatCents,
   hasMonthlyOverride,
   monthlyPayCents,
+  payingPlatforms,
   toCadCents,
   totalEarnings,
 } from '../money'
@@ -49,13 +50,13 @@ export function Money() {
   if (campaigns === null) return null
 
   const live = campaigns.filter((campaign) => campaignIsLive(campaign, accounts))
-  const totals = totalEarnings(live)
-  const unrated = campaignsWithoutRate(live)
+  const totals = totalEarnings(live, accounts)
+  const unrated = campaignsWithoutRate(live, accounts)
 
   // Everything onboarding is holding back. listCampaigns already drops the
   // archived ones, so this is only campaigns he is actually trying to run.
   const blocked = campaigns.filter((campaign) => !campaignIsLive(campaign, accounts))
-  const couldBe = totalEarnings(blocked)
+  const couldBe = totalEarnings(blocked, accounts)
   const heldBack = couldBe.monthCents > 0
 
   return (
@@ -168,9 +169,10 @@ function CampaignLine({
   counting: boolean
   accounts: readonly CampaignAccount[]
 }) {
-  const earnings = campaignEarnings(campaign)
-  const monthly = monthlyPayCents(campaign)
+  const earnings = campaignEarnings(campaign, accounts)
+  const monthly = monthlyPayCents(campaign, accounts)
   const mine = hasMonthlyOverride(campaign)
+  const platforms = payingPlatforms(campaign, accounts)
 
   return (
     <Link
@@ -188,7 +190,9 @@ function CampaignLine({
             ? mine
               ? 'your figure'
               : 'no rate saved'
-            : `${formatCents(campaign.pay_per_video_cents)} x ${campaign.daily_post_quota}/day`}
+            : `${formatCents(campaign.pay_per_video_cents)} x ${campaign.daily_post_quota}/day${
+                platforms > 1 ? ` x ${platforms}` : ''
+              }`}
         </span>
         <span
           className={`w-24 shrink-0 text-right text-sm font-semibold tabular-nums ${

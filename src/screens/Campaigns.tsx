@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom'
 import type { Campaign, CampaignAccount } from '../data'
 import { centsToDollarsInput, parseDollarsToCents } from '../data/campaignFields'
 import { useData } from '../data/useData'
-import { formatCents, hasMonthlyOverride, monthlyPayCents } from '../money'
+import { formatCents, hasMonthlyOverride, monthlyPayCents, payingPlatforms } from '../money'
 
 /** Every campaign at a glance.
  *
@@ -50,6 +50,7 @@ export function Campaigns() {
             const platforms = accounts
               .filter((a) => a.campaign_id === campaign.id)
               .map((a) => a.platform)
+            const paying = payingPlatforms(campaign, accounts)
             return (
               <li
                 key={campaign.id}
@@ -70,6 +71,7 @@ export function Campaigns() {
                       a control inside an anchor is a tap he cannot aim. */}
                   <MonthlyPay
                     campaign={campaign}
+                    accounts={accounts}
                     onSave={(cents) => saveMonthly(campaign.id, cents)}
                   />
                 </div>
@@ -85,6 +87,7 @@ export function Campaigns() {
                   </span>
                   <span className="block text-xs tabular-nums text-state-later">
                     {campaign.daily_post_quota}/day
+                    {paying > 1 ? ` x ${paying}` : ''}
                   </span>
                 </Link>
               </li>
@@ -110,12 +113,14 @@ export function Campaigns() {
  *  un-corrected is not one paying nothing. */
 function MonthlyPay({
   campaign,
+  accounts,
   onSave,
 }: {
   campaign: Campaign
+  accounts: readonly CampaignAccount[]
   onSave: (cents: number | null) => Promise<void>
 }) {
-  const monthly = monthlyPayCents(campaign)
+  const monthly = monthlyPayCents(campaign, accounts)
   const mine = hasMonthlyOverride(campaign)
 
   const [editing, setEditing] = useState(false)

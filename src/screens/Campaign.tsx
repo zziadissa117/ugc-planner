@@ -20,6 +20,7 @@ import { AccountsEditor } from '../components/AccountsEditor'
 import { EditableField } from '../components/EditableField'
 import type {
   Campaign as CampaignRow,
+  CampaignAccount,
   CampaignField,
   CampaignHook,
   CampaignRule,
@@ -34,12 +35,15 @@ import {
 } from '../data/campaignFields'
 import { GENERATION_BRIEF_KEY } from '../hooks/generateHooks'
 import { useData } from '../data/useData'
-import { dailyEarningsCents, formatCents } from '../money'
+import { dailyEarningsCents, formatCents, payingPlatforms } from '../money'
 
 interface Loaded {
   campaign: CampaignRow
   fields: CampaignField[]
   rules: CampaignRule[]
+  /** Needed for the money on this page: where a campaign pays per platform,
+   *  what a day is worth depends on how many he can post from. */
+  accounts: CampaignAccount[]
 }
 
 /** The four that actually help him make the video. Everything else the parser
@@ -94,11 +98,12 @@ export function Campaign() {
     const campaign = await data.getCampaign(campaignId)
     if (!campaign) return null
 
-    const [fields, rules] = await Promise.all([
+    const [fields, rules, accounts] = await Promise.all([
       data.listCampaignFields(campaignId),
       data.listCampaignRules(campaignId),
+      data.listCampaignAccounts(campaignId),
     ])
-    return { campaign, fields, rules }
+    return { campaign, fields, rules, accounts }
   }, [campaignId, data])
 
   useEffect(() => {
@@ -148,13 +153,13 @@ export function Campaign() {
   if (missing) return <p className="text-state-later">No such campaign.</p>
   if (!loaded) return null
 
-  const { campaign, fields, rules } = loaded
+  const { campaign, fields, rules, accounts } = loaded
   const byKey = new Map(fields.map((f) => [f.field_key, f]))
   const rest = fields
     .filter((f) => !RETIRED_KEYS.includes(f.field_key))
     .sort((a, b) => a.field_key.localeCompare(b.field_key))
 
-  const perDay = dailyEarningsCents(campaign)
+  const perDay = dailyEarningsCents(campaign, accounts)
 
   return (
     <section className="mx-auto flex max-w-4xl flex-col gap-3">
@@ -212,6 +217,12 @@ export function Campaign() {
           </p>
         </div>
       </div>
+
+      <CrossPostPay
+        campaign={campaign}
+        accounts={accounts}
+        onToggle={(on) => saveColumn({ pays_per_platform: on })}
+      />
 
       {campaign.brief_is_incomplete ? (
         <p className="rounded-md border border-state-waiting/40 bg-state-waiting/10 px-3 py-1.5 text-sm text-state-waiting">
@@ -482,6 +493,69 @@ function HooksEditor({ campaignId }: { campaignId: string }) {
         </button>
       </div>
     </details>
+  )
+}
+
+/** Whether each platform is paid separately for the same video.
+ *
+ *  Off by default and off for almost every campaign: one video cross-posted
+ *  everywhere is one deliverable earning once, and deriving pay from the
+ *  account list is what once showed him "$105/day" for a campaign paying $35.
+ *
+ *  But some contracts really do pay per platform - "pump.fun pay lets say 16$
+ *  per post and it includes cross posting. So if i post the same video to ig
+ *  and tiktok and yt its seperately 16$" - and nothing in the data can tell
+ *  the two apart. So the campaign carries the answer, he sets it, and the app
+ *  never infers it.
+ *
+ *  It changes what a deliverable EARNS and nothing else: the day still owes
+ *  the same number of videos and the Post grid still shows one column each. */
+function CrossPostPay({
+  campaign,
+  accounts,
+  onToggle,
+}: {
+  campaign: CampaignRow
+  accounts: readonly CampaignAccount[]
+  onToggle: (on: boolean) => Promise<void>
+}) {
+  const on = campaign.pays_per_platform
+  const paying = payingPlatforms(campaign, accounts)
+  const perVideo = campaign.pay_per_video_cents
+
+  return (
+    <button
+      type="button"
+      onClick={() => void onToggle(!on)}
+      aria-pressed={on}
+      aria-label="Each platform pays separately"
+      className={[
+        'flex min-h-tap w-full items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left',
+        on ? 'border-state-posted/40 bg-state-posted/5' : 'border-edge bg-surface',
+      ].join(' ')}
+    >
+      <span className="min-w-0">
+        <span className={`block text-sm font-semibold ${on ? 'text-state-posted' : 'text-text'}`}>
+          Each platform pays separately
+        </span>
+        <span className="block text-xs text-state-later">
+          {on
+            ? perVideo === null
+              ? `One video is paid ${paying} time${paying === 1 ? '' : 's'}, once per platform`
+              : `${formatCents(perVideo)} per platform, so one video earns ${formatCents(
+                  perVideo * paying,
+                )} across ${paying}`
+            : 'One video earns once, however many platforms it goes to'}
+        </span>
+      </span>
+      <span
+        className={`shrink-0 text-[10px] font-semibold uppercase tracking-[0.14em] ${
+          on ? 'text-state-posted' : 'text-state-later'
+        }`}
+      >
+        {on ? 'On' : 'Off'}
+      </span>
+    </button>
   )
 }
 

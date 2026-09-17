@@ -141,6 +141,7 @@ export interface Campaign {
   pay_per_video_cents: number | null
   cycle_size: number | null
   monthly_pay_override_cents: number | null
+  pays_per_platform: boolean
   opening_post_count: number
   brief_is_incomplete: boolean
   created_at: string
@@ -149,8 +150,8 @@ export interface Campaign {
 
 /** `campaigns` as supplied by a caller: user_id comes from the session, and
  *  columns the database defaults are optional. */
-export type NewCampaign = Omit<Campaign, 'user_id' | 'id' | 'is_active' | 'approval_mode' | 'daily_post_quota' | 'monthly_pay_override_cents' | 'opening_post_count' | 'brief_is_incomplete' | 'created_at' | 'updated_at'> &
-  Partial<Pick<Campaign, 'id' | 'is_active' | 'approval_mode' | 'daily_post_quota' | 'monthly_pay_override_cents' | 'opening_post_count' | 'brief_is_incomplete' | 'created_at' | 'updated_at'>>
+export type NewCampaign = Omit<Campaign, 'user_id' | 'id' | 'is_active' | 'approval_mode' | 'daily_post_quota' | 'monthly_pay_override_cents' | 'pays_per_platform' | 'opening_post_count' | 'brief_is_incomplete' | 'created_at' | 'updated_at'> &
+  Partial<Pick<Campaign, 'id' | 'is_active' | 'approval_mode' | 'daily_post_quota' | 'monthly_pay_override_cents' | 'pays_per_platform' | 'opening_post_count' | 'brief_is_incomplete' | 'created_at' | 'updated_at'>>
 
 /** Mirrors `campaign_accounts`. */
 export interface CampaignAccount {

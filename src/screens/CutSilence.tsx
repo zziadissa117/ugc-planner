@@ -398,10 +398,11 @@ function JobCard({ job }: { job: Job }) {
                 onClick={() => void saveToPhotos()}
                 className="flex min-h-tap items-center justify-center rounded-lg border border-state-now/70 bg-surface-raised text-sm font-semibold text-state-now active:bg-surface"
               >
-                Save to Photos
+                Save or send
               </button>
               <p className="text-[10px] text-state-later">
-                Opens the share sheet - tap "Save Video" and it lands in Camera Roll, ready for CapCut.
+                Opens the share sheet. If CapCut is listed there, tap it to send the video straight in - otherwise
+                tap "Save Video" and it lands in Camera Roll, ready to import.
               </p>
             </>
           ) : (

@@ -21,8 +21,13 @@ ask the database instead:
 select version, name from supabase_migrations.schema_migrations order by version;
 ```
 
-As of 2026-09-07 the live project (`uykuoibqdxmpbbrsmyad`) has run 0001, 0003
-through 0006, 0008 and 0009.
+As of 2026-09-17 the live project (`uykuoibqdxmpbbrsmyad`) has run 0001, 0003
+through 0006, 0008, 0009 and 0010.
+
+0010 is recorded there under the name `monthly_pay_override` rather than
+`0010_monthly_pay_override`, because it was applied through Supabase's own
+migration tooling, which names the record itself. Match it to the file by what
+it does, not by the string.
 
 **0007 was deleted, not deferred.** It dropped `campaigns.daily_post_quota` on
 the theory that `campaign_accounts.posts_per_day` had replaced it. That turned

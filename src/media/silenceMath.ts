@@ -28,11 +28,17 @@ export interface SilenceSettings {
   paddingSec: number
 }
 
-export const BALANCED_SETTINGS: SilenceSettings = {
-  thresholdDb: -35,
-  minSilenceSec: 0.4,
-  paddingSec: 0.12,
-}
+/** Same three presets as the desktop Silence Cutter tool, same numbers, so a
+ *  clip cut on the phone and one cut on the Mac land the same way. */
+export const PRESETS = {
+  natural: { thresholdDb: -35, minSilenceSec: 0.6, paddingSec: 0.18 },
+  balanced: { thresholdDb: -35, minSilenceSec: 0.4, paddingSec: 0.12 },
+  tight: { thresholdDb: -35, minSilenceSec: 0.25, paddingSec: 0.07 },
+} as const satisfies Record<string, SilenceSettings>
+
+export type PresetName = keyof typeof PRESETS
+
+export const BALANCED_SETTINGS: SilenceSettings = PRESETS.balanced
 
 /** Runs of consecutive `db < thresholdDb` levels lasting at least `minSilenceSec`. */
 export function findSilentRanges(levels: Level[], settings: SilenceSettings): Range[] {

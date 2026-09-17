@@ -243,7 +243,7 @@ function AccountRow({
             onClick={() => void onPatch(account.id, { status })}
             aria-pressed={account.status === status}
             className={[
-              'rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide',
+              'rounded px-1.5 py-0.5 label',
               account.status === status
                 ? 'bg-surface-raised text-state-now'
                 : 'text-state-later active:bg-surface-raised',
@@ -255,7 +255,7 @@ function AccountRow({
         <button
           type="button"
           onClick={() => void onPatch(account.id, { is_active: false })}
-          className="ml-auto rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-state-later active:bg-surface-raised"
+          className="ml-auto rounded px-1.5 py-0.5 label text-state-later active:bg-surface-raised"
         >
           Remove
         </button>

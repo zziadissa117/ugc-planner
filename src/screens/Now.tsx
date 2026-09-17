@@ -319,7 +319,11 @@ function Header({
       <span aria-hidden className="absolute inset-x-0 top-0 h-px bg-edge-lit/70" />
 
       <div className="flex items-end justify-between gap-3">
-        <div className="min-w-0">
+        {/* shrink-0, so the clock keeps its own width. It was min-w-0, which
+            let the column collapse narrower than the time inside it - and a
+            nowrap span in a too-small box does not wrap, it just spills over
+            whatever sits to its right. */}
+        <div className="shrink-0">
           {/* The time is the way into the work clock - he asked for it there
               rather than as another button on a screen he wants bare. */}
           <button
@@ -328,7 +332,13 @@ function Header({
             aria-label={working ? `Working - ${formatElapsed(worked)}` : 'Start working'}
             className="flex items-baseline gap-2 rounded-md text-left active:bg-surface"
           >
-            <span className="numeric whitespace-nowrap text-4xl font-semibold leading-none text-text">
+            {/* Fluid, because "03:00 PM" and "0 of 1" at a fixed 36px do not
+                both fit a 375px screen - the clock was quietly overflowing
+                its own column and painting over what sat beside it. */}
+            <span
+              className="numeric whitespace-nowrap font-semibold leading-none text-text"
+              style={{ fontSize: 'clamp(1.5rem, 7.4vw, 2.25rem)' }}
+            >
               {now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </span>
             {worked > 0 || working ? (
@@ -344,7 +354,7 @@ function Header({
               </span>
             ) : null}
           </button>
-          <p className="mt-1.5 truncate text-[10px] uppercase tracking-[0.14em] text-state-later">
+          <p className="mt-1.5 truncate label text-state-later">
             {now.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })}
             {streak.days > 0 ? (
               <>
@@ -361,14 +371,28 @@ function Header({
             ) : null}
           </p>
         </div>
-        <div className="shrink-0 text-right">
-          <p className="numeric whitespace-nowrap text-4xl font-semibold leading-none">
+        {/* The clock and the day's score are both big tabular figures sitting
+            next to each other, and without something between them they read
+            as one run of digits - "02:59 PM 0 of 1". The rule belongs to the
+            score's column so it lands against it rather than floating in the
+            middle of the card. It is structure, not signal: it says nothing
+            about state, it just stops one number being read as the other. */}
+        {/* Not shrink-0: it was holding 208px for its own caption and
+            squeezing the clock into 106px, which the clock then overflowed -
+            running the time underneath this very rule. It gives way now and
+            lets its caption wrap instead, which costs a line and keeps both
+            figures whole. */}
+        <div className="min-w-0 flex-1 border-l border-edge pl-3 text-right">
+          <p
+            className="numeric whitespace-nowrap font-semibold leading-none"
+            style={{ fontSize: 'clamp(1.5rem, 7.4vw, 2.25rem)' }}
+          >
             {/* Green only once the day is actually filled - it is the same
                 "posted" state the boxes use, not a flourish. */}
             <span className={done ? 'text-state-posted' : 'text-text'}>{summary.posted}</span>
             <span className="text-state-later"> of {summary.owed}</span>
           </p>
-          <p className="mt-1.5 whitespace-nowrap text-[10px] uppercase tracking-[0.14em] text-state-later">
+          <p className="mt-1.5 label text-state-later">
             posted today
             {summary.runwayDays === null ? '' : ` · ${summary.runwayDays}d banked`}
           </p>
@@ -697,22 +721,26 @@ function WarmupList({
           onClick={() => onPick(account)}
           className="flex min-h-tap w-full items-center justify-between gap-3 px-3 text-left transition-colors active:bg-surface-raised"
         >
-          <span className="flex min-w-0 items-center gap-2">
+          <span className="flex min-w-0 flex-1 items-center gap-2">
             <span
               aria-hidden
               className={`w-3 shrink-0 text-center ${warm ? 'text-state-posted' : 'text-transparent'}`}
             >
               ✓
             </span>
-            {/* Fixed width, so every handle starts at the same x and the card
-                reads as two columns rather than as a run of sentences. */}
-            <span
-              className={`w-24 shrink-0 truncate font-semibold ${warm ? 'text-state-posted' : 'text-text'}`}
-            >
-              {account.platform}
-            </span>
-            <span className="truncate text-sm text-state-later">
-              {account.handle ?? 'no handle saved'}
+            {/* Two columns from sm: up, where every handle can start at the
+                same x and the card reads as a table. On a narrow phone that
+                left the handle about forty pixels and rendered it "@mi...",
+                so there it gets its own line and is readable instead. */}
+            <span className="flex min-w-0 flex-col sm:flex-row sm:items-center sm:gap-2">
+              <span
+                className={`truncate font-semibold sm:w-24 sm:shrink-0 ${warm ? 'text-state-posted' : 'text-text'}`}
+              >
+                {account.platform}
+              </span>
+              <span className="truncate text-sm text-state-later">
+                {account.handle ?? 'no handle saved'}
+              </span>
             </span>
           </span>
           <span className="flex shrink-0 items-baseline gap-1.5">
@@ -730,7 +758,7 @@ function WarmupList({
             <span aria-hidden className="text-state-later">
               ·
             </span>
-            <span className="text-[11px] uppercase tracking-[0.12em] text-state-later">
+            <span className="label text-state-later">
               {warmupMinutesFor(account)} min
             </span>
           </span>
@@ -755,7 +783,7 @@ function WarmupList({
           {/* The campaign once, above its accounts, instead of after every
               handle - where it was repeated on each row and pushed the handle
               it described off the edge of a phone. */}
-          <p className="px-3 pt-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-state-later">
+          <p className="px-3 pt-2 label text-state-later">
             {group.name}
           </p>
           <ul className={`divide-y ${warm ? 'divide-state-posted/20' : 'divide-edge'}`}>
@@ -852,7 +880,7 @@ function WorkTimer({
           )
         })}
       </div>
-      <p className="-mt-3 text-center text-[10px] uppercase tracking-[0.14em] text-state-later">
+      <p className="-mt-3 text-center label text-state-later">
         {reached === 0
           ? '30m · 1h · 2h · 3h'
           : `${reached} of ${MILESTONES_MS.length} marks`}

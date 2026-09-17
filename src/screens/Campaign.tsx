@@ -209,7 +209,7 @@ export function Campaign() {
           onSave={(next) => saveColumn({ daily_post_quota: next })}
         />
         <div className="ml-auto text-right">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-state-later">
+          <p className="label text-state-later">
             per day
           </p>
           <p className="text-sm font-semibold tabular-nums text-text">
@@ -458,7 +458,7 @@ function HooksEditor({ campaignId }: { campaignId: string }) {
                 >
                   {hook.body}
                   {hook.source === 'generated' ? (
-                    <span className="ml-2 text-[10px] uppercase tracking-wide text-state-later">
+                    <span className="ml-2 label text-state-later">
                       generated
                     </span>
                   ) : null}
@@ -549,7 +549,7 @@ function CrossPostPay({
         </span>
       </span>
       <span
-        className={`shrink-0 text-[10px] font-semibold uppercase tracking-[0.14em] ${
+        className={`shrink-0 label ${
           on ? 'text-state-posted' : 'text-state-later'
         }`}
       >
@@ -833,7 +833,7 @@ function InlineEdit({
       }}
       className="rounded-md border border-edge bg-surface-raised px-2 py-1 text-left hover:border-state-now active:bg-surface"
     >
-      <span className="block text-[10px] font-semibold uppercase tracking-wide text-state-later">
+      <span className="block label text-state-later">
         {label}
       </span>
       <span className="block text-sm font-semibold tabular-nums text-text">{display}</span>

@@ -200,7 +200,7 @@ function MadeToday({ cents }: { cents: number }) {
   return (
     <div className="text-right">
       <div className="flex items-center justify-end gap-2">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-state-later">
+        <p className="label text-state-later">
           Made today
         </p>
         <button
@@ -212,7 +212,7 @@ function MadeToday({ cents }: { cents: number }) {
           }}
           aria-label={muted ? 'Turn the sound on' : 'Turn the sound off'}
           aria-pressed={muted}
-          className="rounded px-1 text-[10px] uppercase tracking-[0.14em] text-state-later active:bg-surface-raised"
+          className="rounded px-1 label text-state-later active:bg-surface-raised"
         >
           {muted ? 'muted' : 'sound'}
         </button>
@@ -230,7 +230,7 @@ function MadeToday({ cents }: { cents: number }) {
         {formatCents(shown)}
       </p>
       {shown > 0 ? (
-        <p className="numeric mt-0.5 text-[11px] text-state-later">
+        <p className="numeric mt-0.5 meta text-state-later">
           ~{formatCents(toCadCents(shown))} CAD
         </p>
       ) : null}
@@ -271,9 +271,13 @@ function CampaignBoard({
         <ul className="mt-2 flex flex-col gap-1.5">
           {rows.map((row) => (
             <li key={row.account.id} className="flex items-center gap-3">
-              <span className="min-w-0 flex-1 truncate text-sm text-text">
-                {row.account.platform}
-                <span className="ml-2 text-state-later">
+              {/* The handle wraps under the platform on a narrow phone
+                  rather than being truncated mid-word to "@michael.fina..." -
+                  the tick boxes to the right need their width, and this is
+                  the row he checks to know which account he is ticking. */}
+              <span className="flex min-w-0 flex-1 flex-col text-sm text-text sm:flex-row sm:items-baseline sm:gap-2">
+                <span className="truncate">{row.account.platform}</span>
+                <span className="truncate text-state-later">
                   {row.account.handle ?? 'no handle saved'}
                 </span>
               </span>

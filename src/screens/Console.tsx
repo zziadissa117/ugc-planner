@@ -341,10 +341,10 @@ function SayThis({ lines }: { lines: string[] }) {
         aria-expanded={open}
         className="flex w-full items-center justify-between gap-3 text-left"
       >
-        <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-state-later">
+        <span className="label text-state-later">
           Say this
         </span>
-        <span className="text-[10px] uppercase tracking-[0.14em] text-state-later">
+        <span className="label text-state-later">
           {open ? 'hide' : `${lines.length} ${lines.length === 1 ? 'point' : 'points'}`}
         </span>
       </button>

@@ -31,12 +31,15 @@
 
   --color-state-posted: #2fd472;
   --color-state-now: #ffffff;
-  --color-state-later: #78859a;
+  /* Grey still means "later" - it just says it loud enough to read on a
+     phone held at arm's length. It was #78859a, which cleared the contrast
+     minimum on paper and still made every small label a squint. */
+  --color-state-later: #8c9aaf;
   --color-state-waiting: #f0a83c;
   --color-state-blocked: #f2564c;
 
   --color-text: #eaeff7;
-  --color-text-dim: #94a1b3;
+  --color-text-dim: #a4b1c3;
 
   /* Nothing interactive is smaller than this. He taps in a hurry, one-handed,
      often with the phone propped against something. */
@@ -48,6 +51,10 @@ html {
   /* The address bar and the app should not disagree about where the page ends. */
   background-color: var(--color-ink);
   -webkit-text-size-adjust: 100%;
+  /* A real 16px floor, so nothing inherits its way down to something he has
+     to hold the phone closer to read. */
+  font-size: 16px;
+  line-height: 1.5;
 }
 
 body {
@@ -56,6 +63,15 @@ body {
   color: var(--color-text);
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     sans-serif;
+  /* System stack on purpose: on his iPhone this is SF Pro, which is the most
+     readable thing available and needs no download - a webfont would be one
+     more request to fail on bad signal, in an app whose first rule is that it
+     works offline. Smoothing and optical sizing are where the polish comes
+     from instead. */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-optical-sizing: auto;
+  text-rendering: optimizeLegibility;
   /* A tap must never be swallowed by the browser waiting to see if it was a
      double-tap-to-zoom. */
   touch-action: manipulation;
@@ -78,6 +94,34 @@ body {
     );
   background-attachment: fixed;
   background-repeat: no-repeat;
+}
+
+/* ---------------------------------------------------------------------------
+   Two classes for small text, so there is one place to change how readable
+   this app is instead of twenty-seven.
+
+   Every small label used to be written inline at 9, 10 or 11px with tracking
+   up around 0.16em. Wide tracking on tiny dim uppercase is the worst possible
+   combination for reading quickly - the letters stop forming words - and he
+   reads these across a room while filming, or one-handed in a hurry.
+
+     .label  the small uppercase caption over a figure or a section
+     .meta   secondary detail sitting beside or under the main line
+
+   Both sit at or above 12px and keep only as much tracking as uppercase
+   actually needs to breathe.
+   --------------------------------------------------------------------------- */
+.label {
+  font-size: 0.75rem; /* 12px */
+  line-height: 1.25;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+.meta {
+  font-size: 0.8125rem; /* 13px */
+  line-height: 1.35;
 }
 
 /* Numbers are the point of most of these screens - the count, the goal, the

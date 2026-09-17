@@ -254,7 +254,7 @@ export function CutSilence({ onBack }: { onBack: () => void }) {
                 format={(v) => `${v.toFixed(2)} s`}
                 onChange={(v) => applyCustom({ paddingSec: v })}
               />
-              <p className="text-[11px] leading-relaxed text-state-later">
+              <p className="meta leading-relaxed text-state-later">
                 Silence level: if words are getting cut, lower it (e.g. −45). If a noisy room isn't getting cut,
                 raise it (e.g. −28). Changes apply to videos you add after changing them.
               </p>
@@ -271,7 +271,7 @@ export function CutSilence({ onBack }: { onBack: () => void }) {
               />
               <span className="flex flex-col gap-0.5">
                 <span className="text-sm font-semibold text-text">Also cut "um" and "uh"</span>
-                <span className="text-[11px] leading-relaxed text-state-later">
+                <span className="meta leading-relaxed text-state-later">
                   Listens to every word (on-device, English only) and cuts spoken filler words the same way a
                   pause gets cut. Doesn't catch coughs or laughs - those aren't words, so nothing that listens for
                   words can find them. Downloads a small model the first time, and each video takes noticeably
@@ -336,7 +336,7 @@ export function CutSilence({ onBack }: { onBack: () => void }) {
 function PresetPicker({ settings, onPreset }: { settings: Settings; onPreset: (p: PresetName) => void }) {
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-edge bg-surface px-3 py-3">
-      <p className="text-[11px] uppercase tracking-[0.14em] text-state-later">{PRESET_HINT[settings.preset]}</p>
+      <p className="label text-state-later">{PRESET_HINT[settings.preset]}</p>
       <div className="flex gap-1.5">
         {PRESET_ORDER.map((preset) => (
           <button
@@ -425,7 +425,7 @@ function JobCard({ job }: { job: Job }) {
               style={{ width: `${Math.round(job.progress * 100)}%` }}
             />
           </div>
-          <p className="text-[10px] uppercase tracking-[0.14em] text-state-later">
+          <p className="label text-state-later">
             {PHASE_LABEL[job.phase]}… {Math.round(job.progress * 100)}%
           </p>
         </>
@@ -447,7 +447,7 @@ function JobCard({ job }: { job: Job }) {
               >
                 Save or send
               </button>
-              <p className="text-[10px] text-state-later">
+              <p className="meta text-state-later">
                 Opens the share sheet. If CapCut is listed there, tap it to send the video straight in - otherwise
                 tap "Save Video" and it lands in Camera Roll, ready to import.
               </p>

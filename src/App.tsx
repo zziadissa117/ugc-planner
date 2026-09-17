@@ -60,15 +60,16 @@ export function App() {
                   [
                     // Full-width, full-height target: the whole fifth of the
                     // bar is tappable, not just the word.
-                    'relative flex min-h-tap items-center justify-center text-[13px] font-semibold',
+                    'relative flex min-h-tap items-center justify-center text-sm font-semibold',
                     'transition-colors duration-150 active:bg-surface-raised',
                     // Where you are is a state, so it gets the "now" colour.
                     // Everything else is a "later" grey. The tracking opens up
                     // on the active one too, so the tab reads as lit rather
-                    // than merely a slightly different grey.
+                    // than merely a slightly different grey - but not so far
+                    // that five tabs stop fitting a narrow phone.
                     isActive
-                      ? 'tracking-[0.18em] text-state-now'
-                      : 'tracking-[0.12em] text-state-later',
+                      ? 'tracking-[0.12em] text-state-now'
+                      : 'tracking-[0.08em] text-state-later',
                   ].join(' ')
                 }
               >

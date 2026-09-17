@@ -176,7 +176,7 @@ export function EditableField({
     return (
       <div className="inline-flex min-h-tap items-center gap-2 rounded-full border border-edge bg-surface-raised px-3 py-1.5">
         <div className="leading-tight">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-state-later">
+          <p className="label text-state-later">
             {displayLabel}
           </p>
           <p
@@ -187,7 +187,7 @@ export function EditableField({
               <button
                 type="button"
                 onClick={() => setRevealed((current) => !current)}
-                className="ml-2 text-[10px] font-semibold uppercase tracking-wide text-state-later"
+                className="ml-2 label text-state-later"
               >
                 {revealed ? 'Hide' : 'Show'}
               </button>

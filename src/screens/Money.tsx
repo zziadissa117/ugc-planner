@@ -115,13 +115,30 @@ function Figure({ label, cents, big }: { label: string; cents: number; big?: boo
   return (
     <div className="relative overflow-hidden rounded-2xl border border-edge bg-gradient-to-b from-surface-raised to-surface p-3 text-center">
       <span aria-hidden className="absolute inset-x-0 top-0 h-px bg-edge-lit/70" />
-      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-state-later">
+      <p className="label text-state-later">
         {label}
       </p>
-      <p className={`numeric mt-1 font-semibold text-text ${big ? 'text-3xl' : 'text-xl'}`}>
+      {/* Fluid rather than fixed: at `text-3xl` in a third of a 375px screen,
+          "$35.00" ran past the card's edge and the last digit was sliced off -
+          the one number on this screen he actually came to read. It scales
+          with the viewport now, so it stays whole on a phone and still reads
+          large on a laptop. */}
+      <p
+        className="numeric mt-1 font-semibold text-text"
+        style={{
+          fontSize: big
+            ? 'clamp(1.25rem, 6.2vw, 1.875rem)'
+            : 'clamp(1rem, 4.6vw, 1.25rem)',
+        }}
+      >
         {formatCents(cents)}
       </p>
-      <p className="numeric mt-0.5 text-[11px] text-state-later">
+      {/* Also fluid, and held to one line: at a fixed size "~$1438.50 CAD"
+          wrapped and left "CAD" stranded on a line of its own. */}
+      <p
+        className="numeric mt-0.5 whitespace-nowrap text-state-later"
+        style={{ fontSize: 'clamp(0.6875rem, 2.9vw, 0.8125rem)' }}
+      >
         ~{formatCents(toCadCents(cents))} CAD
       </p>
     </div>
@@ -132,7 +149,7 @@ function Figure({ label, cents, big }: { label: string; cents: number; big?: boo
 function CouldMake({ cents }: { cents: number }) {
   return (
     <p className="text-center leading-tight">
-      <span className="block text-[9px] font-semibold uppercase tracking-[0.16em] text-state-later">
+      <span className="block label text-state-later">
         Could make
       </span>
       <span className="numeric block text-sm font-semibold text-text">{formatCents(cents)}</span>

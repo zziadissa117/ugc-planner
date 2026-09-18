@@ -47,7 +47,6 @@ import { ensureTodaysQuota, summariseToday } from '../data/today'
 import { useData } from '../data/useData'
 import { formatCents } from '../money'
 import { Console } from './Console'
-import { CutSilence } from './CutSilence'
 
 /** Presets for the goal. He batches roughly seven in a filming session. */
 const GOAL_PRESETS = [3, 5, 7, 10] as const
@@ -69,7 +68,6 @@ type Stage =
   | { kind: 'console'; campaign: Campaign; goal: number; workSessionId: string }
   | { kind: 'warmup_timer'; account: CampaignAccount; campaign: Campaign | null }
   | { kind: 'work' }
-  | { kind: 'cut_silence' }
 
 export function Now() {
   const data = useData()
@@ -202,12 +200,7 @@ export function Now() {
             workDay={workDay}
             onOpenWork={() => setStage({ kind: 'work' })}
           />
-          <EditBacklog
-            count={summary.editBacklog}
-            busy={editBusy}
-            onMarkEdited={markOneEdited}
-            onCutSilence={() => setStage({ kind: 'cut_silence' })}
-          />
+          <EditBacklog count={summary.editBacklog} busy={editBusy} onMarkEdited={markOneEdited} />
           <div className="grid grid-cols-2 gap-2">
             {/* FILM is the one thing on this screen that starts work, so it is
                 the only lit thing on it. */}
@@ -269,8 +262,6 @@ export function Now() {
             setStage({ kind: 'home' })
           }}
         />
-      ) : stage.kind === 'cut_silence' ? (
-        <CutSilence onBack={() => setStage({ kind: 'home' })} />
       ) : (
         <WarmupTimer
           key={stage.account.id}
@@ -422,41 +413,24 @@ function EditBacklog({
   count,
   busy,
   onMarkEdited,
-  onCutSilence,
 }: {
   count: number
   busy: boolean
   onMarkEdited: () => void
-  onCutSilence: () => void
 }) {
   if (count === 0) return null
 
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-edge bg-surface px-3 py-2">
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-edge bg-surface px-3 py-2">
       <p className="text-sm text-text">{count} filmed, ready to edit</p>
-      {/* Cutting silence first is entirely optional - it never has to happen
-          before a video can be marked edited, the same way editing itself is
-          never gated on anything. It just sits next to the button for
-          whoever wants the browser to take a first pass at a raw clip.
-          Stacked below the count rather than squeezed beside it, so neither
-          button gets crushed on a narrow phone. */}
-      <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={onCutSilence}
-          className="min-h-tap flex-1 rounded-md border border-edge bg-surface px-3 text-sm font-semibold text-state-later active:bg-surface-raised"
-        >
-          Cut silence
-        </button>
-        <button
-          type="button"
-          onClick={onMarkEdited}
-          disabled={busy}
-          className="min-h-tap flex-1 rounded-md border border-edge bg-surface-raised px-3 text-sm font-semibold text-text active:bg-surface disabled:text-state-later"
-        >
-          {busy ? '·' : 'Mark edited'}
-        </button>
-      </div>
+      <button
+        type="button"
+        onClick={onMarkEdited}
+        disabled={busy}
+        className="min-h-tap shrink-0 rounded-md border border-edge bg-surface-raised px-3 text-sm font-semibold text-text active:bg-surface disabled:text-state-later"
+      >
+        {busy ? '·' : 'Mark edited'}
+      </button>
     </div>
   )
 }

@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { isFillerWordDetectionSupported } from '../media/fillerWords'
+import { forgetJob, loadPendingJobs, persistJob } from '../media/jobStore'
 import { PRESETS, type PresetName, type SilenceSettings } from '../media/silenceMath'
 import { SilenceCutError, cutSilenceFromFile, isSilenceCutSupported, type SilenceCutResult } from '../media/silenceCut'
 
@@ -85,6 +86,8 @@ export function CutSilence({ onBack }: { onBack: () => void }) {
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [detectFillerWords, setDetectFillerWords] = useState(false)
   const [jobs, setJobs] = useState<Job[]>([])
+  const [restoredCount, setRestoredCount] = useState(0)
+  const [justAdded, setJustAdded] = useState<{ count: number; at: number } | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const processing = useRef(false)
   const fillerWordsSupported = useMemo(() => isFillerWordDetectionSupported(), [])
@@ -93,6 +96,35 @@ export function CutSilence({ onBack }: { onBack: () => void }) {
     let cancelled = false
     void isSilenceCutSupported().then((ok) => {
       if (!cancelled) setSupported(ok)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // A video he already added should survive whatever happens to the tab
+  // before it gets processed - a background service-worker update, iOS
+  // reclaiming memory while its own picker is busy with several large
+  // videos, or just closing the tab by accident. Anything left over from
+  // before this load is picked back up here, oldest first, rather than
+  // silently gone. See jobStore.ts.
+  useEffect(() => {
+    let cancelled = false
+    void loadPendingJobs().then((pending) => {
+      if (cancelled || pending.length === 0) return
+      setJobs((current) => [
+        ...pending.map((p) => ({
+          id: p.id,
+          file: p.file,
+          settings: p.settings,
+          detectFillerWords: p.detectFillerWords,
+          status: 'queued' as const,
+          phase: 'cutting' as const,
+          progress: 0,
+        })),
+        ...current,
+      ])
+      setRestoredCount(pending.length)
     })
     return () => {
       cancelled = true
@@ -110,6 +142,14 @@ export function CutSilence({ onBack }: { onBack: () => void }) {
     },
     [],
   )
+
+  // Fades on its own after a moment - it's a receipt for the tap that just
+  // happened, not something to dismiss.
+  useEffect(() => {
+    if (!justAdded) return
+    const timer = window.setTimeout(() => setJustAdded(null), 4000)
+    return () => window.clearTimeout(timer)
+  }, [justAdded])
 
   const applyPreset = useCallback((preset: PresetName) => setSettings({ ...PRESETS[preset], preset }), [])
   const applyCustom = useCallback(
@@ -152,6 +192,10 @@ export function CutSilence({ onBack }: { onBack: () => void }) {
         setJobs((js) => js.map((j) => (j.id === next.id ? { ...j, status: 'failed', error: message } : j)))
       } finally {
         processing.current = false
+        // Only ever needs to survive a reload while it's still waiting or
+        // running - once it's done or failed, this session already has the
+        // result (or the reason), so there's nothing left to protect.
+        void forgetJob(next.id)
       }
     })()
   }, [jobs])
@@ -170,6 +214,24 @@ export function CutSilence({ onBack }: { onBack: () => void }) {
         progress: 0,
       }))
       setJobs((current) => [...current, ...added])
+      setJustAdded({ count: added.length, at: Date.now() })
+      // Written to IndexedDB right away, not just kept in memory - see
+      // jobStore.ts for why. A write that fails here (private browsing,
+      // storage full) still leaves the video queued for this session; it
+      // just wouldn't survive a reload, same as before this existed.
+      for (const job of added) {
+        void persistJob({
+          id: job.id,
+          fileBlob: job.file,
+          fileName: job.file.name,
+          fileType: job.file.type,
+          settings: job.settings,
+          detectFillerWords: job.detectFillerWords,
+        }).catch(() => {
+          // Nothing to do about it here - the job is already queued in
+          // memory and will still run this session.
+        })
+      }
     },
     [detectFillerWords, fillerWordsSupported, settings],
   )
@@ -289,6 +351,23 @@ export function CutSilence({ onBack }: { onBack: () => void }) {
             className="hidden"
             onChange={onFilesChosen}
           />
+          {restoredCount > 0 ? (
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-state-waiting/40 bg-state-waiting/10 px-3 py-2">
+              <p className="text-sm text-text">
+                Picked back up {restoredCount} video{restoredCount === 1 ? '' : 's'} that hadn't finished - a
+                video you add is saved right away now, so a reload can't lose it.
+              </p>
+              <button
+                type="button"
+                onClick={() => setRestoredCount(0)}
+                aria-label="Dismiss"
+                className="shrink-0 rounded px-1 text-state-later active:bg-surface-raised"
+              >
+                ✕
+              </button>
+            </div>
+          ) : null}
+
           <button
             type="button"
             onClick={() => fileInput.current?.click()}
@@ -297,6 +376,13 @@ export function CutSilence({ onBack }: { onBack: () => void }) {
             <span className="text-lg font-semibold text-text">Add videos</span>
             <span className="text-sm text-state-later">As many as you want - each starts cutting right away</span>
           </button>
+
+          {justAdded ? (
+            <p key={justAdded.at} className="rise-in text-center text-sm text-state-posted">
+              Added {justAdded.count} video{justAdded.count === 1 ? '' : 's'} to the queue
+              {justAdded.count > 1 ? ' - check that is everything you picked.' : '.'}
+            </p>
+          ) : null}
 
           {jobs.length > 0 ? (
             <>

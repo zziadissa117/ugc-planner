@@ -786,6 +786,10 @@ function InlineEdit({
       await onSave(parsed)
       setEditing(false)
       setError(null)
+    } catch (caught) {
+      // Never leave the box open with nothing said: an unsaved edit that gives
+      // no reason reads as a Save button that does not work.
+      setError(caught instanceof Error ? caught.message : 'Could not save.')
     } finally {
       setBusy(false)
     }
@@ -793,28 +797,38 @@ function InlineEdit({
 
   if (editing) {
     return (
-      <span className="inline-flex items-center gap-1">
-        <input
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') void save()
-            if (event.key === 'Escape') setEditing(false)
-          }}
-          aria-label={label}
-          inputMode="decimal"
-          autoFocus
-          className="min-h-tap w-20 rounded-md border border-state-now bg-surface-raised px-2 text-sm text-text"
-        />
-        <button
-          type="button"
-          onClick={() => void save()}
-          disabled={busy}
-          className="rounded-md border border-state-now px-2 py-1 text-xs font-semibold text-state-now active:bg-surface disabled:opacity-60"
-        >
-          Save
-        </button>
-        {error ? <span className="text-xs text-state-blocked">{error}</span> : null}
+      <span className="inline-flex flex-col items-start gap-1">
+        <span className="inline-flex items-center gap-1">
+          <input
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            // Select what is there, so typing replaces it. Without this the
+            // box opened as "35.00" with the cursor after it, and typing 40
+            // made "35.0040" - not an amount, so Save refused it.
+            onFocus={(event) => event.currentTarget.select()}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') void save()
+              if (event.key === 'Escape') setEditing(false)
+            }}
+            aria-label={label}
+            inputMode="decimal"
+            autoFocus
+            className="min-h-tap w-20 rounded-md border border-state-now bg-surface-raised px-2 text-sm text-text"
+          />
+          <button
+            type="button"
+            onClick={() => void save()}
+            disabled={busy}
+            className="rounded-md border border-state-now px-2 py-1 text-xs font-semibold text-state-now active:bg-surface disabled:opacity-60"
+          >
+            Save
+          </button>
+        </span>
+        {error ? (
+          <span role="alert" className="text-xs text-state-blocked">
+            {error}
+          </span>
+        ) : null}
       </span>
     )
   }

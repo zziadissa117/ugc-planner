@@ -166,6 +166,33 @@ describe('the numbers that decide the day', () => {
   })
 })
 
+describe('editing the rate the way a thumb does', () => {
+  it('replaces the existing rate when he types, rather than appending to it', async () => {
+    const user = userEvent.setup()
+    await renderBrief()
+
+    // No clear(): a phone does not select the old value for him.
+    await user.click(screen.getByLabelText('per post'))
+    await user.keyboard('40')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(async () => {
+      expect((await adapter.getCampaign(INFLOW_CAMPAIGN_ID))?.pay_per_video_cents).toBe(4000)
+    })
+  })
+
+  it('says why when the amount is not one, instead of sitting there', async () => {
+    const user = userEvent.setup()
+    await renderBrief()
+
+    await user.click(screen.getByLabelText('per post'))
+    await user.keyboard('{End}5')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Enter an amount')
+  })
+})
+
 describe('renaming a campaign', () => {
   it('edits the title in place and keeps it a heading', async () => {
     const user = userEvent.setup()

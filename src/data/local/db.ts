@@ -167,6 +167,28 @@ export class LocalDatabase extends Dexie {
           console.error('v4 upgrade could not derive accounts; continuing.', error)
         }
       })
+
+    // v5 fills in `pays_per_platform` on campaigns saved before the column
+    // existed. Those rows have no value at all, and the validator insists on a
+    // boolean, so every edit to such a campaign - including changing its rate -
+    // was refused with "pays_per_platform must be a boolean, got undefined".
+    // `false` is the column's default in schema.sql and what the app already
+    // treated a missing value as, so this changes no behaviour, only the error.
+    // Same wrapping as v4, and for the same reason.
+    this.version(5)
+      .stores({})
+      .upgrade(async (tx) => {
+        try {
+          await tx
+            .table('campaigns')
+            .toCollection()
+            .modify((row: { pays_per_platform?: boolean }) => {
+              if (typeof row.pays_per_platform !== 'boolean') row.pays_per_platform = false
+            })
+        } catch (error) {
+          console.error('v5 upgrade could not fill pays_per_platform; continuing.', error)
+        }
+      })
   }
 }
 

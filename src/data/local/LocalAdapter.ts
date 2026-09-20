@@ -1360,6 +1360,17 @@ export class LocalAdapter implements DataAdapter {
   }
 
   async applyRemoteRow(table: TableName, row: unknown): Promise<void> {
+    if (table === 'campaigns') {
+      // A server provisioned before pays_per_platform existed sends campaigns
+      // without it, and the validator would refuse the whole row. Keep what
+      // this device already says rather than resetting it: the server has no
+      // opinion, so it must not be able to turn the setting off.
+      const incoming = row as Partial<Campaign> & { id: string }
+      if (typeof incoming.pays_per_platform !== 'boolean') {
+        const existing = (await this.db.campaigns.get(incoming.id)) as Campaign | undefined
+        row = { ...incoming, pays_per_platform: existing?.pays_per_platform ?? false }
+      }
+    }
     assertRow(table, row as never)
     // No enqueue: this came from the server, and sending it straight back
     // would be an echo that never settles.

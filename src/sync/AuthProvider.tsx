@@ -22,8 +22,14 @@ import { SupabaseSyncTarget } from './supabaseTarget'
 const SYNC_CURSOR_KEY = 'ugc-planner.sync_cursor'
 
 /** Set once the device has queued the history it made before the outbox was
- *  carrying everything. Client-side state, like the cursor above. */
-const OUTBOX_BACKFILL_KEY = 'ugc-planner.outbox_backfilled_at'
+ *  carrying everything. Client-side state, like the cursor above.
+ *
+ *  The `_v2` is deliberate. Until migration 0011 reached the server, it refused
+ *  every campaign write, and a write refused five times is left stuck in the
+ *  queue for good. Changing the key makes each device queue its rows afresh
+ *  once, so those edits go up now the column exists. Re-queueing is safe: rows
+ *  upsert by id and the history tables deduplicate on client_id. */
+const OUTBOX_BACKFILL_KEY = 'ugc-planner.outbox_backfilled_at_v2'
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const data = useData()

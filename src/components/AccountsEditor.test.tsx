@@ -149,6 +149,42 @@ describe('the login for each platform', () => {
     })
   })
 
+  it('shows the whole handle and email at rest, in boxes that wrap rather than clip', async () => {
+    // "i can only see the full username when i click on it." A one-line input
+    // cuts a long value off at its edge; these are wrapping boxes instead.
+    const account = await adapter.addCampaignAccount({
+      campaign_id: campaignId,
+      platform: 'Instagram',
+      handle: '@a.very.long.handle.that.would.not.fit.on.one.line',
+      email: 'someone.with.a.long.address@a-long-domain-name.example.com',
+    })
+    renderEditor()
+
+    const handle = await screen.findByLabelText('Instagram handle')
+    const email = screen.getByLabelText('Instagram email')
+    expect(handle.tagName).toBe('TEXTAREA')
+    expect(email.tagName).toBe('TEXTAREA')
+    expect(handle).toHaveValue(account.handle)
+    expect(email).toHaveValue(account.email)
+  })
+
+  it('saves on Enter instead of adding a line to a handle', async () => {
+    const user = userEvent.setup()
+    renderEditor()
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+    await user.click(screen.getByRole('button', { name: 'Instagram' }))
+    await waitFor(async () => {
+      expect(await adapter.listCampaignAccounts(campaignId)).toHaveLength(1)
+    })
+
+    await user.type(screen.getByLabelText('Instagram handle'), '@one.line{Enter}')
+
+    await waitFor(async () => {
+      const [account] = await adapter.listCampaignAccounts(campaignId)
+      expect(account.handle).toBe('@one.line')
+    })
+  })
+
   it('hides the password until Show is tapped', async () => {
     const user = userEvent.setup()
     renderEditor()

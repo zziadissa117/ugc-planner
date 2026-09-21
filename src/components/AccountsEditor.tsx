@@ -12,7 +12,7 @@
 // account. There is no campaign-level login any more - a creator runs a
 // different account per platform.
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 
 import type { AccountStatus, CampaignAccount, DataAdapter } from '../data'
 
@@ -178,6 +178,85 @@ export function AccountsEditor({
   )
 }
 
+/** Whether this browser can hide the characters of a plain text box.
+ *
+ *  A password has to be masked and still show every character it holds, and an
+ *  <input> cannot do both: it is one line, so a long value is cut off at the
+ *  edge of the box and only the part in view is ever visible. A textarea wraps,
+ *  and `-webkit-text-security` masks it. Where that is not supported the box
+ *  falls back to a real password input rather than showing the secret. */
+const CAN_MASK_TEXT =
+  typeof CSS !== 'undefined' &&
+  typeof CSS.supports === 'function' &&
+  CSS.supports('-webkit-text-security', 'disc')
+
+/** A one-value box that grows to hold everything in it.
+ *
+ *  A handle or an email longer than the box used to be clipped, and the only
+ *  way to read the rest was to tap in and scroll along it - "i can only see
+ *  the full username when i click on it". This wraps instead, so the whole
+ *  value is on screen at rest. Enter saves rather than adding a line, because
+ *  none of these values has one. */
+function GrowingBox({
+  value,
+  onCommit,
+  label,
+  placeholder,
+  className,
+  mask,
+  ...rest
+}: {
+  value: string
+  onCommit: (next: string) => void
+  label: string
+  placeholder: string
+  className: string
+  /** Hide the characters (only when CAN_MASK_TEXT). */
+  mask?: boolean
+  autoComplete?: string
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null)
+
+  const fit = useCallback(() => {
+    const el = ref.current
+    if (!el) return
+    el.style.height = 'auto'
+    // 0 in a layout-less environment; leave the height alone rather than
+    // collapsing the box.
+    if (el.scrollHeight > 0) el.style.height = `${el.scrollHeight}px`
+  }, [])
+
+  useLayoutEffect(fit, [fit, value])
+  useEffect(() => {
+    window.addEventListener('resize', fit)
+    return () => window.removeEventListener('resize', fit)
+  }, [fit])
+
+  return (
+    <textarea
+      ref={ref}
+      rows={1}
+      defaultValue={value}
+      onInput={fit}
+      onBlur={(event) => onCommit(event.target.value)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault()
+          event.currentTarget.blur()
+        }
+      }}
+      aria-label={label}
+      placeholder={placeholder}
+      autoCapitalize="none"
+      autoCorrect="off"
+      spellCheck={false}
+      style={mask ? ({ WebkitTextSecurity: 'disc' } as CSSProperties) : undefined}
+      className={`${className} resize-none overflow-hidden py-3 leading-snug [overflow-wrap:anywhere]`}
+      {...rest}
+    />
+  )
+}
+
 /** The captions are aria-hidden on purpose: each box already has a full
  *  accessible name ("Instagram email"), and a second label reading just
  *  "Email" is what once made a campaign-level Email field look like it still
@@ -226,13 +305,11 @@ function AccountRow({
           <span aria-hidden className="label text-state-later">
             Handle
           </span>
-          <input
-            defaultValue={account.handle ?? ''}
-            onBlur={(event) => field('handle', event.target.value)}
-            aria-label={`${account.platform} handle`}
+          <GrowingBox
+            value={account.handle ?? ''}
+            onCommit={(next) => field('handle', next)}
+            label={`${account.platform} handle`}
             placeholder="@handle - not saved yet"
-            autoCapitalize="none"
-            autoCorrect="off"
             className={`${box} mt-1 font-semibold`}
           />
         </div>
@@ -241,14 +318,12 @@ function AccountRow({
           <span aria-hidden className="label text-state-later">
             Email
           </span>
-          <input
-            defaultValue={account.email ?? ''}
-            onBlur={(event) => field('email', event.target.value)}
-            aria-label={`${account.platform} email`}
+          <GrowingBox
+            value={account.email ?? ''}
+            onCommit={(next) => field('email', next)}
+            label={`${account.platform} email`}
             placeholder="email - not saved yet"
             autoComplete="off"
-            autoCapitalize="none"
-            autoCorrect="off"
             className={`${box} mt-1`}
           />
         </div>
@@ -257,18 +332,30 @@ function AccountRow({
           <span aria-hidden className="label text-state-later">
             Password
           </span>
-          <div className="mt-1 flex gap-2">
-            <input
+          <div className="mt-1 flex items-start gap-2">
+            {CAN_MASK_TEXT ? (
+              <GrowingBox
+                value={account.password ?? ''}
+                onCommit={(next) => field('password', next)}
+                label={`${account.platform} password`}
+                placeholder="password - not saved yet"
+                autoComplete="new-password"
+                mask={!show}
+                className={box}
+              />
+            ) : (
+              <input
                 defaultValue={account.password ?? ''}
-              onBlur={(event) => field('password', event.target.value)}
-              type={show ? 'text' : 'password'}
-              aria-label={`${account.platform} password`}
-              placeholder="password - not saved yet"
-              autoComplete="new-password"
-              autoCapitalize="none"
-              autoCorrect="off"
-              className={box}
-            />
+                onBlur={(event) => field('password', event.target.value)}
+                type={show ? 'text' : 'password'}
+                aria-label={`${account.platform} password`}
+                placeholder="password - not saved yet"
+                autoComplete="new-password"
+                autoCapitalize="none"
+                autoCorrect="off"
+                className={box}
+              />
+            )}
             <button
               type="button"
               onClick={() => setShow((current) => !current)}

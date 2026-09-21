@@ -4,7 +4,13 @@ import { Link } from 'react-router-dom'
 import type { Campaign, CampaignAccount } from '../data'
 import { centsToDollarsInput, parseDollarsToCents } from '../data/campaignFields'
 import { useData } from '../data/useData'
-import { formatCents, hasMonthlyOverride, monthlyPayCents, payingPlatforms } from '../money'
+import {
+  byBestPay,
+  formatCents,
+  hasMonthlyOverride,
+  monthlyPayCents,
+  payingPlatforms,
+} from '../money'
 
 /** Every campaign at a glance.
  *
@@ -46,7 +52,7 @@ export function Campaigns() {
         <p className="text-sm text-state-later">No campaigns yet.</p>
       ) : (
         <ul className="flex flex-col gap-1.5">
-          {campaigns.map((campaign) => {
+          {byBestPay(campaigns, accounts).map((campaign) => {
             const platforms = accounts
               .filter((a) => a.campaign_id === campaign.id)
               .map((a) => a.platform)

@@ -13,6 +13,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 
 import type { Streak } from '../data/streak'
 import { KNOWN_PLATFORMS } from '../components/AccountsEditor'
+import { byBestPay } from '../money'
 import { formatClock, secondsLeft } from '../warmupTimer'
 import { useWarmupTimers } from '../warmupTimers'
 import type {
@@ -157,6 +158,13 @@ export function Now() {
       })
   }, [accounts, campaigns])
 
+  // Where each campaign stands on pay, 0 being the best. The warm-up list
+  // puts the campaign that pays best first inside each group.
+  const payRank = useMemo(
+    () => new Map(byBestPay(campaigns, accounts).map((c, index) => [c.id, index])),
+    [accounts, campaigns],
+  )
+
   const beginConsole = useCallback(
     async (campaign: Campaign, goal: number) => {
       const workSession = await data.startWorkSession({
@@ -251,6 +259,7 @@ export function Now() {
             campaigns={campaigns}
             warmupEvents={warmupEvents}
             onPick={openTimer}
+            payRank={payRank}
           />
         </>
       ) : stage.kind === 'pick_campaign' ? (
@@ -644,11 +653,14 @@ function WarmupList({
   campaigns,
   warmupEvents,
   onPick,
+  payRank,
 }: {
   accounts: CampaignAccount[]
   campaigns: Campaign[]
   warmupEvents: WarmupEvent[]
   onPick: (account: CampaignAccount) => void
+  /** Campaign id -> how well it pays, 0 being the best. */
+  payRank: ReadonlyMap<string, number>
 }) {
   if (accounts.length === 0) return null
 
@@ -670,11 +682,16 @@ function WarmupList({
     return index === -1 ? KNOWN_PLATFORMS.length : index
   }
 
-  /** Most pressing first; a tie falls back to campaign name and the platform
-   *  picker's order so the list does not shuffle between renders. */
+  /** Inside a group: the campaign that pays best first, then whichever needs
+   *  it most (new before neglected, longest left alone first), then campaign
+   *  name and the platform picker's order so the list does not shuffle between
+   *  renders. The groups themselves stay by urgency - red, amber, grey - and
+   *  pay orders each of them. */
   const prioritised = (list: CampaignAccount[]) =>
     [...list].sort(
       (a, b) =>
+        (payRank.get(a.campaign_id) ?? Number.MAX_SAFE_INTEGER) -
+          (payRank.get(b.campaign_id) ?? Number.MAX_SAFE_INTEGER) ||
         compareWarmupPriority(
           { account: a, last: lastOf(a) },
           { account: b, last: lastOf(b) },

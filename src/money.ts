@@ -104,6 +104,31 @@ export function monthlyPayCents(
   return day === null ? null : day * DAYS_PER_MONTH
 }
 
+/** Campaigns ordered by what they pay, best first.
+ *
+ *  "Pays" is the month figure every screen already shows - his own where he
+ *  gave one, the estimate otherwise - so the order on the screen agrees with
+ *  the numbers beside it. A campaign with no rate saved has no known pay, and
+ *  unknown is not zero: it goes last rather than being ranked as if it paid
+ *  nothing. Ties fall back to the rate per video, then to the name, so the
+ *  order never shuffles between renders. */
+export function byBestPay<T extends Campaign>(
+  campaigns: readonly T[],
+  accounts: readonly CampaignAccount[] = [],
+): T[] {
+  const month = new Map(campaigns.map((c) => [c.id, monthlyPayCents(c, accounts)]))
+  return [...campaigns].sort((a, b) => {
+    const pa = month.get(a.id) ?? null
+    const pb = month.get(b.id) ?? null
+    if (pa === null && pb !== null) return 1
+    if (pb === null && pa !== null) return -1
+    if (pa !== null && pb !== null && pa !== pb) return pb - pa
+    const ra = a.pay_per_video_cents ?? -1
+    const rb = b.pay_per_video_cents ?? -1
+    return rb - ra || a.name.localeCompare(b.name)
+  })
+}
+
 export function campaignEarnings(
   campaign: Campaign,
   accounts: readonly CampaignAccount[] = [],

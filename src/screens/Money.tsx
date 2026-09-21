@@ -5,6 +5,7 @@ import type { Campaign, CampaignAccount } from '../data'
 import { canPostFrom } from '../data'
 import { useData } from '../data/useData'
 import {
+  byBestPay,
   campaignEarnings,
   campaignIsLive,
   campaignsWithoutRate,
@@ -89,7 +90,7 @@ export function Money() {
       </div>
 
       <ul className="flex flex-col gap-1.5">
-        {campaigns.map((campaign) => (
+        {byBestPay(campaigns, accounts).map((campaign) => (
           <li key={campaign.id}>
             <CampaignLine
               campaign={campaign}

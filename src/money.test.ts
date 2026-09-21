@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { Campaign, CampaignAccount } from './data'
 import {
+  byBestPay,
   campaignEarnings,
   campaignIsLive,
   campaignsWithoutRate,
@@ -327,5 +328,53 @@ describe('campaigns that pay for each platform', () => {
       monthly_pay_override_cents: 200000,
     })
     expect(monthlyPayCents(pump, three)).toBe(200000)
+  })
+})
+
+describe('byBestPay', () => {
+  const mk = (id: string, name: string, rate: number | null, quota = 1, extra = {}) =>
+    ({
+      id,
+      name,
+      pay_per_video_cents: rate,
+      daily_post_quota: quota,
+      pays_per_platform: false,
+      monthly_pay_override_cents: null,
+      ...extra,
+    }) as unknown as import('./data').Campaign
+
+  it('puts what pays most a month first', () => {
+    const list = [
+      mk('a', 'Low', 1000),
+      mk('b', 'High', 4000),
+      mk('c', 'Mid', 2000),
+    ]
+    expect(byBestPay(list).map((c) => c.name)).toEqual(['High', 'Mid', 'Low'])
+  })
+
+  it('counts posts per day, not just the rate', () => {
+    // $10 x 5 a day beats $30 x 1 a day.
+    const list = [mk('a', 'Rate', 3000, 1), mk('b', 'Volume', 1000, 5)]
+    expect(byBestPay(list).map((c) => c.name)).toEqual(['Volume', 'Rate'])
+  })
+
+  it('uses his own monthly figure where he gave one', () => {
+    const list = [
+      mk('a', 'Estimate', 3000, 1),
+      mk('b', 'Corrected', 100, 1, { monthly_pay_override_cents: 500_000 }),
+    ]
+    expect(byBestPay(list).map((c) => c.name)).toEqual(['Corrected', 'Estimate'])
+  })
+
+  it('puts a campaign with no rate last, not ranked as if it paid nothing', () => {
+    const list = [mk('a', 'Unknown', null), mk('b', 'Known', 100)]
+    expect(byBestPay(list).map((c) => c.name)).toEqual(['Known', 'Unknown'])
+  })
+
+  it('breaks a tie by rate, then name, and does not touch the input', () => {
+    const list = [mk('a', 'Zed', 2000, 1), mk('b', 'Alpha', 2000, 1)]
+    const copy = [...list]
+    expect(byBestPay(list).map((c) => c.name)).toEqual(['Alpha', 'Zed'])
+    expect(list).toEqual(copy)
   })
 })

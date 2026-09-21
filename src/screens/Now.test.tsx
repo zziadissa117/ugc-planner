@@ -278,6 +278,69 @@ describe('the warm-up list, in order of priority', () => {
   })
 })
 
+describe('the warm-up list, best-paying campaign first', () => {
+  async function campaignPaying(name: string, cents: number, platform: string) {
+    const campaign = await adapter.createCampaign({
+      name,
+      company: null,
+      default_setup: 'face',
+      approval_mode: 'none',
+      daily_post_quota: 1,
+      pay_per_video_cents: cents,
+      cycle_size: null,
+    })
+    await adapter.addCampaignAccount({
+      campaign_id: campaign.id,
+      platform,
+      handle: `@${name.toLowerCase()}`,
+      status: 'new',
+    })
+    return campaign
+  }
+
+  it('lists the campaign that pays best first within a group', async () => {
+    // Inflow is the seed's, $35. All three of these are new, so they share the
+    // red group and pay alone decides the order.
+    await adapter.updateCampaignAccount(
+      (await adapter.listCampaignAccounts(INFLOW_CAMPAIGN_ID))[0].id,
+      { status: 'new' },
+    )
+    await campaignPaying('Cheap', 1000, 'Facebook')
+    await campaignPaying('Rich', 9000, 'X')
+
+    renderScreen()
+    await screen.findByText(/Keep them warm/)
+
+    const rows = screen.getAllByRole('listitem').map((row) => row.textContent ?? '')
+    const first = rows.findIndex((text) => text.includes('Rich'))
+    const second = rows.findIndex((text) => text.includes('Inflow'))
+    const last = rows.findIndex((text) => text.includes('Cheap'))
+    expect(first).toBeLessThan(second)
+    expect(second).toBeLessThan(last)
+  })
+
+  it('still keeps neglected accounts above fresh ones - pay only orders inside a group', async () => {
+    // A rich campaign whose account is ready and warmed recently belongs in the
+    // grey group, below a cheap campaign's brand-new account in the red one.
+    const rich = await campaignPaying('Rich', 9000, 'X')
+    const [richAccount] = await adapter.listCampaignAccounts(rich.id)
+    await adapter.updateCampaignAccount(richAccount.id, { status: 'ready' })
+    const event = await adapter.recordWarmupEvent(richAccount.id, 5)
+    void event
+    await campaignPaying('Cheap', 1000, 'Facebook')
+
+    renderScreen()
+    await screen.findByText(/Keep them warm/)
+
+    const rows = screen.getAllByRole('listitem').map((row) => row.textContent ?? '')
+    // Warmed today puts Rich in the done group; the point is that Cheap's new
+    // account is not pushed below it by pay.
+    expect(rows.findIndex((t) => t.includes('Cheap'))).toBeLessThan(
+      rows.findIndex((t) => t.includes('Rich')),
+    )
+  })
+})
+
 describe('the work clock', () => {
   beforeEach(() => localStorage.clear())
 
@@ -532,9 +595,11 @@ describe('warming up an account', () => {
     expect(screen.getByText(`0 of ${WARMUP_SESSIONS_REQUIRED}`)).toBeInTheDocument()
     expect(screen.getByText('15 min')).toBeInTheDocument()
 
-    // Ahead of the two ready ones: it is what holds a campaign off Post.
+    // In the same red group as the two never-warmed Inflow accounts. Inflow
+    // ($35) pays more than this campaign ($10), so it is listed first.
     const rows = screen.getAllByRole('listitem')
-    expect(rows[0]).toHaveTextContent('Facebook')
+    expect(rows).toHaveLength(3)
+    expect(rows[2]).toHaveTextContent('Facebook')
   })
 
   it('drops a handle whose campaign is gone, even one orphaned before the fix', async () => {

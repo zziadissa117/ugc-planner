@@ -155,3 +155,18 @@ describe('pay per month on each brief', () => {
     expect(screen.queryByRole('button', { name: 'Reset' })).toBeNull()
   })
 })
+
+describe('order on the Briefs list', () => {
+  it('lists the campaign that pays best first, and one with no rate last', async () => {
+    await makeCampaign({ name: 'Cheap', pay_per_video_cents: 1000 })
+    await makeCampaign({ name: 'Unknown', pay_per_video_cents: null })
+    await makeCampaign({ name: 'Rich', pay_per_video_cents: 9000 })
+    await makeCampaign({ name: 'Middle', pay_per_video_cents: 4000 })
+    await renderBriefs()
+
+    const names = (await screen.findAllByRole('listitem')).map((li) =>
+      ['Rich', 'Middle', 'Cheap', 'Unknown'].find((n) => li.textContent?.includes(n)),
+    )
+    expect(names).toEqual(['Rich', 'Middle', 'Cheap', 'Unknown'])
+  })
+})

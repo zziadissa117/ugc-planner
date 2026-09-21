@@ -280,3 +280,18 @@ describe('his own monthly figure', () => {
     expect(screen.queryByText('$1499.40')).toBeNull()
   })
 })
+
+describe('order on the money screen', () => {
+  it('lists the campaign that pays best first, blocked ones included', async () => {
+    await makeCampaign({ name: 'Cheap', pay_per_video_cents: 1000 })
+    await makeCampaign({ name: 'Rich', pay_per_video_cents: 9000 })
+    // Blocked, but its $17.85 x 30 sits between the two.
+    await makeBlockedCampaign({ name: 'Middle', pay_per_video_cents: 4000 })
+    await renderMoney()
+
+    const rows = (await screen.findAllByRole('listitem')).map((li) =>
+      ['Rich', 'Middle', 'Cheap'].find((n) => li.textContent?.includes(n)),
+    )
+    expect(rows).toEqual(['Rich', 'Middle', 'Cheap'])
+  })
+})

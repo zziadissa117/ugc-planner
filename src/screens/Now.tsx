@@ -669,10 +669,45 @@ function WarmupList({
 
   type Tone = 'urgent' | 'building' | 'ready' | 'done'
 
+  /** What each state looks like. Colour here is only ever the state: red is
+   *  stopped and says why, amber is part-way, grey is fine, green is done. */
+  const toneStyle: Record<Tone, { edge: string; card: string; pill: string; text: string }> = {
+    urgent: {
+      edge: 'bg-state-blocked',
+      card: 'border-state-blocked/45 bg-state-blocked/[0.06]',
+      pill: 'border-state-blocked/50 bg-state-blocked/15',
+      text: 'text-state-blocked font-semibold',
+    },
+    building: {
+      edge: 'bg-state-waiting',
+      card: 'border-state-waiting/35 bg-surface',
+      pill: 'border-state-waiting/45 bg-state-waiting/10',
+      text: 'text-state-waiting font-semibold',
+    },
+    ready: {
+      edge: 'bg-state-later/60',
+      card: 'border-edge bg-surface',
+      pill: 'border-edge bg-surface-raised',
+      text: 'text-state-later font-semibold',
+    },
+    done: {
+      edge: 'bg-state-posted',
+      card: 'border-state-posted/40 bg-state-posted/[0.06]',
+      pill: 'border-state-posted/45 bg-state-posted/10',
+      text: 'text-state-posted font-semibold',
+    },
+  }
+
+  /** One account, as a card of its own. It used to be a row in a shared box
+   *  with hairlines between, and a run of them read as one block of text - he
+   *  called it aesthetically lazy. Each is separate now, with the state on its
+   *  left edge and in a pill, the handle given room, and the session progress
+   *  drawn as pips so "1 of 2" is seen rather than read. */
   const row = (account: CampaignAccount, tone: Tone) => {
     const building = needsWarmup(account)
     const sessions = warmupCompletions(account.id, warmupEvents)
     const last = lastOf(account)
+    const style = toneStyle[tone]
 
     // Every colour here is a state, and the red ones say why in words.
     const reason =
@@ -691,51 +726,56 @@ function WarmupList({
             : last === null
               ? 'never warmed'
               : sinceLabel(last)
-    const reasonClass = {
-      urgent: 'text-state-blocked font-semibold',
-      building: 'text-state-waiting',
-      ready: 'text-state-later',
-      done: 'text-state-posted',
-    }[tone]
 
     return (
       <li key={account.id}>
         <button
           type="button"
           onClick={() => onPick(account)}
-          className="flex min-h-tap w-full items-center justify-between gap-3 px-3 py-2 text-left transition-colors active:bg-surface-raised"
+          className={[
+            'relative block w-full overflow-hidden rounded-2xl border py-3 pl-5 pr-4 text-left',
+            'shadow-[0_1px_0_0_rgb(255_255_255/0.03)_inset] transition-transform duration-100',
+            'active:scale-[0.99] focus-visible:outline focus-visible:outline-2 focus-visible:outline-state-now',
+            style.card,
+          ].join(' ')}
         >
-          <span className="flex min-w-0 flex-1 items-center gap-2">
+          <span aria-hidden className={`absolute inset-y-0 left-0 w-1.5 ${style.edge}`} />
+
+          <span className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+            <span className="text-lg font-semibold leading-tight text-text">{account.platform}</span>
             <span
-              aria-hidden
-              className={`w-3 shrink-0 text-center ${tone === 'done' ? 'text-state-posted' : 'text-transparent'}`}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 ${style.pill}`}
             >
-              ✓
-            </span>
-            {/* Platform and handle on one line that is allowed to wrap, and the
-                campaign under them. Truncating the handle left it "@mi..." on a
-                phone, so it wraps instead. */}
-            <span className="flex min-w-0 flex-col">
-              <span className="flex flex-wrap items-baseline gap-x-2">
-                <span
-                  className={`font-semibold ${tone === 'done' ? 'text-state-posted' : 'text-text'}`}
-                >
-                  {account.platform}
+              {tone === 'done' ? (
+                <span aria-hidden className="text-state-posted">
+                  ✓
                 </span>
-                <span className="break-all text-sm text-state-later">
-                  {account.handle ?? 'no handle saved'}
-                </span>
-              </span>
-              <span className="meta truncate text-state-later">
-                {nameById.get(account.campaign_id) ?? 'unknown campaign'}
-              </span>
+              ) : null}
+              <span className={`text-sm leading-tight ${style.text}`}>{reason}</span>
             </span>
           </span>
-          <span className="flex shrink-0 flex-col items-end text-right">
-            <span className={`text-sm ${reasonClass}`}>{reason}</span>
-            <span className="meta flex items-baseline gap-1.5 text-state-later">
+
+          <span className="mt-1 block break-all text-base text-text-dim">
+            {account.handle ?? 'no handle saved'}
+          </span>
+
+          <span className="mt-3 flex items-center justify-between gap-3 border-t border-edge/70 pt-2.5">
+            <span className="meta min-w-0 truncate text-state-later">
+              {nameById.get(account.campaign_id) ?? 'unknown campaign'}
+            </span>
+            <span className="meta flex shrink-0 items-center gap-2 text-state-later">
               {building ? (
                 <>
+                  <span aria-hidden className="flex gap-1">
+                    {Array.from({ length: WARMUP_SESSIONS_REQUIRED }, (_, index) => (
+                      <span
+                        key={index}
+                        className={`h-2 w-5 rounded-full ${
+                          index < sessions ? 'bg-state-posted' : 'bg-edge-lit'
+                        }`}
+                      />
+                    ))}
+                  </span>
                   <span className="numeric">
                     {sessions} of {WARMUP_SESSIONS_REQUIRED}
                   </span>
@@ -757,20 +797,12 @@ function WarmupList({
     tone: Tone,
   ) =>
     list.length === 0 ? null : (
-      <div className="flex flex-col gap-1.5">
-        <h3 className={`label ${headingClass}`}>{heading}</h3>
-        <ul
-          className={[
-            'divide-y overflow-hidden rounded-xl border',
-            tone === 'urgent'
-              ? 'divide-state-blocked/20 border-state-blocked/50 bg-state-blocked/5'
-              : tone === 'done'
-                ? 'divide-state-posted/20 border-state-posted/40 bg-state-posted/5'
-                : 'divide-edge border-edge bg-surface',
-          ].join(' ')}
-        >
-          {list.map((account) => row(account, tone))}
-        </ul>
+      <div className="flex flex-col gap-2.5">
+        <div className="flex items-center gap-3">
+          <h3 className={`label ${headingClass}`}>{heading}</h3>
+          <span aria-hidden className="h-px flex-1 bg-edge" />
+        </div>
+        <ul className="grid gap-3 sm:grid-cols-2">{list.map((account) => row(account, tone))}</ul>
       </div>
     )
 

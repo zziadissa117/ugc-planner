@@ -146,6 +146,19 @@ body {
   line-height: 1.15;
 }
 
+/* Cursive for a campaign's name in the Briefs section. Script faces run
+   small for their size and lose legibility when thin, so it is set larger and
+   heavy. Still a system stack - Snell Roundhand and Apple Chancery ship with
+   his iPhone and Mac - so there is nothing to download and it works offline;
+   any other device falls back to the browser's own cursive. */
+.script {
+  font-family: "Snell Roundhand", "Apple Chancery", "Brush Script MT", "Segoe Script",
+    "Lucida Handwriting", cursive;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+}
+
 /* Numbers are the point of most of these screens - the count, the goal, the
    money, the clock. Slab-like monospaced figures line up in a column and stop
    the score jittering as it counts up. */

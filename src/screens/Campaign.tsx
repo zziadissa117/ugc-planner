@@ -617,7 +617,7 @@ function CampaignTitle({
   // Still a real heading: it is what every screen and every test finds the
   // campaign by, and making it editable must not cost it that.
   return (
-    <h1 className="min-w-0 text-xl font-semibold text-text">
+    <h1 className="script min-w-0 text-4xl text-text">
       <button
         type="button"
         aria-label={`Rename ${name}`}
@@ -625,7 +625,7 @@ function CampaignTitle({
           setDraft(name)
           setEditing(true)
         }}
-        className="max-w-full truncate rounded-md text-left active:bg-surface-raised"
+        className="max-w-full break-words rounded-md text-left active:bg-surface-raised"
       >
         {name}
       </button>

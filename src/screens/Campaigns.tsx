@@ -61,7 +61,7 @@ export function Campaigns() {
                     to={`/campaigns/${campaign.id}`}
                     className="block min-w-0 active:opacity-70"
                   >
-                    <span className="block truncate font-semibold text-text">{campaign.name}</span>
+                    <span className="script block break-words text-3xl text-text">{campaign.name}</span>
                     <span className="block truncate text-xs text-state-later">
                       {platforms.length === 0 ? 'no platforms yet' : platforms.join(' · ')}
                     </span>

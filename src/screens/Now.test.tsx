@@ -16,6 +16,7 @@ import type { DataAdapter } from '../data/DataAdapter'
 import { LocalDatabase } from '../data/local/db'
 import { LocalAdapter } from '../data/local/LocalAdapter'
 import { INFLOW_CAMPAIGN_ID, ensureSeeded } from '../data/seed'
+import { WarmupTimersProvider } from '../warmupTimers'
 import { Now } from './Now'
 
 const USER = '11111111-1111-4111-8111-111111111111'
@@ -23,6 +24,7 @@ let adapter: DataAdapter
 let database: LocalDatabase
 
 beforeEach(async () => {
+  localStorage.removeItem('ugc-planner.warmup_timers')
   indexedDB = new IDBFactory()
   const db = new LocalDatabase(`now-${crypto.randomUUID()}`)
   database = db
@@ -35,7 +37,9 @@ function renderScreen() {
   return render(
     <DataContext.Provider value={adapter}>
       <MemoryRouter>
-        <Now />
+        <WarmupTimersProvider>
+          <Now />
+        </WarmupTimersProvider>
       </MemoryRouter>
     </DataContext.Provider>,
   )

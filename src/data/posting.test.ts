@@ -542,3 +542,78 @@ describe('a box stays where he tapped it', () => {
     expect(board.doneToday).toBe(2)
   })
 })
+
+describe('lowering the posts owed per day', () => {
+  // "If I used to have 2 posts per day and I change it to 1, there will still
+  // be 2 boxes to check when there's only 1 box to check." ensureTodaysQuota
+  // only ever adds today's rows, so the second one outlived the quota and the
+  // board drew a box for every row.
+  it('draws one box for one post owed, though two rows were raised earlier', async () => {
+    const { campaign } = await setUp(2, ['Instagram', 'TikTok'])
+    await ensureTodaysQuota(adapter)
+    expect((await state(campaign)).board.slots).toBe(2)
+
+    const lowered = await adapter.updateCampaign(campaign.id, { daily_post_quota: 1 })
+    await ensureTodaysQuota(adapter)
+
+    const { videos, accounts, posts } = await state(campaign)
+    const board = buildBoard(lowered, accounts, videos, posts)
+    expect(board.slots).toBe(1)
+    expect(board.quota).toBe(1)
+    expect(board.rows.every((row) => row.cells.length === 1)).toBe(true)
+    // The row is still in the store: nothing was deleted to make this true.
+    expect(videos.filter((v) => v.owed_for_date !== null)).toHaveLength(2)
+  })
+
+  it('brings the second box back when the quota goes up again', async () => {
+    const { campaign } = await setUp(2, ['Instagram'])
+    await ensureTodaysQuota(adapter)
+    await adapter.updateCampaign(campaign.id, { daily_post_quota: 1 })
+    const raised = await adapter.updateCampaign(campaign.id, { daily_post_quota: 2 })
+
+    const { videos, accounts, posts } = await state(campaign)
+    expect(buildBoard(raised, accounts, videos, posts).slots).toBe(2)
+  })
+
+  it('does not owe more than the new number on the home screen either', async () => {
+    const { campaign } = await setUp(2, ['Instagram'])
+    await ensureTodaysQuota(adapter)
+    const lowered = await adapter.updateCampaign(campaign.id, { daily_post_quota: 1 })
+
+    const { videos, accounts, posts } = await state(campaign)
+    expect(tallyBoards(boardsForToday([lowered], accounts, videos, posts)).owed).toBe(1)
+  })
+
+  it('keeps a box he already ticked, even when the quota no longer covers it', async () => {
+    const { campaign, accounts } = await setUp(2, ['Instagram'])
+    await ensureTodaysQuota(adapter)
+
+    // He posts the SECOND box, then cuts the quota to 1.
+    const first = await state(campaign)
+    await markPosted(adapter, first.board, accounts[0], 1, first.videos)
+    const lowered = await adapter.updateCampaign(campaign.id, { daily_post_quota: 1 })
+
+    const { videos, accounts: accs, posts } = await state(campaign)
+    const board = buildBoard(lowered, accs, videos, posts)
+    // One box, and it is the ticked one - the unticked spare is what goes.
+    expect(board.slots).toBe(1)
+    expect(board.rows[0].cells[0].post).not.toBeNull()
+    expect(board.doneToday).toBe(1)
+  })
+
+  it('keeps every ticked box and its place when the quota is cut below what he did', async () => {
+    const { campaign, accounts } = await setUp(3, ['Instagram'])
+    await ensureTodaysQuota(adapter)
+    for (const slot of [0, 2]) {
+      const { board, videos } = await state(campaign)
+      await markPosted(adapter, board, accounts[0], slot, videos)
+    }
+    const lowered = await adapter.updateCampaign(campaign.id, { daily_post_quota: 1 })
+
+    const { videos, accounts: accs, posts } = await state(campaign)
+    const board = buildBoard(lowered, accs, videos, posts)
+    // Both posted boxes stay; the unposted middle one goes.
+    expect(board.rows[0].cells.map((c) => c.post !== null)).toEqual([true, true])
+    expect(board.doneToday).toBe(2)
+  })
+})

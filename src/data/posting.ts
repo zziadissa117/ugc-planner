@@ -120,10 +120,36 @@ export function buildBoard(
   // how he found it: "There are some cases when i click on them they dont make
   // noise." CLAUDE.md has said since the beginning that a box must stay in
   // place; this is what was breaking it.
-  const owed = videos
+  const quota = campaign.daily_post_quota
+
+  const owedAll = videos
     .filter((v) => v.campaign_id === campaign.id && v.owed_for_date === date)
     .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id))
     .map((v) => v.id)
+
+  // THE QUOTA DECIDES HOW MANY OF THOSE ROWS ARE BOXES.
+  //
+  // ensureTodaysQuota only ever adds rows. So a campaign that owed 2 a day
+  // and was cut to 1 kept its second row for the rest of the day, and the
+  // board drew a box for it - two boxes to tick for one post owed, which is
+  // the campaign's number being ignored by the very screen that exists to
+  // count it. The rows stay in the store (raising the quota again brings the
+  // box back, and nothing is deleted from a ledger), but only as many
+  // UNPOSTED ones as the quota still has room for are drawn.
+  //
+  // A row that has been posted is always drawn, whatever the quota says now:
+  // it went out, over-delivering has to be visible, and a box he ticked must
+  // never vanish. Rows keep their original order, so no box changes place.
+  const postedIds = new Set(todays.map((p) => p.video_id))
+  let room = Math.max(0, quota - owedAll.filter((id) => postedIds.has(id)).length)
+  const owed = owedAll.filter((id) => {
+    if (postedIds.has(id)) return true
+    if (room > 0) {
+      room -= 1
+      return true
+    }
+    return false
+  })
 
   // Anything posted today that is not one of those rows: stock drained from
   // the backlog, or an extra beyond the quota. Appended in the order it went
@@ -136,7 +162,6 @@ export function buildBoard(
 
   const videoIdBySlot = [...owed, ...extra]
 
-  const quota = campaign.daily_post_quota
   // Never fewer columns than there are deliverables to show: over-delivering
   // is real and has to be visible.
   const slots = Math.max(quota, videoIdBySlot.length)

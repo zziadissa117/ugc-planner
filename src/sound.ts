@@ -311,3 +311,49 @@ function fire(ctx: AudioContext, buffer: AudioBuffer): void {
     /* audio is allowed to fail silently; the tick is what matters */
   }
 }
+
+/** Readies audio from inside a tap, so a sound can play later with no tap.
+ *
+ *  A browser will only start an AudioContext from a user gesture, and the
+ *  warm-up chime fires minutes after the tap that began the timer. Calling
+ *  this when the timer starts is what lets the chime sound when it is due
+ *  rather than staying silent because nothing ever unlocked the context. */
+export function unlockAudio(): void {
+  try {
+    claimPlaybackSession()
+    const ctx = audio(true)
+    if (!ctx) return
+    watchVisibility()
+    void wake(ctx)
+  } catch {
+    /* audio is allowed to fail silently */
+  }
+}
+
+/** "Your warm-up is done": three soft bell notes climbing, then it is over.
+ *
+ *  Deliberately not the till. That one means money went up; this one means
+ *  stop scrolling. Same bell voice as the rest of the app, so it needs no
+ *  file and works with the network off, but rising and gentle rather than a
+ *  single bright strike. */
+export function playWarmupDone(): void {
+  if (isMuted()) return
+  try {
+    claimPlaybackSession()
+    const ctx = audio(true)
+    if (!ctx) return
+    watchVisibility()
+
+    const ring = () => {
+      const at = ctx.currentTime + 0.02
+      strike(ctx, 659.25, at, 1.3, 0.2) // E5
+      strike(ctx, 830.61, at + 0.26, 1.3, 0.2) // G#5
+      strike(ctx, 1046.5, at + 0.52, 1.9, 0.22) // C6
+    }
+
+    if (ctx.state === 'running') ring()
+    else void wake(ctx).then(ring)
+  } catch {
+    /* nothing more to do - the widget still says the time is up */
+  }
+}

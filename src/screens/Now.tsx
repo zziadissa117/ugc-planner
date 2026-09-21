@@ -9,10 +9,12 @@
 // FILM against a goal, and warm-up.
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 
 import type { Streak } from '../data/streak'
 import { KNOWN_PLATFORMS } from '../components/AccountsEditor'
+import { formatClock, secondsLeft } from '../warmupTimer'
+import { useWarmupTimers } from '../warmupTimers'
 import type {
   Campaign,
   CampaignAccount,
@@ -74,6 +76,9 @@ type Stage =
 
 export function Now() {
   const data = useData()
+  const timers = useWarmupTimers()
+  const location = useLocation()
+  const navigate = useNavigate()
 
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
   const [videos, setVideos] = useState<Video[]>([])
@@ -166,13 +171,33 @@ export function Now() {
     [data],
   )
 
-  const recordWarmup = useCallback(
-    async (account: CampaignAccount) => {
-      await data.recordWarmupEvent(account.id, warmupMinutesFor(account))
-      await reload()
+  // A warm-up marked done from the strip at the top of the page - while he was
+  // on some other screen, or with this one already open - has to show up here.
+  const { completions } = timers
+  useEffect(() => {
+    if (completions > 0) void reload()
+  }, [completions, reload])
+
+  /** Starts the timer for an account, or reopens the one already running.
+   *  Either way it is the app shell that keeps it going, not this screen. */
+  const openTimer = useCallback(
+    (account: CampaignAccount) => {
+      const campaign = campaigns.find((c) => c.id === account.campaign_id) ?? null
+      timers.start(account, campaign?.name ?? 'unknown campaign')
+      setStage({ kind: 'warmup_timer', account, campaign })
     },
-    [data, reload],
+    [campaigns, timers],
   )
+
+  // Arriving from the strip at the top of another screen: open that timer.
+  const wantedTimer = (location.state as { openTimer?: string } | null)?.openTimer ?? null
+  useEffect(() => {
+    if (wantedTimer === null || !loaded) return
+    const account = accounts.find((a) => a.id === wantedTimer)
+    if (account) openTimer(account)
+    // Consumed, so coming back to Now later does not reopen it.
+    void navigate('.', { replace: true, state: null })
+  }, [wantedTimer, loaded, accounts, openTimer, navigate])
 
   const markOneEdited = useCallback(async () => {
     setEditBusy(true)
@@ -225,13 +250,7 @@ export function Now() {
             accounts={warmupAccounts}
             campaigns={campaigns}
             warmupEvents={warmupEvents}
-            onPick={(account) =>
-              setStage({
-                kind: 'warmup_timer',
-                account,
-                campaign: campaigns.find((c) => c.id === account.campaign_id) ?? null,
-              })
-            }
+            onPick={openTimer}
           />
         </>
       ) : stage.kind === 'pick_campaign' ? (
@@ -271,7 +290,11 @@ export function Now() {
           account={stage.account}
           campaign={stage.campaign}
           onDone={async () => {
-            await recordWarmup(stage.account)
+            await timers.complete(stage.account.id)
+            setStage({ kind: 'home' })
+          }}
+          onCancel={() => {
+            timers.cancel(stage.account.id)
             setStage({ kind: 'home' })
           }}
           onBack={() => setStage({ kind: 'home' })}
@@ -948,25 +971,30 @@ function WarmupTimer({
   account,
   campaign,
   onDone,
+  onCancel,
   onBack,
 }: {
   account: CampaignAccount
   campaign: Campaign | null
   onDone: () => Promise<void>
+  onCancel: () => void
   onBack: () => void
 }) {
-  const [secondsLeft, setSecondsLeft] = useState(() => warmupMinutesFor(account) * 60)
+  const { timers, now, setViewing } = useWarmupTimers()
   const [busy, setBusy] = useState(false)
 
+  // The strip at the top of the page shows every timer except the one filling
+  // this screen, so it is not on screen twice.
   useEffect(() => {
-    const timer = window.setInterval(() => {
-      setSecondsLeft((current) => Math.max(0, current - 1))
-    }, 1000)
-    return () => window.clearInterval(timer)
-  }, [])
+    setViewing(account.id)
+    return () => setViewing(null)
+  }, [account.id, setViewing])
 
-  const mm = String(Math.floor(secondsLeft / 60)).padStart(2, '0')
-  const ss = String(secondsLeft % 60).padStart(2, '0')
+  // The timer belongs to the app shell, not to this screen: what is left is
+  // read off its end time, so it is right however long he was elsewhere.
+  const timer = timers.find((t) => t.accountId === account.id)
+  const left = timer ? secondsLeft(timer, now) : warmupMinutesFor(account) * 60
+  const finished = timer !== undefined && left === 0
 
   const handleDone = useCallback(async () => {
     setBusy(true)
@@ -986,10 +1014,10 @@ function WarmupTimer({
       <p className="-mt-3 text-sm text-state-later">{campaign?.name ?? 'unknown campaign'}</p>
 
       <p className="numeric text-center text-6xl font-semibold text-text" aria-live="polite">
-        {mm}:{ss}
+        {formatClock(left)}
       </p>
       <p className="text-center text-sm text-state-later">
-        {secondsLeft === 0
+        {finished
           ? "Time's up."
           : needsWarmup(account)
             ? 'Use the account normally until this runs out.'
@@ -1010,8 +1038,17 @@ function WarmupTimer({
         onClick={onBack}
         className="min-h-tap rounded-lg border border-edge bg-surface px-4 text-sm font-semibold text-state-later active:bg-surface-raised"
       >
-        Back
+        Back - the timer keeps running
       </button>
+      {finished ? null : (
+        <button
+          type="button"
+          onClick={onCancel}
+          className="min-h-tap rounded-lg px-4 text-sm text-state-later active:bg-surface-raised"
+        >
+          Cancel this timer
+        </button>
+      )}
     </div>
   )
 }

@@ -121,3 +121,50 @@ export function statusAfterWarmup(
   if (completions >= WARMUP_SESSIONS_REQUIRED) return 'ready'
   return completions > 0 ? 'warming' : account.status
 }
+
+/** How many whole days an account can go without a session before it counts as
+ *  neglected. Seven is a starting point, not a rule from him or from any
+ *  platform - it is the one number here that is a guess, so it lives in one
+ *  place to be changed. */
+export const WARMUP_STALE_DAYS = 7
+
+/** Whole days since `iso`, the same rounding the "4d ago" label uses. */
+export function daysSince(iso: string, now: number = Date.now()): number {
+  return Math.floor((now - new Date(iso).getTime()) / 86_400_000)
+}
+
+/** Where an account sits on the warm-up list, most pressing first.
+ *
+ *    urgent   - brand new, or left alone for a long time (never warmed counts).
+ *               Red: this is the account most likely to be throttled or to be
+ *               holding a campaign off the Post tab.
+ *    building - part-way through its first sessions, and not neglected.
+ *    ready    - done, and warmed recently enough that it is only being kept
+ *               alive. Last on the list.
+ *
+ *  A ready account is not automatically at the bottom: one nobody has touched
+ *  for a fortnight is urgent, because "ready" only says it may post, not that
+ *  it is still fresh. */
+export type WarmupTier = 'urgent' | 'building' | 'ready'
+
+export function warmupTier(
+  account: CampaignAccount,
+  lastWarmedAt: string | null,
+  now: number = Date.now(),
+): WarmupTier {
+  if (account.status === 'new') return 'urgent'
+  if (lastWarmedAt === null || daysSince(lastWarmedAt, now) >= WARMUP_STALE_DAYS) return 'urgent'
+  return account.status === 'warming' ? 'building' : 'ready'
+}
+
+/** Orders two accounts within a tier: brand-new before the merely neglected,
+ *  then whichever has gone longest without a session, never-warmed first. */
+export function compareWarmupPriority(
+  a: { account: CampaignAccount; last: string | null },
+  b: { account: CampaignAccount; last: string | null },
+): number {
+  const byNew = Number(b.account.status === 'new') - Number(a.account.status === 'new')
+  if (byNew !== 0) return byNew
+  // ISO timestamps sort as text, and '' sorts before any of them.
+  return (a.last ?? '').localeCompare(b.last ?? '')
+}

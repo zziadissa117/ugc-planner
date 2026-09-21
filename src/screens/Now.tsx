@@ -23,12 +23,15 @@ import type {
 } from '../data'
 import {
   WARMUP_SESSIONS_REQUIRED,
+  compareWarmupPriority,
+  daysSince,
   lastWarmupAt,
   localToday,
   needsWarmup,
   warmsUp,
   warmupCompletions,
   warmupMinutesFor,
+  warmupTier,
 } from '../data'
 import { postingStreak } from '../data/streak'
 import {
@@ -595,27 +598,24 @@ function Briefing({
   )
 }
 
-/** Every account, and when each was last used.
+/** Every account, in the order he should warm them.
  *
- *  It began as a button reading "Warm up 2 accounts" - a number he had to tap
- *  to find out what it meant - and became a list of the not-ready ones when he
- *  asked to see which they were. He then asked for the rest as well: "keep a
- *  warmup section for all accounts just to make sure i keep them fresh and
- *  remember". So a ready account is here too, not because it needs promoting
- *  but because an account nobody touches goes stale.
+ *  It began as a button reading "Warm up 2 accounts", became a list of the
+ *  not-ready ones, then grew the ready ones too - "just to make sure i keep
+ *  them fresh and remember". It was then grouped by campaign, which read well
+ *  but put an account nobody had touched in a month wherever its campaign's
+ *  name happened to sort. He asked for priority instead: brand-new accounts
+ *  and ones left alone for a long time on top and red, accounts that are ready
+ *  and recently kept fresh at the bottom.
  *
- *  Split in two, because it is a daily checklist and the question he is
- *  asking it is "what is left today": an account warmed today is done and
- *  goes green under its own heading, the same green the posting boxes use for
- *  the same reason.
+ *  So the order is the point, and the campaign is said on each row rather
+ *  than being what the list is organised by. See warmupTier for the tiers.
  *
- *  Inside each half, one card per campaign. It was one card per account with
- *  the campaign name after every handle and campaigns interleaved in whatever
- *  order the sort produced - Facebook/Inflow, Instagram/Vertus, X/Vertus,
- *  TikTok/Inflow - so "what is left for Vertus" meant reading every row. Now
- *  the campaign is said once, its accounts sit under it in aligned columns,
- *  and a row is one line. Not-ready accounts still come first within a
- *  campaign and still read amber: those hold it off the Post tab. */
+ *  It is still a daily checklist: an account warmed today is done, goes green
+ *  under its own heading at the very end, and stops counting as "left". Red
+ *  keeps its meaning - stopped, with the reason in plain words - because a new
+ *  or neglected account is exactly what holds a campaign off the Post tab or
+ *  gets an account throttled, and every red row says which of the two it is. */
 function WarmupList({
   accounts,
   campaigns,
@@ -630,110 +630,119 @@ function WarmupList({
   if (accounts.length === 0) return null
 
   const today = localToday()
+  const now = Date.now()
   const nameById = new Map(campaigns.map((campaign) => [campaign.id, campaign.name]))
 
   const lastById = new Map(
     accounts.map((account) => [account.id, lastWarmupAt(account.id, warmupEvents)]),
   )
+  const lastOf = (account: CampaignAccount) => lastById.get(account.id) ?? null
   const warmedToday = (account: CampaignAccount): boolean => {
-    const last = lastById.get(account.id) ?? null
+    const last = lastOf(account)
     return last !== null && localToday(new Date(last)) === today
   }
+
+  const platformRank = (platform: string) => {
+    const index = (KNOWN_PLATFORMS as readonly string[]).indexOf(platform)
+    return index === -1 ? KNOWN_PLATFORMS.length : index
+  }
+
+  /** Most pressing first; a tie falls back to campaign name and the platform
+   *  picker's order so the list does not shuffle between renders. */
+  const prioritised = (list: CampaignAccount[]) =>
+    [...list].sort(
+      (a, b) =>
+        compareWarmupPriority(
+          { account: a, last: lastOf(a) },
+          { account: b, last: lastOf(b) },
+        ) ||
+        (nameById.get(a.campaign_id) ?? '').localeCompare(nameById.get(b.campaign_id) ?? '') ||
+        platformRank(a.platform) - platformRank(b.platform),
+    )
 
   const todo = accounts.filter((account) => !warmedToday(account))
   const done = accounts.filter(warmedToday)
 
-  /** One campaign per card, campaigns in name order, and inside each the
-   *  accounts still being built first, then in the order the platform picker
-   *  lists them - the order he chose them in, rather than alphabetical, which
-   *  put Facebook above TikTok for no reason he would recognise. */
-  const byCampaign = (list: CampaignAccount[]) => {
-    const groups = new Map<string, CampaignAccount[]>()
-    for (const account of list) {
-      const group = groups.get(account.campaign_id) ?? []
-      group.push(account)
-      groups.set(account.campaign_id, group)
-    }
-    const platformRank = (platform: string) => {
-      const index = (KNOWN_PLATFORMS as readonly string[]).indexOf(platform)
-      return index === -1 ? KNOWN_PLATFORMS.length : index
-    }
-    return [...groups.entries()]
-      .map(([campaignId, group]) => ({
-        campaignId,
-        name: nameById.get(campaignId) ?? 'unknown campaign',
-        accounts: group.sort(
-          (a, b) =>
-            Number(needsWarmup(b)) - Number(needsWarmup(a)) ||
-            platformRank(a.platform) - platformRank(b.platform) ||
-            a.platform.localeCompare(b.platform),
-        ),
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name))
-  }
+  const urgent = prioritised(todo.filter((a) => warmupTier(a, lastOf(a), now) === 'urgent'))
+  const building = prioritised(todo.filter((a) => warmupTier(a, lastOf(a), now) === 'building'))
+  const ready = prioritised(todo.filter((a) => warmupTier(a, lastOf(a), now) === 'ready'))
 
-  const row = (account: CampaignAccount, warm: boolean) => {
+  type Tone = 'urgent' | 'building' | 'ready' | 'done'
+
+  const row = (account: CampaignAccount, tone: Tone) => {
     const building = needsWarmup(account)
     const sessions = warmupCompletions(account.id, warmupEvents)
-    const last = lastById.get(account.id) ?? null
+    const last = lastOf(account)
 
-    // One line, not two: the status and the length of the sitting side by
-    // side, so a row is one tap high and the eye runs straight down the
-    // column rather than zig-zagging between stacked labels.
-    const status = building
-      ? `${sessions} of ${WARMUP_SESSIONS_REQUIRED}`
-      : warm
+    // Every colour here is a state, and the red ones say why in words.
+    const reason =
+      tone === 'done'
         ? 'warmed'
-        : last === null
-          ? 'never warmed'
-          : sinceLabel(last)
+        : tone === 'urgent'
+          ? account.status === 'new'
+            ? 'New - not warmed yet'
+            : last === null
+              ? 'Never warmed'
+              : `Not warmed in ${daysSince(last, now)} days`
+          : tone === 'building'
+            ? last === null
+              ? 'in progress'
+              : sinceLabel(last)
+            : last === null
+              ? 'never warmed'
+              : sinceLabel(last)
+    const reasonClass = {
+      urgent: 'text-state-blocked font-semibold',
+      building: 'text-state-waiting',
+      ready: 'text-state-later',
+      done: 'text-state-posted',
+    }[tone]
 
     return (
       <li key={account.id}>
         <button
           type="button"
           onClick={() => onPick(account)}
-          className="flex min-h-tap w-full items-center justify-between gap-3 px-3 text-left transition-colors active:bg-surface-raised"
+          className="flex min-h-tap w-full items-center justify-between gap-3 px-3 py-2 text-left transition-colors active:bg-surface-raised"
         >
           <span className="flex min-w-0 flex-1 items-center gap-2">
             <span
               aria-hidden
-              className={`w-3 shrink-0 text-center ${warm ? 'text-state-posted' : 'text-transparent'}`}
+              className={`w-3 shrink-0 text-center ${tone === 'done' ? 'text-state-posted' : 'text-transparent'}`}
             >
               ✓
             </span>
-            {/* Two columns from sm: up, where every handle can start at the
-                same x and the card reads as a table. On a narrow phone that
-                left the handle about forty pixels and rendered it "@mi...",
-                so there it gets its own line and is readable instead. */}
-            <span className="flex min-w-0 flex-col sm:flex-row sm:items-center sm:gap-2">
-              <span
-                className={`truncate font-semibold sm:w-24 sm:shrink-0 ${warm ? 'text-state-posted' : 'text-text'}`}
-              >
-                {account.platform}
+            {/* Platform and handle on one line that is allowed to wrap, and the
+                campaign under them. Truncating the handle left it "@mi..." on a
+                phone, so it wraps instead. */}
+            <span className="flex min-w-0 flex-col">
+              <span className="flex flex-wrap items-baseline gap-x-2">
+                <span
+                  className={`font-semibold ${tone === 'done' ? 'text-state-posted' : 'text-text'}`}
+                >
+                  {account.platform}
+                </span>
+                <span className="break-all text-sm text-state-later">
+                  {account.handle ?? 'no handle saved'}
+                </span>
               </span>
-              <span className="truncate text-sm text-state-later">
-                {account.handle ?? 'no handle saved'}
+              <span className="meta truncate text-state-later">
+                {nameById.get(account.campaign_id) ?? 'unknown campaign'}
               </span>
             </span>
           </span>
-          <span className="flex shrink-0 items-baseline gap-1.5">
-            <span
-              className={[
-                building ? 'numeric' : '',
-                'text-sm',
-                // Green once done, amber while an account is still being
-                // built, grey for one that is only being kept alive.
-                warm ? 'text-state-posted' : building ? 'text-state-waiting' : 'text-state-later',
-              ].join(' ')}
-            >
-              {status}
-            </span>
-            <span aria-hidden className="text-state-later">
-              ·
-            </span>
-            <span className="label text-state-later">
-              {warmupMinutesFor(account)} min
+          <span className="flex shrink-0 flex-col items-end text-right">
+            <span className={`text-sm ${reasonClass}`}>{reason}</span>
+            <span className="meta flex items-baseline gap-1.5 text-state-later">
+              {building ? (
+                <>
+                  <span className="numeric">
+                    {sessions} of {WARMUP_SESSIONS_REQUIRED}
+                  </span>
+                  <span aria-hidden>·</span>
+                </>
+              ) : null}
+              <span>{warmupMinutesFor(account)} min</span>
             </span>
           </span>
         </button>
@@ -741,39 +750,45 @@ function WarmupList({
     )
   }
 
-  const section = (heading: string, headingClass: string, list: CampaignAccount[], warm: boolean) => (
-    <div className="flex flex-col gap-1.5">
-      <h2 className={`text-xs font-semibold uppercase tracking-[0.14em] ${headingClass}`}>
-        {heading}
-      </h2>
-      {byCampaign(list).map((group) => (
-        <div
-          key={group.campaignId}
+  const group = (
+    heading: string,
+    headingClass: string,
+    list: CampaignAccount[],
+    tone: Tone,
+  ) =>
+    list.length === 0 ? null : (
+      <div className="flex flex-col gap-1.5">
+        <h3 className={`label ${headingClass}`}>{heading}</h3>
+        <ul
           className={[
-            'overflow-hidden rounded-xl border',
-            warm ? 'border-state-posted/40 bg-state-posted/5' : 'border-edge bg-surface',
+            'divide-y overflow-hidden rounded-xl border',
+            tone === 'urgent'
+              ? 'divide-state-blocked/20 border-state-blocked/50 bg-state-blocked/5'
+              : tone === 'done'
+                ? 'divide-state-posted/20 border-state-posted/40 bg-state-posted/5'
+                : 'divide-edge border-edge bg-surface',
           ].join(' ')}
         >
-          {/* The campaign once, above its accounts, instead of after every
-              handle - where it was repeated on each row and pushed the handle
-              it described off the edge of a phone. */}
-          <p className="px-3 pt-2 label text-state-later">
-            {group.name}
-          </p>
-          <ul className={`divide-y ${warm ? 'divide-state-posted/20' : 'divide-edge'}`}>
-            {group.accounts.map((account) => row(account, warm))}
-          </ul>
-        </div>
-      ))}
-    </div>
-  )
+          {list.map((account) => row(account, tone))}
+        </ul>
+      </div>
+    )
 
   return (
     <div className="flex flex-col gap-4">
-      {todo.length > 0
-        ? section(`Keep them warm - ${todo.length} left`, 'text-state-later', todo, false)
+      {todo.length > 0 ? (
+        <div className="flex flex-col gap-3">
+          <h2 className="text-sm font-semibold uppercase tracking-[0.1em] text-state-later">
+            {`Keep them warm - ${todo.length} left`}
+          </h2>
+          {group(`Warm these first - ${urgent.length}`, 'text-state-blocked', urgent, 'urgent')}
+          {group('Warming up', 'text-state-waiting', building, 'building')}
+          {group('Ready - keeping them fresh', 'text-state-later', ready, 'ready')}
+        </div>
+      ) : null}
+      {done.length > 0
+        ? group('Warmed today', 'text-state-posted', prioritised(done), 'done')
         : null}
-      {done.length > 0 ? section('Warmed today', 'text-state-posted', done, true) : null}
     </div>
   )
 }
@@ -781,7 +796,7 @@ function WarmupList({
 /** "today", "yesterday", "4d ago". Whole days only - the point is remembering
  *  roughly how long an account has been left alone, not timing it. */
 function sinceLabel(iso: string): string {
-  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000)
+  const days = daysSince(iso)
   if (days <= 0) return 'today'
   if (days === 1) return 'yesterday'
   return `${days}d ago`

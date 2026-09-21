@@ -20,10 +20,12 @@ import { Now } from './Now'
 
 const USER = '11111111-1111-4111-8111-111111111111'
 let adapter: DataAdapter
+let database: LocalDatabase
 
 beforeEach(async () => {
   indexedDB = new IDBFactory()
   const db = new LocalDatabase(`now-${crypto.randomUUID()}`)
+  database = db
   adapter = new LocalAdapter(db, USER)
   await db.open()
   await ensureSeeded(adapter)
@@ -126,40 +128,149 @@ describe('the warm-up list, organised', () => {
     return campaign
   }
 
-  it('says each campaign once, as a heading over its own accounts', async () => {
+  it('says which campaign each account belongs to, on the account itself', async () => {
     await secondCampaign()
 
     renderScreen()
     await screen.findByText(/Keep them warm/)
 
-    expect(screen.getAllByText('Inflow')).toHaveLength(1)
-    expect(screen.getAllByText('Vertus')).toHaveLength(1)
-
-    // Each campaign's accounts live in their own list, not interleaved.
-    const lists = screen.getAllByRole('list')
-    const inflow = lists.find((list) => list.textContent?.includes('@michael.financier'))!
-    const vertus = lists.find((list) => list.textContent?.includes('@vertus.x'))!
-    expect(inflow).not.toBe(vertus)
-    expect(inflow.textContent).not.toContain('@vertus')
-    expect(vertus.textContent).not.toContain('@michael.financier')
+    // One row per account, each carrying its own campaign, rather than
+    // campaigns being what the list is organised by.
+    const rows = screen.getAllByRole('listitem')
+    const vertusX = rows.find((row) => row.textContent?.includes('@vertus.x'))!
+    const inflow = rows.find((row) => row.textContent?.includes('@michael.financier'))!
+    expect(vertusX).toHaveTextContent('Vertus')
+    expect(vertusX).not.toHaveTextContent('Inflow')
+    expect(inflow).toHaveTextContent('Inflow')
   })
 
-  it('orders a campaign by the platform picker, not the alphabet', async () => {
+  it('breaks a tie by campaign, then by the platform picker, not the alphabet', async () => {
     await secondCampaign()
 
     renderScreen()
     await screen.findByText(/Keep them warm/)
 
-    const vertus = screen
-      .getAllByRole('list')
-      .find((list) => list.textContent?.includes('@vertus.x'))!
-    const platforms = Array.from(vertus.querySelectorAll('li')).map((li) =>
-      ['TikTok', 'Instagram', 'X'].find((p) => li.textContent?.includes(`@vertus.${p.toLowerCase()}`)),
-    )
+    const platforms = screen
+      .getAllByRole('listitem')
+      .filter((row) => row.textContent?.includes('@vertus.'))
+      .map((li) =>
+        ['TikTok', 'Instagram', 'X'].find((p) => li.textContent?.includes(`@vertus.${p.toLowerCase()}`)),
+      )
     // KNOWN_PLATFORMS order is Instagram, TikTok, YouTube, Facebook, X - and
     // they were added as X, TikTok, Instagram, so neither insertion order nor
-    // the alphabet would produce this.
+    // the alphabet would produce this. All three are new, so nothing else
+    // separates them.
     expect(platforms).toEqual(['Instagram', 'TikTok', 'X'])
+  })
+})
+
+describe('the warm-up list, in order of priority', () => {
+  /** A warm-up session that happened `daysAgo` days ago. The adapter stamps
+   *  events with now, so the log is backdated directly. */
+  async function warmedDaysAgo(accountId: string, daysAgo: number) {
+    const event = await adapter.recordWarmupEvent(accountId, 5)
+    const when = new Date(Date.now() - daysAgo * 86_400_000).toISOString()
+    await database.warmup_events.update(event.id, { occurred_at: when })
+  }
+
+  async function account(platform: string, handle: string, status: 'new' | 'warming' | 'ready') {
+    const created = await adapter.addCampaignAccount({
+      campaign_id: INFLOW_CAMPAIGN_ID,
+      platform,
+      handle,
+      status,
+    })
+    return created
+  }
+
+  /** The platform of each row, top to bottom - every account here is on its
+   *  own platform, so that names the row. */
+  async function order(): Promise<string[]> {
+    await screen.findByText(/Keep them warm/)
+    return screen
+      .getAllByRole('listitem')
+      .map((row) => {
+        const text = (row.textContent ?? '').replace('✓', '')
+        return ['Facebook', 'Instagram', 'TikTok', 'X'].find((p) => text.startsWith(p)) ?? '?'
+      })
+  }
+
+  it('puts new and long-neglected accounts first, and ready fresh ones last', async () => {
+    // The seed's TikTok and Instagram are ready and never warmed. Give them
+    // histories, and add a new account and a stale one.
+    const seeded = await adapter.listCampaignAccounts(INFLOW_CAMPAIGN_ID)
+    const tiktok = seeded.find((a) => a.platform === 'TikTok')!
+    const instagram = seeded.find((a) => a.platform === 'Instagram')!
+    await warmedDaysAgo(tiktok.id, 1) // ready, fresh
+    await warmedDaysAgo(instagram.id, 20) // ready, but left alone for weeks
+    await account('Facebook', '@brandnew', 'new')
+    const half = await account('X', '@halfway', 'warming')
+    await warmedDaysAgo(half.id, 2) // mid-way and recent
+
+    renderScreen()
+    const platforms = await order()
+
+    // New, then the neglected one, then in-progress, then ready-and-fresh.
+    expect(platforms).toEqual(['Facebook', 'Instagram', 'X', 'TikTok'])
+  })
+
+  it('paints the top group red and says why in words', async () => {
+    const seeded = await adapter.listCampaignAccounts(INFLOW_CAMPAIGN_ID)
+    const instagram = seeded.find((a) => a.platform === 'Instagram')!
+    await warmedDaysAgo(instagram.id, 20)
+    await account('Facebook', '@brandnew', 'new')
+
+    renderScreen()
+    await screen.findByText(/Keep them warm/)
+
+    const fresh = screen.getByText('New - not warmed yet')
+    expect(fresh).toHaveClass('text-state-blocked')
+    const stale = screen.getByText('Not warmed in 20 days')
+    expect(stale).toHaveClass('text-state-blocked')
+    expect(screen.getByText(/Warm these first - 3/)).toHaveClass('text-state-blocked')
+  })
+
+  it('treats a ready account that was never warmed as neglected, not as fine', async () => {
+    renderScreen()
+    await screen.findByText(/Keep them warm/)
+
+    // The seed's two ready accounts have no sessions on record.
+    expect(screen.getAllByText('Never warmed')).toHaveLength(2)
+    expect(screen.getByText(/Warm these first - 2/)).toBeInTheDocument()
+    expect(screen.queryByText(/Ready - keeping them fresh/)).toBeNull()
+  })
+
+  it('leaves a ready account that was warmed recently at the bottom, in grey', async () => {
+    for (const a of await adapter.listCampaignAccounts(INFLOW_CAMPAIGN_ID)) {
+      await warmedDaysAgo(a.id, 2)
+    }
+    await account('Facebook', '@brandnew', 'new')
+
+    renderScreen()
+    const platforms = await order()
+
+    expect(platforms[0]).toBe('Facebook')
+    expect(screen.getByText(/Ready - keeping them fresh/)).toBeInTheDocument()
+    expect(screen.getAllByText('2d ago')).toHaveLength(2)
+    expect(screen.getAllByText('2d ago')[0]).toHaveClass('text-state-later')
+    // Nothing red beyond the new account.
+    expect(screen.getByText(/Warm these first - 1/)).toBeInTheDocument()
+  })
+
+  it('orders the neglected by how long they have been left, longest first', async () => {
+    const seeded = await adapter.listCampaignAccounts(INFLOW_CAMPAIGN_ID)
+    const tiktok = seeded.find((a) => a.platform === 'TikTok')!
+    const instagram = seeded.find((a) => a.platform === 'Instagram')!
+    await warmedDaysAgo(tiktok.id, 9)
+    await warmedDaysAgo(instagram.id, 30)
+
+    renderScreen()
+    await screen.findByText(/Keep them warm/)
+
+    const rows = screen.getAllByRole('listitem')
+    expect(rows[0]).toHaveTextContent('Instagram')
+    expect(rows[0]).toHaveTextContent('Not warmed in 30 days')
+    expect(rows[1]).toHaveTextContent('Not warmed in 9 days')
   })
 })
 
@@ -397,8 +508,9 @@ describe('warming up an account', () => {
     expect(await screen.findByText(/Keep them warm/)).toBeInTheDocument()
     expect(screen.getByText('TikTok')).toBeInTheDocument()
     expect(screen.getByText('Instagram')).toBeInTheDocument()
-    // Never warmed, and a shorter sitting than an account being built.
-    expect(screen.getAllByText('never warmed')).toHaveLength(2)
+    // Never warmed, so neglected - but still a shorter sitting than an
+    // account being built.
+    expect(screen.getAllByText('Never warmed')).toHaveLength(2)
     expect(screen.getAllByText('5 min')).toHaveLength(2)
     // Nothing done yet, so there is no done group at all.
     expect(screen.queryByText('Warmed today')).toBeNull()

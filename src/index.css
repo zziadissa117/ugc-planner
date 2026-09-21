@@ -41,6 +41,15 @@
   --color-text: #eaeff7;
   --color-text-dim: #a4b1c3;
 
+  /* The type scale, raised. Tailwind's own steps put text-xs at 12px and
+     text-sm at 14px, and this app uses those two for almost everything
+     that is not a headline - "too small and unreadable", he said, on his
+     phone. Moving the steps here changes every screen at once and leaves one
+     place to change again. Line heights are ratios, so they follow. */
+  --text-xs: 0.875rem; /* 14px, was 12 */
+  --text-sm: 1rem; /* 16px, was 14 */
+  --text-base: 1.0625rem; /* 17px, was 16 */
+
   /* Nothing interactive is smaller than this. He taps in a hurry, one-handed,
      often with the phone propped against something. */
   --spacing-tap: 3.5rem;
@@ -108,11 +117,11 @@ body {
      .label  the small uppercase caption over a figure or a section
      .meta   secondary detail sitting beside or under the main line
 
-   Both sit at or above 12px and keep only as much tracking as uppercase
+   Both sit at or above 13px and keep only as much tracking as uppercase
    actually needs to breathe.
    --------------------------------------------------------------------------- */
 .label {
-  font-size: 0.75rem; /* 12px */
+  font-size: 0.8125rem; /* 13px, was 12 */
   line-height: 1.25;
   font-weight: 600;
   text-transform: uppercase;
@@ -120,7 +129,7 @@ body {
 }
 
 .meta {
-  font-size: 0.8125rem; /* 13px */
+  font-size: 0.9375rem; /* 15px, was 13 */
   line-height: 1.35;
 }
 

@@ -29,12 +29,16 @@ export {
   WARMUP_MINUTES_BUILDING,
   WARMUP_MINUTES_MAINTENANCE,
   WARMUP_SESSIONS_REQUIRED,
+  WARMUP_STALE_DAYS,
   canPostFrom,
+  compareWarmupPriority,
+  daysSince,
   lastWarmupAt,
   needsWarmup,
   warmsUp,
   warmupCompletions,
   warmupMinutesFor,
+  warmupTier,
 } from './warmup'
 export { PULL_CURSOR_COLUMN } from './sync'
 export * from './schema'

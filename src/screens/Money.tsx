@@ -113,9 +113,9 @@ export function Money() {
 
 function Figure({ label, cents, big }: { label: string; cents: number; big?: boolean }) {
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-edge bg-gradient-to-b from-surface-raised to-surface p-3 text-center">
+    <div className="relative overflow-hidden rounded-2xl border border-edge bg-gradient-to-b from-surface-raised to-surface p-2 text-center sm:p-3">
       <span aria-hidden className="absolute inset-x-0 top-0 h-px bg-edge-lit/70" />
-      <p className="label text-state-later">
+      <p className="label whitespace-nowrap text-state-later">
         {label}
       </p>
       {/* Fluid rather than fixed: at `text-3xl` in a third of a 375px screen,
@@ -137,7 +137,7 @@ function Figure({ label, cents, big }: { label: string; cents: number; big?: boo
           wrapped and left "CAD" stranded on a line of its own. */}
       <p
         className="numeric mt-0.5 whitespace-nowrap text-state-later"
-        style={{ fontSize: 'clamp(0.6875rem, 2.9vw, 0.8125rem)' }}
+        style={{ fontSize: 'clamp(0.75rem, 3vw, 0.9375rem)' }}
       >
         ~{formatCents(toCadCents(cents))} CAD
       </p>
@@ -202,22 +202,25 @@ function CampaignLine({
         >
           {campaign.name}
         </span>
-        <span className="shrink-0 text-sm tabular-nums text-state-later">
-          {campaign.pay_per_video_cents === null
-            ? mine
-              ? 'your figure'
-              : 'no rate saved'
-            : `${formatCents(campaign.pay_per_video_cents)} x ${campaign.daily_post_quota}/day${
-                platforms > 1 ? ` x ${platforms}` : ''
-              }`}
-        </span>
         <span
-          className={`w-24 shrink-0 text-right text-sm font-semibold tabular-nums ${
+          className={`shrink-0 whitespace-nowrap text-right text-sm font-semibold tabular-nums ${
             counting ? 'text-text' : 'text-state-later line-through'
           }`}
         >
           {earnings === null ? '-' : `${mine ? '' : '~'}${formatCents(earnings.monthCents)}/mo`}
         </span>
+      </span>
+
+      {/* The workings on their own line. Beside the name and the total they
+          ran past the edge of the card once the text was made bigger. */}
+      <span className="text-xs tabular-nums text-state-later">
+        {campaign.pay_per_video_cents === null
+          ? mine
+            ? 'your figure'
+            : 'no rate saved'
+          : `${formatCents(campaign.pay_per_video_cents)} x ${campaign.daily_post_quota}/day${
+              platforms > 1 ? ` x ${platforms}` : ''
+            }`}
       </span>
 
       {/* One line on the campaign holding it up, saying what finishing

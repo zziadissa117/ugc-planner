@@ -218,11 +218,6 @@ export function Campaign() {
         </div>
       </div>
 
-      {/* Where he posts and what to log into come first. They sat in the right
-          hand column below the brief, which on a phone meant scrolling past all
-          of it to find a login - "i don't want it to be hidden somewhere". */}
-      <AccountsEditor data={data} campaignId={campaign.id} onChanged={() => void refresh()} />
-
       <CrossPostPay
         campaign={campaign}
         accounts={accounts}
@@ -238,7 +233,7 @@ export function Campaign() {
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="flex flex-col gap-3">
           <div>
-            <h2 className="text-lg font-semibold uppercase tracking-wide text-text">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-state-later">
               The brief
             </h2>
             <div className="mt-1 flex flex-col divide-y divide-edge rounded-lg border border-edge bg-surface px-3 text-sm">
@@ -268,6 +263,8 @@ export function Campaign() {
         </div>
 
         <div className="flex flex-col gap-3">
+          <AccountsEditor data={data} campaignId={campaign.id} onChanged={() => void refresh()} />
+
           {rules.length > 0 ? (
             <details className="rounded-lg border border-edge bg-surface">
               <summary className="flex min-h-tap cursor-pointer items-center px-3 text-sm font-semibold text-state-blocked">

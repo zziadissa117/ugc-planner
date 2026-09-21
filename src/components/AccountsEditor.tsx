@@ -104,24 +104,26 @@ export function AccountsEditor({
 
   return (
     <div>
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="text-lg font-semibold uppercase tracking-wide text-text">Platforms</h2>
+      <div className="flex items-baseline justify-between gap-2">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-state-later">
+          Platforms
+        </h2>
         <button
           type="button"
           onClick={() => setAdding((open) => !open)}
           aria-expanded={adding}
-          className="min-h-tap rounded-lg border border-edge px-4 text-base font-semibold text-text active:bg-surface-raised"
+          className="rounded-md border border-edge px-2 py-0.5 text-xs font-semibold text-state-later active:bg-surface-raised"
         >
           {adding ? 'Done' : 'Add'}
         </button>
       </div>
 
       {accounts.length === 0 ? (
-        <p className="mt-2 text-base text-state-blocked">
+        <p className="mt-1 text-sm text-state-blocked">
           None yet - add the platforms this campaign posts to.
         </p>
       ) : (
-        <ul className="mt-3 grid gap-3 md:grid-cols-2">
+        <ul className="mt-2 flex flex-col gap-1.5">
           {accounts.map((account) => (
             <li key={account.id}>
               <AccountRow account={account} onPatch={patch} />
@@ -131,8 +133,8 @@ export function AccountsEditor({
       )}
 
       {adding ? (
-        <div className="mt-3 rounded-lg border border-edge bg-surface p-3">
-          <div className="flex flex-wrap gap-2">
+        <div className="mt-2 rounded-lg border border-edge bg-surface p-2">
+          <div className="flex flex-wrap gap-1.5">
             {KNOWN_PLATFORMS.map((name) => {
               const already = chosen.has(name.toLowerCase())
               return (
@@ -143,7 +145,7 @@ export function AccountsEditor({
                   onClick={() => void add(name)}
                   aria-pressed={already}
                   className={[
-                    'min-h-tap rounded-lg border px-4 text-base font-semibold active:bg-surface',
+                    'rounded-md border px-2.5 py-1 text-sm font-semibold active:bg-surface',
                     already
                       ? 'border-state-posted/50 bg-state-posted/10 text-state-posted'
                       : 'border-edge bg-surface-raised text-text',
@@ -160,18 +162,18 @@ export function AccountsEditor({
               onChange={(event) => setCustom(event.target.value)}
               aria-label="Other platform"
               placeholder="Other platform"
-              className="min-h-tap min-w-0 flex-1 rounded-lg border border-edge bg-surface-raised px-3 text-base text-text placeholder:text-state-later"
+              className="min-h-tap min-w-0 flex-1 rounded-md border border-edge bg-surface-raised px-2 text-sm text-text placeholder:text-state-later"
             />
             <button
               type="button"
               onClick={() => void add(custom)}
               disabled={busy || custom.trim() === ''}
-              className="min-h-tap shrink-0 rounded-lg border border-edge px-4 text-base font-semibold text-text active:bg-surface-raised disabled:text-state-later"
+              className="min-h-tap shrink-0 rounded-md border border-edge px-3 text-sm font-semibold text-text active:bg-surface-raised disabled:text-state-later"
             >
               Add
             </button>
           </div>
-          {error ? <p className="mt-2 text-base text-state-blocked">{error}</p> : null}
+          {error ? <p className="mt-1.5 text-sm text-state-blocked">{error}</p> : null}
         </div>
       ) : null}
     </div>
@@ -195,8 +197,8 @@ const CAN_MASK_TEXT =
  *  A handle or an email longer than the box used to be clipped, and the only
  *  way to read the rest was to tap in and scroll along it - "i can only see
  *  the full username when i click on it". This wraps instead, so the whole
- *  value is on screen at rest. Enter saves rather than adding a line, because
- *  none of these values has one. */
+ *  value is on screen at rest, in the same place as the input it replaces. Enter saves rather than adding a line, because none of
+ *  these values has one. */
 function GrowingBox({
   value,
   onCommit,
@@ -204,7 +206,7 @@ function GrowingBox({
   placeholder,
   className,
   mask,
-  ...rest
+  autoComplete,
 }: {
   value: string
   onCommit: (next: string) => void
@@ -247,31 +249,23 @@ function GrowingBox({
       }}
       aria-label={label}
       placeholder={placeholder}
+      autoComplete={autoComplete}
       autoCapitalize="none"
       autoCorrect="off"
       spellCheck={false}
       style={mask ? ({ WebkitTextSecurity: 'disc' } as CSSProperties) : undefined}
-      className={`${className} resize-none overflow-hidden py-3 leading-snug [overflow-wrap:anywhere]`}
-      {...rest}
+      className={`${className} resize-none overflow-hidden py-[1.0625rem] leading-snug [overflow-wrap:anywhere]`}
     />
   )
 }
 
-/** The captions are aria-hidden on purpose: each box already has a full
- *  accessible name ("Instagram email"), and a second label reading just
- *  "Email" is what once made a campaign-level Email field look like it still
- *  existed to anything asking.
- *
- *  One platform, as its own card: the platform, then the handle, the email and
- *  the password each on a full-width line of their own with a caption above.
- *
- *  These used to sit side by side on one line, three narrow boxes at 14px in a
- *  column of a two-column page, and on a phone that left each of them showing a
- *  few characters of what was in it - the login he needs at the moment of
- *  posting, and the one thing he could not read at a glance. So they are large
- *  and stacked, and every value is on show. The password is the exception: it
- *  stays masked because it is looked up in front of whoever is in the room, but
- *  the box is just as big and one tap on Show reveals it. */
+/** Each box has a minimum width (the flex-basis), so on a narrow column it drops
+ *  to its own line inside the card instead of being squeezed to a few
+ *  characters wide - which is what made a handle unreadable at a glance. */
+
+/** One platform: handle, email and password on one line, then the warm-up
+ *  state. The password is masked until asked for - it is looked up in front
+ *  of whoever is in the room. */
 function AccountRow({
   account,
   onPatch,
@@ -284,91 +278,63 @@ function AccountRow({
   const field = (key: 'handle' | 'email' | 'password', value: string) =>
     void onPatch(account.id, { [key]: value.trim() === '' ? null : value })
 
-  const box =
-    'min-h-tap w-full min-w-0 rounded-lg border border-edge bg-surface-raised px-3 text-lg text-text placeholder:text-state-later'
-
   return (
-    <div className="rounded-xl border border-edge bg-surface p-3">
-      <div className="flex items-center justify-between gap-2">
-        <span className="min-w-0 truncate text-xl font-semibold text-text">{account.platform}</span>
-        <button
-          type="button"
-          onClick={() => void onPatch(account.id, { is_active: false })}
-          className="min-h-tap shrink-0 rounded-lg px-3 text-base text-state-later active:bg-surface-raised"
-        >
-          Remove
-        </button>
-      </div>
+    <div className="rounded-lg border border-edge bg-surface px-2 py-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="w-20 shrink-0 truncate text-sm font-semibold text-text">
+          {account.platform}
+        </span>
 
-      <div className="mt-1 flex flex-col gap-3">
-        <div>
-          <span aria-hidden className="label text-state-later">
-            Handle
-          </span>
-          <GrowingBox
-            value={account.handle ?? ''}
-            onCommit={(next) => field('handle', next)}
-            label={`${account.platform} handle`}
-            placeholder="@handle - not saved yet"
-            className={`${box} mt-1 font-semibold`}
-          />
-        </div>
-
-        <div>
-          <span aria-hidden className="label text-state-later">
-            Email
-          </span>
-          <GrowingBox
-            value={account.email ?? ''}
-            onCommit={(next) => field('email', next)}
-            label={`${account.platform} email`}
-            placeholder="email - not saved yet"
-            autoComplete="off"
-            className={`${box} mt-1`}
-          />
-        </div>
-
-        <div>
-          <span aria-hidden className="label text-state-later">
-            Password
-          </span>
-          <div className="mt-1 flex items-start gap-2">
-            {CAN_MASK_TEXT ? (
-              <GrowingBox
-                value={account.password ?? ''}
-                onCommit={(next) => field('password', next)}
-                label={`${account.platform} password`}
-                placeholder="password - not saved yet"
-                autoComplete="new-password"
-                mask={!show}
-                className={box}
-              />
-            ) : (
-              <input
-                defaultValue={account.password ?? ''}
-                onBlur={(event) => field('password', event.target.value)}
-                type={show ? 'text' : 'password'}
-                aria-label={`${account.platform} password`}
-                placeholder="password - not saved yet"
-                autoComplete="new-password"
-                autoCapitalize="none"
-                autoCorrect="off"
-                className={box}
-              />
-            )}
-            <button
-              type="button"
-              onClick={() => setShow((current) => !current)}
-              className="min-h-tap shrink-0 rounded-lg border border-edge px-4 text-base font-semibold text-text active:bg-surface-raised"
-            >
-              {show ? 'Hide' : 'Show'}
-            </button>
-          </div>
+        <GrowingBox
+          value={account.handle ?? ''}
+          onCommit={(next) => field('handle', next)}
+          label={`${account.platform} handle`}
+          placeholder="@handle"
+          className="min-h-tap min-w-0 flex-[1_1_10rem] rounded-md border border-edge bg-surface-raised px-2 text-sm text-text placeholder:text-state-later"
+        />
+        <GrowingBox
+          value={account.email ?? ''}
+          onCommit={(next) => field('email', next)}
+          label={`${account.platform} email`}
+          placeholder="email"
+          autoComplete="off"
+          className="min-h-tap min-w-0 flex-[1_1_13rem] rounded-md border border-edge bg-surface-raised px-2 text-sm text-text placeholder:text-state-later"
+        />
+        {/* The password box and its Show button travel together, so Show never
+            ends up stranded on a line of its own. */}
+        <div className="flex min-w-0 flex-[1_1_11rem] items-start gap-1.5">
+          {CAN_MASK_TEXT ? (
+            <GrowingBox
+              value={account.password ?? ''}
+              onCommit={(next) => field('password', next)}
+              label={`${account.platform} password`}
+              placeholder="password"
+              autoComplete="new-password"
+              mask={!show}
+              className="min-h-tap min-w-0 flex-1 rounded-md border border-edge bg-surface-raised px-2 text-sm text-text placeholder:text-state-later"
+            />
+          ) : (
+            <input
+              defaultValue={account.password ?? ''}
+              onBlur={(event) => field('password', event.target.value)}
+              type={show ? 'text' : 'password'}
+              aria-label={`${account.platform} password`}
+              placeholder="password"
+              autoComplete="new-password"
+              className="min-h-tap min-w-0 flex-1 rounded-md border border-edge bg-surface-raised px-2 text-sm text-text placeholder:text-state-later"
+            />
+          )}
+          <button
+            type="button"
+            onClick={() => setShow((current) => !current)}
+            className="mt-2 shrink-0 rounded-md border border-edge px-2 py-1 text-xs font-semibold text-state-later active:bg-surface-raised"
+          >
+            {show ? 'Hide' : 'Show'}
+          </button>
         </div>
       </div>
 
-      <div className="mt-3 flex items-center gap-2">
-        <span aria-hidden className="label text-state-later">Status</span>
+      <div className="mt-1 flex items-center gap-1.5">
         {STATUS_ORDER.map((status) => (
           <button
             key={status}
@@ -376,15 +342,22 @@ function AccountRow({
             onClick={() => void onPatch(account.id, { status })}
             aria-pressed={account.status === status}
             className={[
-              'min-h-[2.75rem] flex-1 rounded-lg border px-2 text-base font-semibold',
+              'rounded px-1.5 py-0.5 label',
               account.status === status
-                ? 'border-state-now/60 bg-surface-raised text-state-now'
-                : 'border-edge text-state-later active:bg-surface-raised',
+                ? 'bg-surface-raised text-state-now'
+                : 'text-state-later active:bg-surface-raised',
             ].join(' ')}
           >
             {STATUS_LABELS[status]}
           </button>
         ))}
+        <button
+          type="button"
+          onClick={() => void onPatch(account.id, { is_active: false })}
+          className="ml-auto rounded px-1.5 py-0.5 label text-state-later active:bg-surface-raised"
+        >
+          Remove
+        </button>
       </div>
     </div>
   )

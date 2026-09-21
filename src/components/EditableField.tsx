@@ -219,7 +219,7 @@ export function EditableField({
   return (
     <div className="flex items-start justify-between gap-3 py-1">
       <div className="min-w-0 flex-1">
-        <p className="text-sm text-state-later">{displayLabel}</p>
+        <p className="text-base text-state-later">{displayLabel}</p>
         <p
           className={`${mask ? 'font-mono' : ''} ${unreviewed ? 'text-state-waiting' : absent ? 'text-state-later' : 'text-text'}`}
         >

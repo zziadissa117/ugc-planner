@@ -156,6 +156,19 @@ describe('a running warm-up timer', () => {
     expect(screen.getByTestId('state')).toHaveTextContent('acc-1')
   })
 
+  it('puts the time left in the tab title, and puts the title back when it is gone', () => {
+    document.title = 'UGC planner'
+    render(<App />)
+    fireEvent.click(screen.getByText('start'))
+    expect(document.title).toBe('05:00 TikTok warm-up')
+
+    advance(90_000)
+    expect(document.title).toBe('03:30 TikTok warm-up')
+
+    fireEvent.click(screen.getByRole('button', { name: /Cancel the TikTok timer/ }))
+    expect(document.title).toBe('UGC planner')
+  })
+
   it('can be cancelled without recording anything', () => {
     render(<App />)
     fireEvent.click(screen.getByText('start'))
@@ -182,6 +195,26 @@ describe('when the time is up', () => {
 
     advance(60_000)
     expect(playWarmupDone).toHaveBeenCalledTimes(1)
+  })
+
+  it('rings at the end time even if the once-a-second tick never runs', () => {
+    // A hidden tab can be throttled to about one tick a minute. With the tick
+    // switched off entirely, only the one-shot wake-up set for the end time is
+    // left to notice that the timer has run out.
+    const noTick = vi.spyOn(window, 'setInterval').mockImplementation(() => 0)
+    try {
+      render(<App />)
+      fireEvent.click(screen.getByText('start'))
+      expect(playWarmupDone).not.toHaveBeenCalled()
+
+      act(() => {
+        vi.setSystemTime(Date.now() + 5 * 60_000)
+        vi.advanceTimersByTime(5 * 60_000 + 100)
+      })
+      expect(playWarmupDone).toHaveBeenCalledTimes(1)
+    } finally {
+      noTick.mockRestore()
+    }
   })
 
   it('rings even if he was on another screen when it ended', () => {

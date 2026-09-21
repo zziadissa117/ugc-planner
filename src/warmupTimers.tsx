@@ -90,6 +90,34 @@ export function WarmupTimersProvider({ children }: { children: ReactNode }) {
     }
   }, [timers.length])
 
+  // A wake-up at the exact moment each timer ends. A background tab throttles
+  // its once-a-second tick, and after a few minutes hidden a browser may run
+  // it only about once a minute - so on its own the chime could sound up to a
+  // minute late. One timeout set for the end time is not part of that chain.
+  useEffect(() => {
+    const waits = timers
+      .filter((t) => !t.alerted)
+      .map((t) =>
+        window.setTimeout(() => setNow(Date.now()), Math.max(0, t.endsAt - Date.now()) + 50),
+      )
+    return () => waits.forEach((id) => window.clearTimeout(id))
+  }, [timers])
+
+  // The countdown in the browser tab's own title, so it can be read from
+  // another tab or with the window behind another app.
+  const baseTitle = useRef<string | null>(null)
+  useEffect(() => {
+    if (baseTitle.current === null) baseTitle.current = document.title
+    const next = [...timers].sort((a, b) => a.endsAt - b.endsAt)[0]
+    if (!next) {
+      document.title = baseTitle.current
+      return
+    }
+    document.title = isFinished(next, now)
+      ? `Time's up - ${next.platform} warm-up`
+      : `${formatClock(secondsLeft(next, now))} ${next.platform} warm-up`
+  }, [timers, now])
+
   // The chime, once per timer. The ref is what guarantees "once": state can
   // lag a render behind, and two ticks in that gap must not ring it twice.
   const chimed = useRef(new Set<string>())

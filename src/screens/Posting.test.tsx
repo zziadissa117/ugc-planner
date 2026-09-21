@@ -346,3 +346,35 @@ describe('the posting grid', () => {
     expect(screen.getByText('0 of 1 today')).toBeInTheDocument()
   })
 })
+
+describe('order on the Post screen', () => {
+  it('lists the campaign that pays best first', async () => {
+    for (const [name, cents] of [
+      ['Cheap', 1000],
+      ['Rich', 9000],
+      ['Middle', 4000],
+    ] as const) {
+      const campaign = await adapter.createCampaign({
+        name,
+        company: null,
+        default_setup: 'face',
+        approval_mode: 'none',
+        daily_post_quota: 1,
+        pay_per_video_cents: cents,
+        cycle_size: null,
+      })
+      const account = await adapter.addCampaignAccount({
+        campaign_id: campaign.id,
+        platform: 'Instagram',
+        handle: `@${name.toLowerCase()}`,
+      })
+      await adapter.updateCampaignAccount(account.id, { status: 'ready' })
+    }
+
+    renderScreen()
+    await screen.findByRole('heading', { name: 'Rich' })
+
+    const names = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)
+    expect(names).toEqual(['Rich', 'Middle', 'Cheap'])
+  })
+})

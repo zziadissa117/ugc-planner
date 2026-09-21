@@ -24,7 +24,7 @@ import {
 } from '../data/posting'
 import { ensureTodaysQuota } from '../data/today'
 import { useData } from '../data/useData'
-import { formatCents, toCadCents } from '../money'
+import { byBestPay, formatCents, toCadCents } from '../money'
 import { isMuted, playCashRegister, primeCashRegister, setMuted } from '../sound'
 
 interface Loaded {
@@ -71,7 +71,14 @@ export function Posting() {
   const boards = useMemo(
     () =>
       loaded
-        ? boardsForToday(loaded.campaigns, loaded.accounts, loaded.videos, loaded.posts, today)
+        ? // Best-paying campaign first. boardsForToday keeps the order it is given.
+          boardsForToday(
+            byBestPay(loaded.campaigns, loaded.accounts),
+            loaded.accounts,
+            loaded.videos,
+            loaded.posts,
+            today,
+          )
         : [],
     [loaded, today],
   )

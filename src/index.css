@@ -133,6 +133,19 @@ body {
   line-height: 1.35;
 }
 
+/* A display face for campaign names, where the name is the thing being read.
+   Still a system stack, for the same reason as the body: it needs no download
+   and works with the network off. On his iPhone and Mac these resolve to SF
+   Rounded and Avenir Next - rounded, geometric and heavy - and anything else
+   falls back to the ordinary system font. */
+.display {
+  font-family: ui-rounded, "SF Pro Rounded", "Avenir Next", "Avenir", "Nunito",
+    ui-sans-serif, system-ui, sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+}
+
 /* Numbers are the point of most of these screens - the count, the goal, the
    money, the clock. Slab-like monospaced figures line up in a column and stop
    the score jittering as it counts up. */

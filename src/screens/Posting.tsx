@@ -254,7 +254,7 @@ function CampaignBoard({
     <div className="relative overflow-hidden rounded-2xl border border-edge bg-gradient-to-b from-surface-raised to-surface p-3">
       <span aria-hidden className="absolute inset-x-0 top-0 h-px bg-edge-lit/70" />
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <h2 className="font-semibold tracking-wide text-text">{campaign.name}</h2>
+        <h2 className="display min-w-0 break-words text-3xl text-text">{campaign.name}</h2>
         <p className="numeric text-xs text-state-later">
           <span className={doneToday >= quota && quota > 0 ? 'text-state-posted' : 'text-text'}>
             {doneToday} of {quota} today

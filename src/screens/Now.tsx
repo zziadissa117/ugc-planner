@@ -186,15 +186,16 @@ export function Now() {
     if (completions > 0) void reload()
   }, [completions, reload])
 
-  /** Starts the timer for an account, or reopens the one already running.
-   *  Either way it is the app shell that keeps it going, not this screen. */
+  /** Opens the warm-up screen for an account. If a timer is already running
+   *  for it - reopened from the strip, or tapped a second time - this only
+   *  shows it; the screen itself is what starts a fresh one, once he has
+   *  picked how long, so a tap here is never what begins the clock. */
   const openTimer = useCallback(
     (account: CampaignAccount) => {
       const campaign = campaigns.find((c) => c.id === account.campaign_id) ?? null
-      timers.start(account, campaign?.name ?? 'unknown campaign')
       setStage({ kind: 'warmup_timer', account, campaign })
     },
-    [campaigns, timers],
+    [campaigns],
   )
 
   // Arriving from the strip at the top of another screen: open that timer.
@@ -984,6 +985,20 @@ function WorkTimer({
 
 /** The account to warm up, and a countdown. Nothing here touches the video
  *  pipeline - warming up is using the account itself, not filming anything. */
+/** How long a session runs, offered as quick choices alongside the account's
+ *  own default (5 minutes ready, 15 building) - he picks it once, before the
+ *  clock starts, rather than being stuck with what the account's status
+ *  would otherwise pick for him. Deduplicated and sorted, so the default
+ *  never appears twice when it is already one of the presets. */
+function warmupMinuteChoices(account: CampaignAccount): number[] {
+  const usual = warmupMinutesFor(account)
+  return [...new Set([1, 3, usual, 5, 10, 15, 20, 30])].sort((a, b) => a - b)
+}
+
+/** The account to warm up. Before the clock starts, this is a choice of how
+ *  long - his own default preselected, changeable with one tap or by typing
+ *  a number - and after, the countdown. Nothing here touches the video
+ *  pipeline - warming up is using the account itself, not filming anything. */
 function WarmupTimer({
   account,
   campaign,
@@ -997,8 +1012,10 @@ function WarmupTimer({
   onCancel: () => void
   onBack: () => void
 }) {
-  const { timers, now, setViewing } = useWarmupTimers()
+  const { timers, now, setViewing, start } = useWarmupTimers()
   const [busy, setBusy] = useState(false)
+  const usual = warmupMinutesFor(account)
+  const [minutes, setMinutes] = useState(usual)
 
   // The strip at the top of the page shows every timer except the one filling
   // this screen, so it is not on screen twice.
@@ -1010,8 +1027,6 @@ function WarmupTimer({
   // The timer belongs to the app shell, not to this screen: what is left is
   // read off its end time, so it is right however long he was elsewhere.
   const timer = timers.find((t) => t.accountId === account.id)
-  const left = timer ? secondsLeft(timer, now) : warmupMinutesFor(account) * 60
-  const finished = timer !== undefined && left === 0
 
   const handleDone = useCallback(async () => {
     setBusy(true)
@@ -1021,6 +1036,79 @@ function WarmupTimer({
       setBusy(false)
     }
   }, [onDone])
+
+  // Reopened from the strip, or tapped a second time: a timer is already
+  // running, so there is nothing left to choose - straight to the countdown.
+  if (!timer) {
+    const parsed = Number.isFinite(minutes) && minutes > 0 ? Math.floor(minutes) : null
+
+    return (
+      <div className="flex flex-col gap-4">
+        <h2 className="text-lg font-semibold text-text">
+          {account.platform}
+          <span className="ml-2 text-state-later">{account.handle ?? 'no handle saved'}</span>
+        </h2>
+        <p className="-mt-3 text-sm text-state-later">{campaign?.name ?? 'unknown campaign'}</p>
+
+        <div>
+          <p className="label text-state-later">How long</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {warmupMinuteChoices(account).map((choice) => (
+              <button
+                key={choice}
+                type="button"
+                onClick={() => setMinutes(choice)}
+                aria-pressed={minutes === choice}
+                className={[
+                  'min-h-tap rounded-lg border px-3 text-sm font-semibold',
+                  minutes === choice
+                    ? 'border-state-now bg-surface-raised text-state-now'
+                    : 'border-edge text-state-later active:bg-surface-raised',
+                ].join(' ')}
+              >
+                {choice} min{choice === usual ? ' - usual' : ''}
+              </button>
+            ))}
+          </div>
+          <label className="mt-2 flex items-center gap-2">
+            <span className="label text-state-later">Or type one</span>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              value={minutes}
+              onChange={(event) => setMinutes(Number(event.target.value))}
+              aria-label="Minutes to warm up for"
+              className="min-h-tap w-20 rounded-lg border border-edge bg-surface-raised px-2 text-text"
+            />
+          </label>
+        </div>
+
+        <button
+          type="button"
+          disabled={parsed === null}
+          onClick={() => {
+            if (parsed === null) return
+            start(account, campaign?.name ?? 'unknown campaign', parsed)
+          }}
+          className="min-h-tap rounded-lg border border-state-now bg-surface-raised px-4 text-lg font-semibold tracking-wide text-state-now active:bg-surface disabled:opacity-40"
+        >
+          Start - {parsed ?? '?'} min
+        </button>
+
+        <button
+          type="button"
+          onClick={onBack}
+          className="min-h-tap rounded-lg border border-edge bg-surface px-4 text-sm font-semibold text-state-later active:bg-surface-raised"
+        >
+          Back
+        </button>
+      </div>
+    )
+  }
+
+  const left = secondsLeft(timer, now)
+  const finished = left === 0
 
   return (
     <div className="flex flex-col gap-4">

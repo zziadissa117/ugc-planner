@@ -39,8 +39,10 @@ interface WarmupTimersValue {
   /** The clock every timer is measured against; ticks once a second while any
    *  timer exists. */
   now: number
-  /** Starts a timer for this account, or leaves one already running alone. */
-  start: (account: CampaignAccount, campaignName: string) => void
+  /** Starts a timer for this account, or leaves one already running alone.
+   *  `minutes` overrides the account's own default length - see
+   *  warmupMinutesFor - for the one time he picks something else. */
+  start: (account: CampaignAccount, campaignName: string, minutes?: number) => void
   /** Stops a timer without recording anything. */
   cancel: (accountId: string) => void
   /** Records the session against the account and removes its timer. */
@@ -143,7 +145,7 @@ export function WarmupTimersProvider({ children }: { children: ReactNode }) {
     )
   }, [timers, now])
 
-  const start = useCallback((account: CampaignAccount, campaignName: string) => {
+  const start = useCallback((account: CampaignAccount, campaignName: string, minutes?: number) => {
     // In the tap that starts it, so the chime is allowed to sound later.
     unlockAudio()
     setTimers((current) => {
@@ -156,7 +158,7 @@ export function WarmupTimersProvider({ children }: { children: ReactNode }) {
             platform: account.platform,
             handle: account.handle,
             campaignName,
-            minutes: warmupMinutesFor(account),
+            minutes: minutes ?? warmupMinutesFor(account),
           },
           Date.now(),
         ),

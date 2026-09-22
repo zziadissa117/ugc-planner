@@ -632,13 +632,31 @@ describe('warming up an account', () => {
     expect(screen.queryByText(/@michael\.yt/)).toBeNull()
   })
 
-  it('starts the session straight from the row, with no picker in between', async () => {
+  it('offers a time to start at, preselected to the usual length', async () => {
+    const { account } = await freshAccount()
+    void account
+
+    const user = userEvent.setup()
+    renderScreen()
+    await screen.findByText(/of 1/)
+    await user.click(await screen.findByRole('button', { name: /TikTok.*@brandnew/ }))
+
+    // Building, so 15 is the usual length - offered, and already selected.
+    const usual = await screen.findByRole('button', { name: '15 min - usual' })
+    expect(usual).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Start - 15 min' })).toBeInTheDocument()
+    // Nothing has started yet - no countdown, no timer on the strip.
+    expect(screen.queryByText('15:00')).toBeNull()
+  })
+
+  it('starts at the usual length with one tap on Start', async () => {
     const { account } = await freshAccount()
 
     const user = userEvent.setup()
     renderScreen()
     await screen.findByText(/of 1/)
     await user.click(await screen.findByRole('button', { name: /TikTok.*@brandnew/ }))
+    await user.click(await screen.findByRole('button', { name: 'Start - 15 min' }))
 
     expect(await screen.findByText('15:00')).toBeInTheDocument()
 
@@ -652,7 +670,7 @@ describe('warming up an account', () => {
     expect(await screen.findByText(`1 of ${WARMUP_SESSIONS_REQUIRED}`)).toBeInTheDocument()
   })
 
-  it('gives a ready account five minutes, and logs it as five', async () => {
+  it('gives a ready account five minutes by default, and logs it as five', async () => {
     const accounts = await adapter.listCampaignAccounts(INFLOW_CAMPAIGN_ID)
     const tiktok = accounts.find((a) => a.platform === 'TikTok')!
 
@@ -660,6 +678,7 @@ describe('warming up an account', () => {
     renderScreen()
     await screen.findByText(/of 1/)
     await user.click(await screen.findByRole('button', { name: /TikTok/ }))
+    await user.click(await screen.findByRole('button', { name: 'Start - 5 min' }))
 
     expect(await screen.findByText('05:00')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Mark warmed up' }))
@@ -676,6 +695,48 @@ describe('warming up an account', () => {
     expect(await screen.findByText('Warmed today')).toBeInTheDocument()
     expect(await screen.findByText('warmed')).toBeInTheDocument()
     expect(screen.getByText(/Keep them warm - 1 left/)).toBeInTheDocument()
+  })
+
+  it('lets him pick a different length with a tap, and logs the one he picked', async () => {
+    const accounts = await adapter.listCampaignAccounts(INFLOW_CAMPAIGN_ID)
+    const tiktok = accounts.find((a) => a.platform === 'TikTok')!
+
+    const user = userEvent.setup()
+    renderScreen()
+    await screen.findByText(/of 1/)
+    await user.click(await screen.findByRole('button', { name: /TikTok/ }))
+    await user.click(await screen.findByRole('button', { name: '20 min' }))
+    await user.click(await screen.findByRole('button', { name: 'Start - 20 min' }))
+
+    expect(await screen.findByText('20:00')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Mark warmed up' }))
+
+    await waitFor(async () => {
+      const events = await adapter.listWarmupEvents()
+      expect(events.find((e) => e.account_id === tiktok.id)?.minutes).toBe(20)
+    })
+  })
+
+  it('lets him type a length that is not one of the quick choices', async () => {
+    const { account } = await freshAccount()
+
+    const user = userEvent.setup()
+    renderScreen()
+    await screen.findByText(/of 1/)
+    await user.click(await screen.findByRole('button', { name: /TikTok.*@brandnew/ }))
+
+    const input = await screen.findByLabelText('Minutes to warm up for')
+    await user.clear(input)
+    await user.type(input, '7')
+    await user.click(screen.getByRole('button', { name: 'Start - 7 min' }))
+
+    expect(await screen.findByText('07:00')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Mark warmed up' }))
+
+    await waitFor(async () => {
+      const events = await adapter.listWarmupEvents()
+      expect(events.find((e) => e.account_id === account.id)?.minutes).toBe(7)
+    })
   })
 
   it('separates what is done today from what is left', async () => {

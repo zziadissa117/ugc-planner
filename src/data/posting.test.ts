@@ -18,6 +18,7 @@ import {
   buildBoard,
   earnedOn,
   markPosted,
+  nextUnfilledCell,
   pickVideoForSlot,
   tallyBoards,
   unmarkPosted,
@@ -615,5 +616,42 @@ describe('lowering the posts owed per day', () => {
     // Both posted boxes stay; the unposted middle one goes.
     expect(board.rows[0].cells.map((c) => c.post !== null)).toEqual([true, true])
     expect(board.doneToday).toBe(2)
+  })
+})
+
+describe('the neural view\'s next box', () => {
+  it('fills the first row\'s open slots in order', async () => {
+    const { campaign, accounts } = await setUp(2, ['Instagram', 'TikTok'])
+    await ensureTodaysQuota(adapter)
+    const { board } = await state(campaign)
+
+    expect(nextUnfilledCell(board)).toEqual({ account: accounts[0], slot: 0 })
+  })
+
+  it('moves to the next slot once the first is posted, staying on the same account', async () => {
+    const { campaign, accounts } = await setUp(2, ['Instagram'])
+    await ensureTodaysQuota(adapter)
+    const first = await state(campaign)
+    await markPosted(adapter, first.board, accounts[0], 0, first.videos)
+
+    const { board } = await state(campaign)
+    expect(nextUnfilledCell(board)).toEqual({ account: accounts[0], slot: 1 })
+  })
+
+  it('offers one more, past the quota, once every owed slot is posted', async () => {
+    const { campaign, accounts } = await setUp(1, ['Instagram'])
+    await ensureTodaysQuota(adapter)
+    const first = await state(campaign)
+    await markPosted(adapter, first.board, accounts[0], 0, first.videos)
+
+    const { board } = await state(campaign)
+    expect(board.slots).toBe(1)
+    expect(nextUnfilledCell(board)).toEqual({ account: accounts[0], slot: 1 })
+  })
+
+  it('is null for a campaign with no account he can post from', async () => {
+    const { campaign } = await setUp(1, [])
+    const { board } = await state(campaign)
+    expect(nextUnfilledCell(board)).toBeNull()
   })
 })

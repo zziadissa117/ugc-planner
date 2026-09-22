@@ -63,7 +63,7 @@ async function setUp(
 }
 
 function renderScreen() {
-  render(
+  return render(
     <DataContext.Provider value={adapter}>
       <MemoryRouter>
         <Posting />
@@ -376,5 +376,128 @@ describe('order on the Post screen', () => {
 
     const names = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)
     expect(names).toEqual(['Rich', 'Middle', 'Cheap'])
+  })
+})
+
+describe('the neural view', () => {
+  it('starts in the list view, with a button to switch', async () => {
+    await setUp(1, ['Instagram'])
+    renderScreen()
+
+    await screen.findByText(/Tick each platform/)
+    expect(screen.queryByLabelText('Open the brief for Inflow')).toBeNull()
+  })
+
+  it('switches to the network on a tap, and shows a link and a node for the campaign', async () => {
+    const { campaign } = await setUp(1, ['Instagram'])
+    const user = userEvent.setup()
+    renderScreen()
+    await screen.findByText(/Tick each platform/)
+
+    await user.click(screen.getByRole('button', { name: 'Switch to the neural view' }))
+
+    await screen.findByText(/Tap a link to post/)
+    expect(screen.getByRole('link', { name: 'Open the brief for Inflow' })).toHaveAttribute(
+      'href',
+      `/campaigns/${campaign.id}`,
+    )
+    expect(screen.getByRole('button', { name: 'Post for Inflow' })).toBeInTheDocument()
+    expect(screen.getByText('0 of 1')).toBeInTheDocument()
+  })
+
+  it('remembers the chosen view across a remount', async () => {
+    await setUp(1, ['Instagram'])
+    const user = userEvent.setup()
+    const first = renderScreen()
+    await screen.findByText(/Tick each platform/)
+    await user.click(screen.getByRole('button', { name: 'Switch to the neural view' }))
+    await screen.findByText(/Tap a link to post/)
+    first.unmount()
+
+    renderScreen()
+    await screen.findByText(/Tap a link to post/)
+  })
+
+  it('posts from the link exactly like a tap in the list view would', async () => {
+    const { campaign } = await setUp(1, ['Instagram'])
+    const user = userEvent.setup()
+    renderScreen()
+    await screen.findByText(/Tick each platform/)
+    await user.click(screen.getByRole('button', { name: 'Switch to the neural view' }))
+    await screen.findByText(/Tap a link to post/)
+
+    await user.click(screen.getByRole('button', { name: 'Post for Inflow' }))
+
+    await waitFor(async () => {
+      const posted = (await adapter.listVideos({ campaignId: campaign.id })).filter(
+        (v) => v.phase === 'posted',
+      )
+      expect(posted).toHaveLength(1)
+    })
+    expect(await screen.findByText('1 of 1')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Inflow is posted today - tap for one more' }),
+    ).toBeInTheDocument()
+    // The rate is locked in the same way markPosted always does - proven by
+    // the posted video above, which only exists with a rate snapshot once
+    // the campaign has one (see src/data/posting.ts markPosted).
+    const [video] = await adapter.listVideos({ campaignId: campaign.id })
+    expect(video.rate_snapshot_cents).toBe(3500)
+  })
+
+  it('shows several campaigns, best-paying first, each with its own link', async () => {
+    for (const [name, cents] of [
+      ['Cheap', 1000],
+      ['Rich', 9000],
+    ] as const) {
+      const campaign = await adapter.createCampaign({
+        name,
+        company: null,
+        default_setup: 'face',
+        approval_mode: 'none',
+        daily_post_quota: 1,
+        pay_per_video_cents: cents,
+        cycle_size: null,
+      })
+      const account = await adapter.addCampaignAccount({
+        campaign_id: campaign.id,
+        platform: 'Instagram',
+        handle: `@${name.toLowerCase()}`,
+      })
+      await adapter.updateCampaignAccount(account.id, { status: 'ready' })
+    }
+    const user = userEvent.setup()
+    renderScreen()
+    await screen.findByRole('heading', { name: 'Rich' })
+    await user.click(screen.getByRole('button', { name: 'Switch to the neural view' }))
+
+    await screen.findByText(/Tap a link to post/)
+    const names = screen.getAllByRole('link').map((link) => link.getAttribute('aria-label'))
+    expect(names).toEqual([
+      'Open the brief for Rich',
+      'Open the brief for Cheap',
+    ])
+  })
+
+  it('draws the node for a campaign with no accounts at all, but no post control', async () => {
+    // Still owed - "still owe a campaign with no accounts at all, because
+    // that is fixable" - so it belongs on the diagram, just with nothing to
+    // tap yet.
+    await adapter.createCampaign({
+      name: 'Brand new',
+      company: null,
+      default_setup: 'face',
+      approval_mode: 'none',
+      daily_post_quota: 1,
+      pay_per_video_cents: 1000,
+      cycle_size: null,
+    })
+    const user = userEvent.setup()
+    renderScreen()
+    await screen.findByText(/Tick each platform/)
+    await user.click(screen.getByRole('button', { name: 'Switch to the neural view' }))
+
+    expect(await screen.findByRole('link', { name: 'Open the brief for Brand new' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Post for Brand new/ })).toBeNull()
   })
 })

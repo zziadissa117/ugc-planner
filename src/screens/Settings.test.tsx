@@ -7,6 +7,7 @@ import 'fake-indexeddb/auto'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { IDBFactory } from 'fake-indexeddb'
+import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { DataAdapter } from '../data'
@@ -58,9 +59,11 @@ function fakeClient() {
 function renderSettings() {
   render(
     <DataContext.Provider value={adapter}>
-      <AuthProvider>
-        <Settings />
-      </AuthProvider>
+      <MemoryRouter>
+        <AuthProvider>
+          <Settings />
+        </AuthProvider>
+      </MemoryRouter>
     </DataContext.Provider>,
   )
 }
@@ -98,5 +101,78 @@ describe('the account section', () => {
 
     await user.click(screen.getByRole('button', { name: 'Sign out' }))
     expect(signOutFn).toHaveBeenCalled()
+  })
+})
+
+describe("the studio checklist's campaign link", () => {
+  async function makeCampaign(name: string) {
+    return adapter.createCampaign({
+      name,
+      company: null,
+      default_setup: 'face',
+      approval_mode: 'none',
+      daily_post_quota: 1,
+      pay_per_video_cents: null,
+      cycle_size: null,
+    })
+  }
+
+  it('shows a button to the brief when a line names a campaign', async () => {
+    const campaign = await makeCampaign('Amboras')
+    const user = userEvent.setup()
+    renderSettings()
+
+    await user.type(
+      await screen.findByPlaceholderText('e.g. Charge the phone rig'),
+      'Amboras: create account and do this and that{Enter}',
+    )
+
+    const link = await screen.findByRole('link', { name: 'Open the brief for Amboras' })
+    expect(link).toHaveAttribute('href', `/campaigns/${campaign.id}`)
+  })
+
+  it('shows no button on a line that names no campaign', async () => {
+    await makeCampaign('Amboras')
+    const user = userEvent.setup()
+    renderSettings()
+
+    await user.type(
+      await screen.findByPlaceholderText('e.g. Charge the phone rig'),
+      'Charge the phone rig{Enter}',
+    )
+
+    await screen.findByText('Charge the phone rig')
+    expect(screen.queryByRole('link', { name: /Open the brief/ })).toBeNull()
+  })
+
+  it('picks the longer name when one campaign name sits inside another', async () => {
+    await makeCampaign('Inflow')
+    const longer = await makeCampaign('Inflow Canada')
+    const user = userEvent.setup()
+    renderSettings()
+
+    await user.type(
+      await screen.findByPlaceholderText('e.g. Charge the phone rig'),
+      'Inflow Canada needs a new handle{Enter}',
+    )
+
+    const link = await screen.findByRole('link', { name: 'Open the brief for Inflow Canada' })
+    expect(link).toHaveAttribute('href', `/campaigns/${longer.id}`)
+  })
+
+  it('matches without caring about case', async () => {
+    const campaign = await makeCampaign('Amboras')
+    const user = userEvent.setup()
+    renderSettings()
+
+    await user.type(
+      await screen.findByPlaceholderText('e.g. Charge the phone rig'),
+      'amboras handle{Enter}',
+    )
+
+    expect(await screen.findByRole('link', { name: 'Open the brief for Amboras' })).toHaveAttribute(
+      'href',
+      `/campaigns/${campaign.id}`,
+    )
   })
 })

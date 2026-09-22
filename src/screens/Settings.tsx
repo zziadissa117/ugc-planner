@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 
 import { EXPORT_REMINDER_DAYS } from '../data'
+import type { Campaign } from '../data'
 import { useData } from '../data/useData'
 import { useAuth } from '../sync'
 
@@ -23,6 +25,12 @@ export function Settings() {
   const data = useData()
   const [json, setJson] = useState('')
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
+  // For the studio list below: which line mentions which campaign, so a note
+  // he writes about a campaign can jump straight to its brief.
+  const [campaigns, setCampaigns] = useState<Campaign[]>([])
+  useEffect(() => {
+    void data.listCampaigns().then(setCampaigns)
+  }, [data])
   const [exportIsStale, setExportIsStale] = useState(false)
 
   useEffect(() => {
@@ -86,7 +94,7 @@ export function Settings() {
 
       <Account />
 
-      <TodoList />
+      <TodoList campaigns={campaigns} />
 
       <details className="group">
         <summary className="flex min-h-tap cursor-pointer list-none items-center justify-between text-lg font-semibold text-text">
@@ -146,10 +154,27 @@ export function Settings() {
 }
 
 /** A deliberately small device-local scratchpad: useful on set, but never
- * mixed into campaign obligations or the syncable production record. */
-function TodoList() {
+ * mixed into campaign obligations or the syncable production record.
+ *
+ *  He writes lines like "Amboras: create account and do this and that" - his
+ *  own shorthand, not a form field, so nothing here asks him to pick a
+ *  campaign from a list. A line is matched by campaign name appearing in it
+ *  (case-insensitive), and when one does, a small button opens that
+ *  campaign's brief straight from the checklist. */
+function TodoList({ campaigns }: { campaigns: Campaign[] }) {
   const [todos, setTodos] = useState<Todo[]>(() => readTodos())
   const [draft, setDraft] = useState('')
+
+  const matchFor = useCallback(
+    (text: string): Campaign | null => {
+      const lower = text.toLowerCase()
+      // Longest name first, so "Inflow" cannot steal a match that "Inflow
+      // Canada" deserves when both would otherwise match the same line.
+      const sorted = [...campaigns].sort((a, b) => b.name.length - a.name.length)
+      return sorted.find((c) => c.name.trim() !== '' && lower.includes(c.name.toLowerCase())) ?? null
+    },
+    [campaigns],
+  )
 
   useEffect(() => {
     localStorage.setItem(TODO_KEY, JSON.stringify(todos))
@@ -191,6 +216,18 @@ function TodoList() {
                   {todo.done ? '✓' : null}
                 </button>
                 <span className={`min-w-0 flex-1 text-sm ${todo.done ? 'text-text-dim line-through' : 'text-text'}`}>{todo.text}</span>
+                {(() => {
+                  const match = matchFor(todo.text)
+                  return match ? (
+                    <Link
+                      to={`/campaigns/${match.id}`}
+                      aria-label={`Open the brief for ${match.name}`}
+                      className="shrink-0 rounded-lg border border-edge px-2 py-1 text-xs font-semibold text-state-later active:bg-ink active:text-text"
+                    >
+                      {match.name}
+                    </Link>
+                  ) : null
+                })()}
                 <button type="button" aria-label={`Remove ${todo.text}`} onClick={() => setTodos((current) => current.filter((item) => item.id !== todo.id))} className="rounded-lg px-2 py-1 text-text-dim active:bg-ink active:text-text">×</button>
               </li>
             ))}

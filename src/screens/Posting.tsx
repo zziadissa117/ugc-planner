@@ -19,6 +19,7 @@ import {
   boardsForToday,
   earnedOn,
   markPosted,
+  nextUnfilledCell,
   unmarkPosted,
   type PostingBoard,
 } from '../data/posting'
@@ -34,10 +35,30 @@ interface Loaded {
   posts: VideoPost[]
 }
 
+const VIEW_KEY = 'ugc-planner.post_view'
+
+function readView(): 'list' | 'network' {
+  try {
+    return localStorage.getItem(VIEW_KEY) === 'network' ? 'network' : 'list'
+  } catch {
+    return 'list'
+  }
+}
+
 export function Posting() {
   const data = useData()
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  const [view, setView] = useState<'list' | 'network'>(readView)
+
+  const changeView = useCallback((next: 'list' | 'network') => {
+    setView(next)
+    try {
+      localStorage.setItem(VIEW_KEY, next)
+    } catch {
+      /* the choice still holds for this session */
+    }
+  }, [])
   const today = localToday()
 
   const reload = useCallback(async () => {
@@ -121,16 +142,41 @@ export function Posting() {
     [data, loaded, reload, today],
   )
 
+  const postFromNetwork = useCallback(
+    (board: PostingBoard) => {
+      const next = nextUnfilledCell(board)
+      if (!next) return
+      void toggle(board, next.account, next.slot, null)
+    },
+    [toggle],
+  )
+
   if (!loaded) return null
 
   return (
     <section className="mx-auto flex max-w-3xl flex-col gap-4">
       <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold text-text">Post</h1>
-          <p className="text-sm text-state-later">
-            Tick each platform as it goes up. Clears tomorrow.
-          </p>
+        <div className="flex items-center gap-2">
+          {/* The one way into the network view - a small button rather than
+              its own tab, because it is a second way to look at the same
+              boxes, not a sixth place in the app. */}
+          <button
+            type="button"
+            onClick={() => changeView(view === 'list' ? 'network' : 'list')}
+            aria-label={view === 'list' ? 'Switch to the neural view' : 'Switch to the list view'}
+            aria-pressed={view === 'network'}
+            className="flex min-h-tap min-w-tap items-center justify-center rounded-lg border border-edge bg-surface text-state-later active:bg-surface-raised"
+          >
+            <NetworkIcon />
+          </button>
+          <div>
+            <h1 className="text-xl font-semibold text-text">Post</h1>
+            <p className="text-sm text-state-later">
+              {view === 'list'
+                ? 'Tick each platform as it goes up. Clears tomorrow.'
+                : 'Tap a link to post. Tap a campaign for its brief.'}
+            </p>
+          </div>
         </div>
         <MadeToday cents={earned} />
       </header>
@@ -139,17 +185,39 @@ export function Posting() {
         <p className="text-sm text-state-later">
           No campaigns yet. Add one on <Link to="/campaigns" className="text-state-now">BRIEFS</Link>.
         </p>
-      ) : null}
-
-      {boards.map((board) => (
-        <CampaignBoard
-          key={board.campaign.id}
-          board={board}
-          busy={busy}
-          onToggle={(account, slot, post) => void toggle(board, account, slot, post)}
-        />
-      ))}
+      ) : view === 'list' ? (
+        boards.map((board) => (
+          <CampaignBoard
+            key={board.campaign.id}
+            board={board}
+            busy={busy}
+            onToggle={(account, slot, post) => void toggle(board, account, slot, post)}
+          />
+        ))
+      ) : (
+        <NeuralView boards={boards} busy={busy} onPost={postFromNetwork} />
+      )}
     </section>
+  )
+}
+
+/** A little sketch of three linked nodes, standing in for the network view -
+ *  distinct from every other icon in the nav, and nothing else in the app
+ *  uses this shape, so it reads as its own thing rather than a stray tab. */
+function NetworkIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5" aria-hidden>
+      <path
+        d="M12 12L5 7M12 12L19 7M12 12V19"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+      <circle cx="12" cy="12" r="2.3" fill="currentColor" />
+      <circle cx="5" cy="7" r="1.8" stroke="currentColor" strokeWidth="1.4" />
+      <circle cx="19" cy="7" r="1.8" stroke="currentColor" strokeWidth="1.4" />
+      <circle cx="12" cy="19" r="1.8" stroke="currentColor" strokeWidth="1.4" />
+    </svg>
   )
 }
 
@@ -241,6 +309,145 @@ function MadeToday({ cents }: { cents: number }) {
           ~{formatCents(toCadCents(shown))} CAD
         </p>
       ) : null}
+    </div>
+  )
+}
+
+/** All of today's campaigns as one diagram: a centre node for him, a link
+ *  running out to each campaign, and a node on every link he taps to post.
+ *  The same boxes as the list view - same write, same sound, same money - laid
+ *  out as a picture of the day instead of a grid of checkboxes.
+ *
+ *  The link itself carries the state: grey where nothing has gone out yet,
+ *  filling in green as he posts, solid green once the day's quota for that
+ *  campaign is met - "the more I post, it becomes green at the end of the
+ *  day." The dot on the link is the one control; tapping it posts the next
+ *  open box on the campaign's first ready account, in the same order the list
+ *  view would fill it, and one more past the quota once every box is full -
+ *  exactly what the dashed "+" does there. The node itself opens the brief. */
+function NeuralView({
+  boards,
+  busy,
+  onPost,
+}: {
+  boards: PostingBoard[]
+  busy: string | null
+  onPost: (board: PostingBoard) => void
+}) {
+  const count = boards.length
+  const positions = boards.map((_, index) => {
+    const angle = (2 * Math.PI * index) / count - Math.PI / 2
+    return { x: 50 + 38 * Math.cos(angle), y: 50 + 38 * Math.sin(angle) }
+  })
+
+  return (
+    <div className="relative mx-auto aspect-square w-full max-w-md select-none py-6">
+      <svg
+        viewBox="0 0 100 100"
+        className="absolute inset-0 h-full w-full overflow-visible"
+        aria-hidden
+      >
+        {boards.map((board, index) => {
+          const { x, y } = positions[index]
+          const quota = board.quota
+          const progress = quota > 0 ? Math.min(1, board.doneToday / quota) : board.doneToday > 0 ? 1 : 0
+          return (
+            <g key={board.campaign.id}>
+              <line
+                x1={50}
+                y1={50}
+                x2={x}
+                y2={y}
+                stroke="var(--color-edge)"
+                strokeWidth={0.7}
+                strokeLinecap="round"
+              />
+              {progress > 0 ? (
+                <line
+                  x1={50}
+                  y1={50}
+                  x2={50 + (x - 50) * progress}
+                  y2={50 + (y - 50) * progress}
+                  stroke="var(--color-state-posted)"
+                  strokeWidth={0.9}
+                  strokeLinecap="round"
+                />
+              ) : null}
+            </g>
+          )
+        })}
+      </svg>
+
+      {/* Him, in the middle - every campaign runs off his own work. */}
+      <div
+        className="lit absolute flex h-16 w-16 -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center rounded-full border border-state-now/70 bg-surface-raised text-state-now"
+        style={{ left: '50%', top: '50%' }}
+        aria-hidden
+      >
+        <span className="text-2xl">🧠</span>
+      </div>
+
+      {boards.map((board, index) => {
+        const { x, y } = positions[index]
+        const quota = board.quota
+        const done = quota > 0 && board.doneToday >= quota
+        const canPost = board.rows.length > 0
+        const next = canPost ? nextUnfilledCell(board) : null
+        const busyKey = next ? `${next.account.id}:${next.slot}` : null
+        const dotT = 0.58
+        const dotX = 50 + (x - 50) * dotT
+        const dotY = 50 + (y - 50) * dotT
+
+        return (
+          <div key={board.campaign.id}>
+            <Link
+              to={`/campaigns/${board.campaign.id}`}
+              aria-label={`Open the brief for ${board.campaign.name}`}
+              className="absolute flex w-20 -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1"
+              style={{ left: `${x}%`, top: `${y}%` }}
+            >
+              <span
+                className={[
+                  'flex h-11 w-11 items-center justify-center rounded-full border text-lg font-bold',
+                  done
+                    ? 'lit border-state-posted bg-state-posted/15 text-state-posted'
+                    : 'border-edge bg-surface-raised text-text',
+                ].join(' ')}
+              >
+                {board.campaign.name.trim().charAt(0).toUpperCase() || '?'}
+              </span>
+              <span className="display w-full truncate text-center text-sm leading-tight text-text">
+                {board.campaign.name}
+              </span>
+              <span className="numeric text-xs text-state-later">
+                {board.doneToday} of {quota}
+              </span>
+            </Link>
+
+            {canPost ? (
+              <button
+                type="button"
+                disabled={busyKey !== null && busy === busyKey}
+                onClick={() => onPost(board)}
+                aria-label={
+                  done
+                    ? `${board.campaign.name} is posted today - tap for one more`
+                    : `Post for ${board.campaign.name}`
+                }
+                className={[
+                  'absolute flex h-8 w-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border text-sm font-bold transition-transform duration-100 active:scale-90 disabled:opacity-50',
+                  done
+                    ? 'lit border-state-posted bg-state-posted text-ink'
+                    : 'border-state-now/70 bg-surface text-state-now active:bg-surface-raised',
+                ].join(' ')}
+                style={{ left: `${dotX}%`, top: `${dotY}%` }}
+              >
+                {done ? '✓' : '+'}
+              </button>
+            ) : null}
+          </div>
+        )
+      })}
     </div>
   )
 }

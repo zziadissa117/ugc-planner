@@ -261,6 +261,20 @@ export function earnedOn(
   return cents
 }
 
+/** The box a tap in the neural view should fill: the campaign's first ready
+ *  account, in slot order - the same box a first tap on that row of the list
+ *  view would fill. Once every owed slot on that account is posted, one more
+ *  beyond the quota, exactly like the list view's dashed "+" button. Null
+ *  only when the campaign has no account he can post from at all. */
+export function nextUnfilledCell(
+  board: PostingBoard,
+): { account: CampaignAccount; slot: number } | null {
+  const row = board.rows[0]
+  if (!row) return null
+  const open = row.cells.find((cell) => cell.post === null)
+  return open ? { account: row.account, slot: open.slot } : { account: row.account, slot: board.slots }
+}
+
 /** Records that this deliverable went out on this platform.
  *
  *  Binds the slot to a deliverable if it has none yet - reusing stock where

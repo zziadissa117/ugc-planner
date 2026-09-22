@@ -27,6 +27,7 @@ import { ensureTodaysQuota } from '../data/today'
 import { useData } from '../data/useData'
 import { byBestPay, formatCents, toCadCents } from '../money'
 import { isMuted, playCashRegister, primeCashRegister, setMuted } from '../sound'
+import { CORE_ID, layoutNetwork, type NetworkEdgeDef, type NetworkNodeDef } from './neuralLayout'
 
 interface Loaded {
   campaigns: Campaign[]
@@ -315,23 +316,24 @@ function MadeToday({ cents }: { cents: number }) {
   )
 }
 
-/** All of today's campaigns as one diagram: a core for him, a thin curved
- *  link running out to each campaign, and a node on every link he taps to
- *  post. The same boxes as the list view - same write, same sound, same
- *  money - laid out as a picture of the day instead of a grid of checkboxes.
+/** All of today's campaigns as one graph, settled by a real force layout
+ *  (see neuralLayout.ts) instead of drawn on a formula - a perfect wheel of
+ *  spokes was the problem, however it was styled: "this does not look good,"
+ *  and a real knowledge-graph, is nodes of different sizes scattered
+ *  organically, clustered, thin edges everywhere. So the core sits fixed in
+ *  the middle, every campaign hangs off it at whatever distance the
+ *  simulation settles on, and every campaign's own accounts hang off IT in
+ *  turn - real structure, not invented nodes, and enough of it to actually
+ *  cluster the way a graph does.
  *
- *  The link itself carries the state: dim where nothing has gone out yet,
- *  filling in with a glowing green as he posts, solid and lit once the day's
- *  quota for that campaign is met - "the more I post, it becomes green at
- *  the end of the day." The dot on the link is the one control; tapping it
- *  posts the next open box on the campaign's first ready account, in the
- *  same order the list view would fill it, and one more past the quota once
- *  every box is full - exactly what the dashed "+" does there. The campaign
- *  node itself opens the brief.
- *
- *  Room is deliberate: this reads as a diagram he glances at, not a form he
- *  reads line by line, so it is spaced wide and drawn thin rather than
- *  packed the way the list is. */
+ *  The core-to-campaign edge still carries the day's progress: dim where
+ *  nothing has gone out, filling in with a glowing green as he posts, solid
+ *  and lit once the quota is met - "the more I post, it becomes green at the
+ *  end of the day." The dot on it is the one control; tapping it posts the
+ *  next open box on the campaign's first ready account, in the same order
+ *  the list view would fill it. A campaign-to-account edge is only ever
+ *  structure - it lights up once that platform has actually posted today,
+ *  and nothing taps it. The campaign node opens the brief. */
 function NeuralView({
   boards,
   busy,
@@ -341,14 +343,56 @@ function NeuralView({
   busy: string | null
   onPost: (board: PostingBoard) => void
 }) {
-  const count = boards.length
-  // A wide ring, well clear of the core and the edge of the canvas - long
-  // spokes read as a network; short ones read as a badge with legs.
-  const radius = count <= 2 ? 40 : count <= 4 ? 42 : 44
-  const positions = boards.map((_, index) => {
-    const angle = (2 * Math.PI * index) / count - Math.PI / 2
-    return { x: 50 + radius * Math.cos(angle), y: 50 + radius * Math.sin(angle) }
-  })
+  const CORE_R = 7.5
+  const LEAF_R = 2.1
+
+  // Sized by what the campaign pays a video - the same weight the whole app
+  // now sorts by, made visible here as size instead of position. A campaign
+  // with no rate saved gets the smallest node rather than the app guessing.
+  //
+  // Two different sizes come out of the same rate, on purpose: the canvas
+  // radius is what the layout spaces nodes apart by, in the 0-100 space
+  // everyone's x/y lives in, and it stays small so a modest rate does not
+  // shove its neighbours across the whole graph. The avatar is what he
+  // actually taps, in real pixels, and it needs its own floor regardless of
+  // canvas scale - using the canvas number for both once made the smallest
+  // node a 13px circle, too small to read the letter in, let alone tap.
+  const maxRate = Math.max(1, ...boards.map((b) => b.campaign.pay_per_video_cents ?? 0))
+  const campaignCanvasR = (board: PostingBoard) => {
+    const rate = board.campaign.pay_per_video_cents ?? 0
+    return 3.6 + (5.6 - 3.6) * (rate / maxRate)
+  }
+  const campaignAvatarPx = (board: PostingBoard) => {
+    const rate = board.campaign.pay_per_video_cents ?? 0
+    return 34 + (48 - 34) * (rate / maxRate)
+  }
+
+  // The graph's shape - which campaigns, which of their accounts - is what
+  // the layout depends on. Recomputed only when that shape actually changes,
+  // never on a tap: settling the simulation again on every post would jolt
+  // every node to a new resting place the instant he tries to read it.
+  const signature = boards
+    .map((board) => `${board.campaign.id}:${board.rows.map((row) => row.account.id).join(',')}`)
+    .join('|')
+
+  const positions = useMemo(() => {
+    const nodeDefs: NetworkNodeDef[] = [{ id: CORE_ID, r: CORE_R }]
+    const edgeDefs: NetworkEdgeDef[] = []
+    for (const board of boards) {
+      nodeDefs.push({ id: board.campaign.id, r: campaignCanvasR(board) })
+      edgeDefs.push({ a: CORE_ID, b: board.campaign.id, ideal: 34 })
+      for (const row of board.rows) {
+        nodeDefs.push({ id: row.account.id, r: LEAF_R, parentId: board.campaign.id })
+        edgeDefs.push({ a: board.campaign.id, b: row.account.id, ideal: 17 })
+      }
+    }
+    return layoutNetwork(nodeDefs, edgeDefs)
+    // Deliberately keyed on the graph's shape alone (see comment above), not
+    // on `boards` itself - a new array reference every reload must not
+    // resettle the whole layout for a tap that changed nothing structural.
+  }, [signature]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const at = (id: string) => positions.get(id) ?? { x: 50, y: 50 }
 
   return (
     <div
@@ -383,61 +427,69 @@ function NeuralView({
         {/* A soft halo behind the core, wider than the core itself. */}
         <circle cx={50} cy={50} r={13} fill="url(#neural-core-glow)" />
 
-        {boards.map((board, index) => {
-          const { x, y } = positions[index]
+        {/* Structure first, underneath everything - every campaign's own
+            accounts, as plain thin lines that only light up once that
+            platform has actually posted today. */}
+        {boards.map((board) =>
+          board.rows.map((row) => {
+            const from = at(board.campaign.id)
+            const to = at(row.account.id)
+            const posted = row.cells.some((cell) => cell.post !== null)
+            return (
+              <line
+                key={row.account.id}
+                x1={from.x}
+                y1={from.y}
+                x2={to.x}
+                y2={to.y}
+                stroke={posted ? 'var(--color-state-posted)' : 'var(--color-edge)'}
+                strokeOpacity={posted ? 0.8 : 1}
+                strokeWidth={0.28}
+                strokeLinecap="round"
+              />
+            )
+          }),
+        )}
+
+        {boards.map((board) => {
+          const { x, y } = at(board.campaign.id)
           const quota = board.quota
           const progress = quota > 0 ? Math.min(1, board.doneToday / quota) : board.doneToday > 0 ? 1 : 0
-          // A slight outward bow instead of a straight spoke - a gentle
-          // curve is what makes several of these read as one network rather
-          // than a star of rulers.
-          const mx = (50 + x) / 2
-          const my = (50 + y) / 2
-          const nx = -(y - 50)
-          const ny = x - 50
-          const nlen = Math.hypot(nx, ny) || 1
-          const bow = 5
-          const cx = mx + (nx / nlen) * bow
-          const cy = my + (ny / nlen) * bow
-          const path = `M 50 50 Q ${cx} ${cy} ${x} ${y}`
-
-          // The filled portion of the curve, traced to the same fraction of
-          // its length as the day's progress. A quadratic Bezier does not
-          // shorten linearly with t, but scaling the control point and the
-          // endpoint by the same fraction is close enough at this scale to
-          // read as "the link is filling in", without needing exact arc math.
-          const filledPath =
-            progress > 0
-              ? `M 50 50 Q ${50 + (cx - 50) * progress} ${50 + (cy - 50) * progress} ${
-                  50 + (x - 50) * progress
-                } ${50 + (y - 50) * progress}`
-              : null
+          const fx = 50 + (x - 50) * progress
+          const fy = 50 + (y - 50) * progress
 
           return (
             <g key={board.campaign.id}>
-              <path
-                d={path}
-                fill="none"
+              <line
+                x1={50}
+                y1={50}
+                x2={x}
+                y2={y}
                 stroke="var(--color-edge)"
-                strokeWidth={0.35}
+                strokeWidth={0.4}
                 strokeLinecap="round"
               />
-              {filledPath ? (
+              {progress > 0 ? (
                 <>
                   {/* A wide, soft duplicate under the crisp line - the glow. */}
-                  <path
-                    d={filledPath}
-                    fill="none"
+                  <line
+                    x1={50}
+                    y1={50}
+                    x2={fx}
+                    y2={fy}
                     stroke="var(--color-state-posted)"
-                    strokeWidth={1.4}
+                    strokeWidth={1.5}
                     strokeLinecap="round"
                     opacity={0.35}
                     filter="url(#neural-glow)"
                   />
-                  <path
-                    d={filledPath}
-                    fill="none"
+                  <line
+                    x1={50}
+                    y1={50}
+                    x2={fx}
+                    y2={fy}
                     stroke="var(--color-state-posted)"
-                    strokeWidth={0.45}
+                    strokeWidth={0.5}
                     strokeLinecap="round"
                   />
                 </>
@@ -465,49 +517,94 @@ function NeuralView({
         <span className="text-2xl drop-shadow-[0_0_10px_var(--color-state-now)]">🧠</span>
       </div>
 
-      {boards.map((board, index) => {
-        const { x, y } = positions[index]
+      {/* Every account, small and quiet - real structure (his own platforms),
+          not filler, and the reason the graph has enough in it to cluster. */}
+      {boards.map((board) =>
+        board.rows.map((row) => {
+          const { x, y } = at(row.account.id)
+          const posted = row.cells.some((cell) => cell.post !== null)
+          return (
+            <div
+              key={row.account.id}
+              aria-hidden
+              className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1"
+              style={{ left: `${x}%`, top: `${y}%` }}
+            >
+              <span
+                className={[
+                  'h-[9px] w-[9px] rounded-full border transition-shadow duration-300',
+                  posted
+                    ? 'border-state-posted bg-state-posted drop-shadow-[0_0_6px_var(--color-state-posted)]'
+                    : 'border-edge bg-surface-raised',
+                ].join(' ')}
+              />
+              <span className="meta whitespace-nowrap text-[10px] leading-none text-state-later">
+                {row.account.platform}
+              </span>
+            </div>
+          )
+        }),
+      )}
+
+      {boards.map((board) => {
+        const { x, y } = at(board.campaign.id)
         const quota = board.quota
         const done = quota > 0 && board.doneToday >= quota
         const canPost = board.rows.length > 0
         const next = canPost ? nextUnfilledCell(board) : null
         const busyKey = next ? `${next.account.id}:${next.slot}` : null
-        const dotT = 0.62
-        const dotX = 50 + (x - 50) * dotT
-        const dotY = 50 + (y - 50) * dotT
+        const size = campaignAvatarPx(board)
+        // A corner badge on the avatar itself, not a dot floating somewhere
+        // along the edge - the edge's own length varies with the layout, and
+        // anything placed along it could end up sitting on top of a leaf or
+        // the node itself depending on how the graph happened to settle. A
+        // badge pinned to the avatar's own corner is never anywhere else.
+        // Top-right rather than bottom-right: the name and its count sit
+        // directly below the avatar, and a bottom badge sat on top of them.
+        //
+        // It has to be a sibling of the Link, not a child of it: an <a> may
+        // not contain a <button> under the HTML content model, and a browser
+        // asked to would close the anchor early rather than nest it,
+        // silently breaking the tap that opens the brief. The offset below
+        // is the same pixel corner either way - `calc()` reaches it from the
+        // node's own percentage position without needing the DOM nesting.
+        const badgeOffset = size / 2 - 3
 
         return (
           <div key={board.campaign.id}>
             <Link
               to={`/campaigns/${board.campaign.id}`}
               aria-label={`Open the brief for ${board.campaign.name}`}
-              className="absolute flex w-24 -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-2"
+              className="absolute flex w-24 -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1.5"
               style={{ left: `${x}%`, top: `${y}%` }}
             >
-              <span className="relative flex h-11 w-11 items-center justify-center">
-                {/* The same thin orbit rings the core wears, echoing it so
+              <span
+                className="relative flex items-center justify-center"
+                style={{ height: `${size}px`, width: `${size}px` }}
+              >
+                {/* The same thin orbit ring the core wears, echoing it so
                     every node in the diagram reads as one family of shapes. */}
                 <span
                   aria-hidden
-                  className={`absolute inset-[-7px] rounded-full border ${
-                    done ? 'border-state-posted/25' : 'border-edge/60'
+                  className={`absolute inset-[-6px] rounded-full border ${
+                    done ? 'border-state-posted/25' : 'border-edge/50'
                   }`}
                 />
                 <span
                   className={[
-                    'relative flex h-11 w-11 items-center justify-center rounded-full border text-base font-bold transition-shadow duration-300',
+                    'relative flex h-full w-full items-center justify-center rounded-full border text-sm font-bold transition-shadow duration-300',
                     done
-                      ? 'border-state-posted/70 bg-state-posted/10 text-state-posted drop-shadow-[0_0_12px_var(--color-state-posted)]'
+                      ? 'border-state-posted/70 bg-state-posted/15 text-state-posted drop-shadow-[0_0_12px_var(--color-state-posted)]'
                       : 'border-edge bg-surface-raised text-text',
                   ].join(' ')}
                 >
                   {board.campaign.name.trim().charAt(0).toUpperCase() || '?'}
                 </span>
               </span>
-              <span className="display w-full truncate text-center text-sm leading-tight text-text">
+              <span className="w-full truncate text-center text-xs font-semibold leading-tight text-text">
                 {board.campaign.name}
               </span>
-              <span className="numeric label tracking-[0.14em] text-state-later">
+              <span className="numeric text-[10px] tracking-wide text-state-later">
                 {board.doneToday} / {quota}
               </span>
             </Link>
@@ -523,12 +620,15 @@ function NeuralView({
                     : `Post for ${board.campaign.name}`
                 }
                 className={[
-                  'absolute flex h-7 w-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border text-sm font-bold transition-transform duration-100 active:scale-90 disabled:opacity-50',
+                  'absolute flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border text-xs font-bold transition-transform duration-100 active:scale-90 disabled:opacity-50',
                   done
                     ? 'border-state-posted bg-state-posted text-ink drop-shadow-[0_0_8px_var(--color-state-posted)]'
                     : 'link-pulse border-state-now/60 bg-surface text-state-now active:bg-surface-raised',
                 ].join(' ')}
-                style={{ left: `${dotX}%`, top: `${dotY}%` }}
+                style={{
+                  left: `calc(${x}% + ${badgeOffset}px)`,
+                  top: `calc(${y}% - ${badgeOffset}px)`,
+                }}
               >
                 {done ? '✓' : '+'}
               </button>

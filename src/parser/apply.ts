@@ -16,6 +16,10 @@ export interface ApplyInput {
   briefFilename: string | null
   contractText: string | null
   contractFilename: string | null
+  /** Indexes into `result.rules` he unticked on the review screen. */
+  excludedRules?: ReadonlySet<number>
+  /** Indexes into `result.bonus_tiers` he unticked on the review screen. */
+  excludedTiers?: ReadonlySet<number>
 }
 
 export async function applyParseResult(
@@ -102,7 +106,12 @@ async function applyWithin(adapter: DataAdapter, input: ApplyInput): Promise<Cam
   const withColumns =
     Object.keys(patch).length > 0 ? await adapter.updateCampaign(campaign.id, patch) : campaign
 
+  // Only what survived verifyQuotes reaches here, and only what he left
+  // ticked on the review screen: each tier's line was found in the contract
+  // and states both its numbers, each rule's quote was found in a document.
+  const excludedTiers = input.excludedTiers ?? new Set<number>()
   for (const [index, tier] of result.bonus_tiers.entries()) {
+    if (excludedTiers.has(index)) continue
     await adapter.addBonusTier({
       campaign_id: campaign.id,
       label: tier.label,
@@ -110,17 +119,19 @@ async function applyWithin(adapter: DataAdapter, input: ApplyInput): Promise<Cam
       payout_cents: tier.payout_cents,
       view_window_days: tier.view_window_days,
     })
-    void index
   }
 
-  for (const [index, body] of result.rules.entries()) {
+  const excludedRules = input.excludedRules ?? new Set<number>()
+  let order = 0
+  for (const [index, rule] of result.rules.entries()) {
+    if (excludedRules.has(index)) continue
     await adapter.addCampaignRule({
       campaign_id: campaign.id,
-      body,
-      // Read out of the campaign's own brief, which is what verified means
-      // here - not that anybody has checked the wording.
+      body: rule.body,
+      // Verified means its quote was found in the campaign's own documents -
+      // not that anybody has checked the wording.
       is_verified: true,
-      sort_order: index + 1,
+      sort_order: ++order,
     })
   }
 

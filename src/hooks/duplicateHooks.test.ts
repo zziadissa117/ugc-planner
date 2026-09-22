@@ -134,4 +134,24 @@ describe('saving a generated batch', () => {
     expect(saved).toBe(1)
     expect(duplicates).toBe(1)
   })
+
+  it('records the model the function says wrote them, not the one it asked for', async () => {
+    await saveGeneratedHooks(adapter, campaignId, {
+      hooks: [{ body: 'A line nobody has written yet.', outline: 'Beat one\nBeat two', angle_id: null }],
+      warnings: [],
+      model: 'claude-opus-4-8',
+    })
+    const [hook] = (await adapter.listCampaignHooks(campaignId)).filter((h) => h.source === 'generated')
+    expect(hook.model).toBe('claude-opus-4-8')
+    expect(hook.outline).toBe('Beat one\nBeat two')
+  })
+
+  it('labels hooks from a function too old to say with the model it ran', async () => {
+    await saveGeneratedHooks(adapter, campaignId, {
+      hooks: [{ body: 'Another line nobody has written yet.', outline: null, angle_id: null }],
+      warnings: [],
+    })
+    const [hook] = (await adapter.listCampaignHooks(campaignId)).filter((h) => h.source === 'generated')
+    expect(hook.model).toBe('claude-sonnet-5')
+  })
 })

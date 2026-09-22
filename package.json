@@ -5,11 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npm run check:types && tsc -b && vite build",
+    "build": "npm run check:types && npm run check:vendored && tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
     "generate:types": "node scripts/generate-types.mjs",
     "check:types": "node scripts/generate-types.mjs --check",
+    "vendor": "node scripts/vendor-shared.mjs",
+    "check:vendored": "node scripts/vendor-shared.mjs --check",
     "test": "vitest run",
     "test:live": "vitest run --config vitest.live.config.ts",
     "test:e2e": "playwright test"

@@ -1,6 +1,6 @@
 // The hook generator Edge Function. Contract: docs/EDGE_FUNCTION.md.
 //
-// Calls the model API server-side (the key must never reach the browser),
+// Calls the model server-side (the key must never reach the browser),
 // requires a valid session, and asks for hooks built only from the campaign
 // material the client sends it. Like parse-campaign, this function writes
 // nothing to the database: it generates and returns, and the client decides
@@ -13,7 +13,6 @@
 // kept SupabaseAdapter out of the design (docs/SYNC.md).
 
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import {
   HOOK_SYSTEM_PROMPT,
   RETURN_HOOKS_SCHEMA,
@@ -22,72 +21,21 @@ import {
   type GenerateHooksResult,
   type HookContext,
 } from '../_shared/hookPrompt.ts'
+import { ModelError, callForJson, jsonResponse, refuseUnlessSignedIn } from '../_shared/claude.ts'
 
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
-const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!
-const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY')!
-// Sonnet, not Haiku. Hook writing is the one genuinely creative call the app
-// makes, and it is where a cheaper model shows: asked for ten hooks with no
-// angle list to spread across, Haiku returned nine rewordings of the brief's
-// own thesis sentence. Parsing stays on Haiku - that job is extraction against
-// a schema, which it does well.
-const MODEL = Deno.env.get('GENERATE_HOOKS_MODEL') ?? 'claude-sonnet-5'
+// Opus. Hook writing is the one genuinely creative call the app makes, and
+// the failure it keeps having is sameness - Haiku returned nine rewordings of
+// the brief's thesis, Sonnet handed back lines from his own hook bank. At
+// medium effort it thinks enough to hold every hook against his material and
+// against the others, and answers in well under a minute.
+const MODEL = Deno.env.get('GENERATE_HOOKS_MODEL') ?? 'claude-opus-5'
 
-/** Hooks are short and there are never many. Capped so a runaway response
- *  cannot cost more than the job is worth. */
-const MAX_TOKENS = 2000
+/** Hooks and their beats are short and there are never many; the rest is
+ *  room to think. */
+const MAX_TOKENS = 12000
 
 /** More than this and he is not working down a list, he is reading a wall. */
 const MAX_HOOKS = 20
-
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-}
-
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-  })
-}
-
-async function callModel(context: HookContext): Promise<GenerateHooksResult> {
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: MAX_TOKENS,
-      system: HOOK_SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: buildHookRequest(context) }],
-      tools: [
-        {
-          name: 'return_hooks',
-          description: 'Return the hooks you wrote.',
-          input_schema: RETURN_HOOKS_SCHEMA,
-        },
-      ],
-      tool_choice: { type: 'tool', name: 'return_hooks' },
-    }),
-  })
-
-  if (!response.ok) {
-    const detail = await response.text()
-    throw new Error(`Model API returned ${response.status}: ${detail}`)
-  }
-
-  const body = await response.json()
-  const toolUse = (body.content ?? []).find((block: { type: string }) => block.type === 'tool_use')
-  if (!toolUse) throw new Error('Model did not return a tool call.')
-
-  return toolUse.input as GenerateHooksResult
-}
 
 /** The request body, checked rather than trusted. A malformed context would
  *  otherwise reach the prompt as the string "undefined" and be answered with
@@ -139,17 +87,8 @@ function readContext(body: unknown): HookContext | string {
 }
 
 Deno.serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS_HEADERS })
-  if (req.method !== 'POST') return jsonResponse({ error: 'POST only.' }, 405)
-
-  const authHeader = req.headers.get('Authorization')
-  if (!authHeader) return jsonResponse({ error: 'Missing Authorization header.' }, 401)
-
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    global: { headers: { Authorization: authHeader } },
-  })
-  const { data: userData, error: userError } = await supabase.auth.getUser()
-  if (userError || !userData.user) return jsonResponse({ error: 'Invalid or expired session.' }, 401)
+  const refused = await refuseUnlessSignedIn(req)
+  if (refused) return refused
 
   let parsed: unknown
   try {
@@ -161,15 +100,24 @@ Deno.serve(async (req: Request) => {
   const context = readContext(parsed)
   if (typeof context === 'string') return jsonResponse({ error: context }, 400)
 
-  let result: GenerateHooksResult
+  let answer: { data: GenerateHooksResult; model: string }
   try {
-    result = await callModel(context)
+    answer = await callForJson<GenerateHooksResult>({
+      model: MODEL,
+      system: HOOK_SYSTEM_PROMPT,
+      user: buildHookRequest(context),
+      schema: RETURN_HOOKS_SCHEMA,
+      effort: 'medium',
+      maxTokens: MAX_TOKENS,
+    })
   } catch (err) {
-    return jsonResponse({ error: `Hook generation failed: ${(err as Error).message}` }, 502)
+    const message = err instanceof ModelError ? err.message : (err as Error).message
+    return jsonResponse({ error: `Hook generation failed: ${message}` }, 502)
   }
 
   // A model told to pick an angle id from a list will occasionally return one
   // that is not in it. Dropped rather than reassigned: a hook filed under a
   // storyline nobody chose is worse than one with no angle.
-  return jsonResponse(dropUnknownAngles(result, context.angles))
+  const result = dropUnknownAngles(answer.data, context.angles)
+  return jsonResponse({ ...result, model: answer.model })
 })

@@ -98,7 +98,7 @@ export function newRules(currentRules: readonly CampaignRule[], result: ParseRes
   const seen = new Set<string>()
   const out: string[] = []
 
-  for (const body of result.rules) {
+  for (const { body } of result.rules) {
     const key = normalise(body)
     if (existing.has(key) || seen.has(key)) continue
     seen.add(key)

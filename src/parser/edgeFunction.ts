@@ -61,12 +61,43 @@ export class EdgeFunctionParser implements CampaignParser {
     }
 
     const { data, error } = await client.functions.invoke('parse-campaign', {
-      body: { briefText: input.briefText, contractText: input.contractText },
+      // version 2: rules come back as { body, source_quote } rather than as
+      // bare strings. A function that predates it ignores the field.
+      body: { briefText: input.briefText, contractText: input.contractText, version: 2 },
     })
 
     if (error) {
-      throw new ParseError(`The server parser failed: ${error.message}`)
+      throw new ParseError(`The server parser failed: ${await describeError(error)}`)
     }
-    return data as ParseResult
+    return withQuotedRules(data as ParseResult)
   }
+}
+
+/** A function too old to quote its rules sends them as strings. Each is taken
+ *  as its own quote, which the client's verifyQuotes then holds to the same
+ *  standard as a pasted one: kept only if those words are in a document. */
+function withQuotedRules(result: ParseResult): ParseResult {
+  const rules = (result.rules as unknown[]).map((rule) =>
+    typeof rule === 'string' ? { body: rule, source_quote: rule } : rule,
+  ) as ParseResult['rules']
+  const bonus_tiers = (result.bonus_tiers ?? []).map((tier) => ({
+    ...tier,
+    source_quote: tier.source_quote ?? null,
+  }))
+  return { ...result, rules, bonus_tiers }
+}
+
+/** The function's own explanation, when it gave one. supabase-js reports any
+ *  non-2xx as "Edge Function returned a non-2xx status code" and keeps the
+ *  body - where the function says what actually went wrong - on the error's
+ *  context, so without this every failure read the same. */
+async function describeError(error: { message: string; context?: unknown }): Promise<string> {
+  const context = error.context as { json?: () => Promise<unknown> } | undefined
+  try {
+    const body = (await context?.json?.()) as { error?: unknown } | undefined
+    if (body && typeof body.error === 'string') return body.error
+  } catch {
+    /* no readable body - fall back to the generic message */
+  }
+  return error.message
 }

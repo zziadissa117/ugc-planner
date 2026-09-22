@@ -22,6 +22,27 @@ export interface ParsedField {
   source_quote: string | null
   /** Which uploaded document the quote should be found in. */
   from?: 'brief' | 'contract'
+  /** Something about this value that deserves a second look before he
+   *  confirms it - the document states two different rates, the text around
+   *  it is garbled, it only holds under a condition. Written by the parser,
+   *  shown beside the field, never stored. Absent means nothing to flag, not
+   *  that the value is certain: every parsed field is still amber until he
+   *  taps it. */
+  note?: string | null
+}
+
+/** A never-do rule read out of a document, with the words it came from.
+ *
+ *  Rules used to be bare strings, written straight to the campaign as
+ *  verified with nothing checking that any document said them. A rule is
+ *  campaign content like any other - "never invent a rule" is in CLAUDE.md
+ *  beside rates and hooks - so it carries a quote and survives only if that
+ *  quote can be found. `body` may be a tidied version of the quote; the quote
+ *  itself must be verbatim. */
+export interface ParsedRule {
+  body: string
+  source_quote: string | null
+  from?: 'brief' | 'contract'
 }
 
 export interface ParsedBonusTier {
@@ -29,6 +50,11 @@ export interface ParsedBonusTier {
   threshold_views: number
   payout_cents: number
   view_window_days: number | null
+  /** The line the tier was read from. Money, so it gets the strictest check
+   *  in the parser: the quote must be in the document AND must itself contain
+   *  both the view count and the payout. See verifyBonusTiers. */
+  source_quote: string | null
+  from?: 'brief' | 'contract'
 }
 
 export interface ParseResult {
@@ -43,8 +69,8 @@ export interface ParseResult {
   /** Everything with provenance, keyed by field_key. */
   fields: Record<string, ParsedField>
   bonus_tiers: ParsedBonusTier[]
-  /** Never-do rules read from the brief. */
-  rules: string[]
+  /** Never-do rules read from the documents. */
+  rules: ParsedRule[]
   /** Set when the brief looks like it lost sections in conversion. */
   brief_is_incomplete: boolean
   /** Plain-language notes for the review screen. */

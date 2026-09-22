@@ -18,10 +18,16 @@ The function must run **that logic**, not a second version of it. Two
 implementations of "is this quote real?" will drift, and the day they disagree
 is the day a fabricated rate gets written as `documented`.
 
-Practically: copy `verify.ts` into the function's source (it imports only its
-own types), or vendor it via a shared path. Do not rewrite it in the handler,
-and do not simplify its whitespace normalisation - that normalisation is
-load-bearing and is explained in the file.
+Practically: `scripts/vendor-shared.mjs` generates
+`supabase/functions/_shared/verify.ts` (and `parserTypes.ts`, and the hook
+prompt) from the client source, and `npm run build` and `npm test` both fail
+if a checked-in copy is stale. Edit `src/parser/verify.ts`, then run
+`npm run vendor`. Never edit the vendored copy - hand copies drifted once
+already (the server's lost the non-breaking-space character from its
+normalisation regex).
+
+`_shared/claude.ts` is server-only and hand-written: the session check, CORS,
+and the one model call both functions make.
 
 ## Request
 
@@ -30,32 +36,61 @@ POST /functions/v1/parse-campaign
 Authorization: Bearer <the caller's Supabase access token>
 Content-Type: application/json
 
-{ "briefText": string | null, "contractText": string | null }
+{ "briefText": string | null, "contractText": string | null, "version": 2 }
 ```
 
 Require a valid session and reject anonymous calls. This spends money per
 request; it should not be an open endpoint.
 
+`version: 2` asks for rules as `{ body, source_quote, from }`. Without it the
+function answers in the old shape - rules as plain strings, already verified -
+so a client installed before the change keeps working while it updates.
+
 ## Response
 
-Exactly `ParseResult` from `src/parser/types.ts`:
+Exactly `ParseResult` from `src/parser/types.ts`, plus `model`:
 
 ```ts
 {
   campaign: { name: string, company: string | null, approval_mode: ApprovalMode | null },
-  fields: Record<string, { value: string | null, source_quote: string | null, from?: 'brief' | 'contract' }>,
-  bonus_tiers: { label, threshold_views, payout_cents, view_window_days }[],
-  rules: string[],
+  fields: Record<string, { value, source_quote, from?: 'brief' | 'contract', note?: string | null }>,
+  bonus_tiers: { label, threshold_views, payout_cents, view_window_days, source_quote, from? }[],
+  rules: { body, source_quote, from? }[],
   brief_is_incomplete: boolean,
-  warnings: string[]
+  warnings: string[],
+  model: string          // the model the API says answered
 }
 ```
 
 `approval_mode` is one of `none | video | script_and_video | brand_scripted`.
 
 **Money is integer cents.** `payout_cents` is `5000` for $50.00. Never a float,
-never a string with a currency symbol. Reject the model's output rather than
-rounding it yourself if it comes back as dollars.
+never a string with a currency symbol. A money or count field that comes back
+as anything but digits is dropped with a warning, not converted.
+
+`note` is the model's one-line reason to look twice at a value - two different
+rates, garbled text around it, a condition. It is shown on the review screen
+and never stored. Every parsed field is amber until he taps it regardless.
+
+## Model and request shape
+
+`claude-opus-5` at `effort: medium` (override with `PARSE_CAMPAIGN_MODEL`).
+Haiku was fast on a clean template and lost fields on the messy PDF
+conversions this app actually gets; it runs a couple of times a month, so
+accuracy is worth far more than the cost.
+
+The answer is a structured output (`output_config.format` with a JSON schema),
+not a forced tool call: the API enforces the schema, where a tool schema was
+only a hint both functions had to defend against, and newer models reject
+forced tool choice outright. `fields` is a list with a fixed `key` enum in the
+schema - the same fact always lands under the same key - and is turned back
+into a record server-side.
+
+Requests carry `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`):
+if a safety classifier declines, the API reruns the request on its recommended
+fallback model instead of returning a refusal. `stop_reason` is checked before
+the content is read; a refusal or a truncated answer is a 502 with a plain
+reason.
 
 ## The model prompt
 
@@ -106,12 +141,21 @@ than as a bug. If the model returns them, drop them.
 ## After the model responds - the part that is not optional
 
 1. Run `verifyQuotes(result, { briefText, contractText })`.
-2. Any field whose quote cannot be found in the document it claims to come from
-   is **blanked, not dropped** - value `null`, quote `null`. The key stays
+2. Any **field** whose quote cannot be found in the document it claims to come
+   from is **blanked, not dropped** - value `null`, quote `null`. The key stays
    visible so an invented value shows up as an obvious gap on the review screen
    instead of silently vanishing as though never attempted.
-3. Return the blanked keys in `warnings` so the review screen can say what was
+3. Any **rule** whose quote cannot be found is dropped. Rules used to be bare
+   strings written to the campaign as verified with nothing checking them.
+4. Any **bonus tier** is dropped unless its quote is in the document *and*
+   itself states both the view threshold and the payout. A view window no
+   document mentions is blanked.
+5. Every drop is counted in `warnings` so the review screen can say what was
    discarded and why.
+
+The client runs the same `verifyQuotes` again on whatever comes back. The
+review screen lists the surviving rules and tiers with their quotes, and he
+can untick any of them before saving.
 
 This is what makes fabrication a mechanical failure rather than something we
 trust the model not to do.
@@ -190,19 +234,35 @@ simpler hooks, not invented ones.
 
 ## The rules the prompt holds
 
-1. Every claim must be supported by the PRODUCT section. No invented statistic,
-   price, percentage, guarantee or feature.
+1. Every claim must be supported by the PRODUCT section or the working brief.
+   No invented statistic, price, percentage, guarantee or feature.
 2. The never-do list is absolute.
 3. One angle per hook.
-4. Build from the MATERIAL section where there is one.
+4. Build from the MATERIAL section where there is one, and never hand back a
+   line he already has.
 5. Angle ids are chosen from the list given, never invented, and left empty
    when the campaign has no angles.
+
+Each hook comes back with `outline` - its **body beats**, two or three short
+spoken points for the middle of the video, never the close. He asked for
+exactly that: "i already have the hook, i just need inspiration for the body
+of what im going to say, not the CTA". The console shows them under each hook
+still to film.
+
+Each hook also names its `opening_move` (confession, cold open, receipt...),
+unique within the batch. That is what forces a batch to actually vary; it is
+never saved or shown.
 
 Rule 5 is also enforced after the fact: `dropUnknownAngles` clears any
 `angle_id` the campaign does not have. A tool schema is a hint, not an enforced
 type, and an id pointing at nothing would fail the foreign key on insert.
 Reassigning it to some other angle would be worse - a hook filed under a
 storyline nobody chose - so the id is dropped and the text is kept.
+
+The response carries `model`: the model the API says answered. A saved hook
+records that, never the model the app asked for - they differ when a request
+is rerouted, and they differed silently before, when every hook was saved
+under a hardcoded "claude-sonnet-5" whatever the function had run.
 
 ## The shared module, and why it is guarded
 
@@ -227,7 +287,12 @@ console does not offer to write hooks and he writes them himself on the brief
 page - a working path, not a broken button.
 
 Env: `ANTHROPIC_API_KEY` (project secret, shared with parse-campaign) and
-`GENERATE_HOOKS_MODEL` (optional, defaults to `claude-sonnet-5` - hook
-writing is creative work and Haiku returned near-identical batches on a
-campaign with no angle list to spread across; parse-campaign stays on Haiku,
-which is extraction against a schema).
+`GENERATE_HOOKS_MODEL` (optional, defaults to `claude-opus-5` at
+`effort: medium`). Sameness is the failure hook writing keeps having - Haiku
+returned nine rewordings of the brief's thesis, Sonnet handed back lines from
+his own hook bank - and Opus holds each hook against his material and the rest
+of the batch while still answering well inside a minute.
+
+Deploy files for each function: `source/index.ts`, `source/deno.json` and every
+`_shared/*.ts` it imports (`claude.ts` for both; `verify.ts` and
+`parserTypes.ts` for parse-campaign; `hookPrompt.ts` for generate-hooks).

@@ -6,6 +6,7 @@ import { DocumentInput, type Upload } from '../components/DocumentInput'
 import { fieldLabel } from '../components/fieldLabel'
 import { ReadingProgress } from '../components/ReadingProgress'
 import {
+  MONEY_FIELDS,
   centsToDollarsInput,
   parseDollarsToCents,
   saveFieldValue,
@@ -17,9 +18,11 @@ import {
   PastedJsonParser,
   applyParseResult,
   inspectBrief,
+  valueIsInQuote,
   verifyQuotes,
   type ParseResult,
 } from '../parser'
+import { formatCents } from '../money'
 import { EdgeFunctionParser } from '../parser/edgeFunction'
 
 /** One platform this campaign will post to. No document ever states a handle,
@@ -64,6 +67,9 @@ export function NewCampaign() {
   const [review, setReview] = useState<ParseResult | null>(null)
   const [rejected, setRejected] = useState<string[]>([])
   const [confirmed, setConfirmed] = useState<Set<string>>(new Set())
+  /** Rules and bonus tiers he unticked on the review screen, by index. */
+  const [excludedRules, setExcludedRules] = useState<Set<number>>(new Set())
+  const [excludedTiers, setExcludedTiers] = useState<Set<number>>(new Set())
   const [platforms, setPlatforms] = useState<PlatformDraft[]>([])
   /** Paid deliverables a day. No document states it, and without it the
    *  campaign owes nothing and pays nothing - so it is asked for here, with
@@ -123,6 +129,8 @@ export function NewCampaign() {
       setReview(verified.result)
       setRejected(verified.rejected)
       setConfirmed(new Set())
+      setExcludedRules(new Set())
+      setExcludedTiers(new Set())
       // 'platforms' is the one account fact a document sometimes states
       // (docs/EDGE_FUNCTION.md), so the ones it names are pre-selected. The
       // handles and logins never arrive parsed and start blank.
@@ -157,6 +165,8 @@ export function NewCampaign() {
         briefFilename: brief.filename,
         contractText,
         contractFilename: contract.filename,
+        excludedRules,
+        excludedTiers,
       })
 
       const owed = Number(quota)
@@ -201,6 +211,8 @@ export function NewCampaign() {
     contract.filename,
     contractText,
     data,
+    excludedRules,
+    excludedTiers,
     navigate,
     platforms,
     quota,
@@ -322,6 +334,10 @@ export function NewCampaign() {
             return next
           })
         }
+        excludedRules={excludedRules}
+        onToggleRule={(index) => setExcludedRules((current) => toggled(current, index))}
+        excludedTiers={excludedTiers}
+        onToggleTier={(index) => setExcludedTiers((current) => toggled(current, index))}
         onBack={() => setReview(null)}
         onSave={() => void save()}
         busy={busy}
@@ -395,11 +411,38 @@ export function NewCampaign() {
   )
 }
 
+function toggled(set: ReadonlySet<number>, index: number): Set<number> {
+  const next = new Set(set)
+  if (next.has(index)) next.delete(index)
+  else next.add(index)
+  return next
+}
+
+/** Field keys whose value is a whole number, matched against the numbers in
+ *  their quote rather than as text. */
+const COUNT_FIELDS: readonly string[] = [
+  'cycle_size',
+  'base_comp_cap',
+  'post_public_days',
+  'revision_rounds',
+  'minimum_length_seconds',
+]
+
+function kindOf(key: string): 'money' | 'count' | 'text' {
+  if (MONEY_FIELDS.includes(key)) return 'money'
+  if (COUNT_FIELDS.includes(key)) return 'count'
+  return 'text'
+}
+
 function Review({
   result,
   rejected,
   confirmed,
   onToggle,
+  excludedRules,
+  onToggleRule,
+  excludedTiers,
+  onToggleTier,
   onBack,
   onSave,
   busy,
@@ -415,6 +458,10 @@ function Review({
   rejected: readonly string[]
   confirmed: ReadonlySet<string>
   onToggle: (key: string) => void
+  excludedRules: ReadonlySet<number>
+  onToggleRule: (index: number) => void
+  excludedTiers: ReadonlySet<number>
+  onToggleTier: (index: number) => void
   onBack: () => void
   onSave: () => void
   busy: boolean
@@ -427,8 +474,17 @@ function Review({
   onRateChange: (next: string) => void
 }) {
   const entries = Object.entries(result.fields).sort(([a], [b]) => a.localeCompare(b))
-  const found = entries.filter(([, field]) => field.value !== null)
   const blank = entries.filter(([, field]) => field.value === null)
+
+  // Every one of these is amber until he taps it; the order is where his
+  // attention is worth most. A value that can be read straight off its quote
+  // is a glance. One the parser summarised, or flagged with a note, is
+  // something to actually read - so those come first.
+  const needsReading = (key: string, field: ParseResult['fields'][string]) =>
+    (field.note ?? null) !== null || !valueIsInQuote(field.value, field.source_quote, kindOf(key))
+  const found = entries
+    .filter(([, field]) => field.value !== null)
+    .sort(([ka, a], [kb, b]) => Number(needsReading(kb, b)) - Number(needsReading(ka, a)))
 
   return (
     <section className="mx-auto flex max-w-screen-sm flex-col gap-6">
@@ -499,7 +555,80 @@ function Review({
                     >
                       {isConfirmed ? 'confirmed' : 'from file - unreviewed'}
                     </span>
-                    <span className="mt-1 text-xs text-state-later">"{field.source_quote}"</span>
+                    {field.note ? (
+                      <span className="mt-1 text-sm text-text">Check: {field.note}</span>
+                    ) : null}
+                    <span className="mt-1 text-xs text-state-later">
+                      {valueIsInQuote(field.value, field.source_quote, kindOf(key))
+                        ? 'In the quote, word for word: '
+                        : 'Summarised from: '}
+                      "{field.source_quote}"
+                    </span>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      ) : null}
+
+      {result.rules.length > 0 ? (
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-state-later">
+            Never-do rules found - {result.rules.length - excludedRules.size} kept
+          </h2>
+          <p className="mt-1 text-sm text-state-later">
+            Each one is quoted from your documents. Tap one to leave it out.
+          </p>
+          <ul aria-label="Parsed rules" className="mt-3 flex flex-col gap-2">
+            {result.rules.map((rule, index) => {
+              const kept = !excludedRules.has(index)
+              return (
+                <li key={`${index}:${rule.body}`}>
+                  <button
+                    type="button"
+                    onClick={() => onToggleRule(index)}
+                    aria-pressed={kept}
+                    className={`flex min-h-tap w-full flex-col justify-center rounded-lg border-l-2 bg-surface px-3 py-2 text-left active:bg-surface-raised ${
+                      kept ? 'border-state-blocked/70' : 'border-edge'
+                    }`}
+                  >
+                    <span className={kept ? 'text-text' : 'text-state-later line-through'}>
+                      {rule.body}
+                    </span>
+                    <span className="mt-1 text-xs text-state-later">"{rule.source_quote}"</span>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      ) : null}
+
+      {result.bonus_tiers.length > 0 ? (
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-state-later">
+            Bonus tiers found
+          </h2>
+          <p className="mt-1 text-sm text-state-later">
+            Each line was found in the contract and states both numbers. Tap one to leave it out.
+          </p>
+          <ul aria-label="Parsed bonus tiers" className="mt-3 flex flex-col gap-2">
+            {result.bonus_tiers.map((tier, index) => {
+              const kept = !excludedTiers.has(index)
+              return (
+                <li key={`${index}:${tier.threshold_views}`}>
+                  <button
+                    type="button"
+                    onClick={() => onToggleTier(index)}
+                    aria-pressed={kept}
+                    className="flex min-h-tap w-full flex-col justify-center rounded-lg border border-edge bg-surface px-3 py-2 text-left active:bg-surface-raised"
+                  >
+                    <span className={`numeric ${kept ? 'text-text' : 'text-state-later line-through'}`}>
+                      {tier.threshold_views.toLocaleString()} views - {formatCents(tier.payout_cents)}
+                      {tier.view_window_days === null ? '' : ` within ${tier.view_window_days} days`}
+                    </span>
+                    <span className="mt-1 text-xs text-state-later">"{tier.source_quote}"</span>
                   </button>
                 </li>
               )

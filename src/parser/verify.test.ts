@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { ParseResult } from './types'
-import { inspectBrief, verifyQuotes } from './verify'
+import { inspectBrief, valueIsInQuote, verifyQuotes } from './verify'
 
 const CONTRACT = `Key Contract Information
 Campaign: Inflow UGC - Finance & Fintech
@@ -172,5 +172,118 @@ Text.`
     // Unable to tell is not the same as damaged, and crying wolf here would
     // train him to ignore the warning that matters.
     expect(inspectBrief('Just prose, no headings anywhere.').isIncomplete).toBe(false)
+  })
+})
+
+describe('never-do rules need a quote too', () => {
+  const BRIEF = 'Never name or attack a competitor. Say "your payment processor" instead.'
+  const withRules = (rules: ParseResult['rules']) =>
+    verifyQuotes({ ...resultWith({}), rules }, { briefText: BRIEF, contractText: CONTRACT })
+
+  it('keeps a rule whose quote is in a document', () => {
+    const { result, rejectedRules } = withRules([
+      { body: 'Never name a competitor.', source_quote: 'Never name or attack a competitor', from: 'brief' },
+    ])
+    expect(result.rules).toHaveLength(1)
+    expect(rejectedRules).toEqual([])
+  })
+
+  it('drops a rule nobody wrote down, and says so', () => {
+    // It used to be written straight to the campaign as verified.
+    const { result, rejectedRules } = withRules([
+      { body: 'Never film outdoors.', source_quote: 'Never film outdoors' },
+    ])
+    expect(result.rules).toEqual([])
+    expect(rejectedRules).toEqual(['Never film outdoors.'])
+    expect(result.warnings.join(' ')).toMatch(/never-do rule was dropped/)
+  })
+
+  it('drops a rule with no quote at all', () => {
+    const { result } = withRules([{ body: 'Never name a competitor.', source_quote: null }])
+    expect(result.rules).toEqual([])
+  })
+
+  it('drops a rule quoting the wrong document', () => {
+    const { result } = withRules([
+      { body: 'Never name a competitor.', source_quote: 'Never name or attack a competitor', from: 'contract' },
+    ])
+    expect(result.rules).toEqual([])
+  })
+})
+
+describe('bonus tiers are money, and get the strictest check', () => {
+  const withTiers = (bonus_tiers: ParseResult['bonus_tiers']) =>
+    verifyQuotes({ ...resultWith({}), bonus_tiers }, { briefText: null, contractText: CONTRACT })
+
+  const tier = (over: Partial<ParseResult['bonus_tiers'][number]> = {}) => ({
+    label: '50k',
+    threshold_views: 50000,
+    payout_cents: 5000,
+    view_window_days: 30,
+    source_quote: '50000 views: $50.00',
+    from: 'contract' as const,
+    ...over,
+  })
+
+  it('keeps a tier whose line is in the contract and states both numbers', () => {
+    const { result, rejectedTiers } = withTiers([tier()])
+    expect(result.bonus_tiers).toHaveLength(1)
+    expect(result.bonus_tiers[0].view_window_days).toBe(30)
+    expect(rejectedTiers).toEqual([])
+  })
+
+  it('drops a tier whose payout is not in its own line', () => {
+    // The line is real; the $100 beside it was invented.
+    const { result, rejectedTiers } = withTiers([tier({ payout_cents: 10000 })])
+    expect(result.bonus_tiers).toEqual([])
+    expect(rejectedTiers).toEqual(['50k'])
+  })
+
+  it('drops a tier whose view count is not in its own line', () => {
+    const { result } = withTiers([tier({ threshold_views: 100000 })])
+    expect(result.bonus_tiers).toEqual([])
+  })
+
+  it('drops a tier with no quote', () => {
+    const { result } = withTiers([tier({ source_quote: null })])
+    expect(result.bonus_tiers).toEqual([])
+  })
+
+  it('reads the ways contracts write numbers', () => {
+    const contract = 'Bonuses: 1.5M views: $1,500.00. 100k views - $100'
+    const { result } = verifyQuotes(
+      {
+        ...resultWith({}),
+        bonus_tiers: [
+          tier({ threshold_views: 1_500_000, payout_cents: 150_000, source_quote: '1.5M views: $1,500.00', view_window_days: null }),
+          tier({ threshold_views: 100_000, payout_cents: 10_000, source_quote: '100k views - $100', view_window_days: null }),
+        ],
+      },
+      { briefText: null, contractText: contract },
+    )
+    expect(result.bonus_tiers).toHaveLength(2)
+  })
+
+  it('blanks a view window no document mentions, rather than keeping a guess', () => {
+    const { result } = withTiers([tier({ view_window_days: 45 })])
+    expect(result.bonus_tiers).toHaveLength(1)
+    expect(result.bonus_tiers[0].view_window_days).toBeNull()
+  })
+})
+
+describe('whether a value can be read straight off its quote', () => {
+  it('matches a rate in cents against the dollars in the line', () => {
+    expect(valueIsInQuote('3500', '$35.00 per approved deliverable', 'money')).toBe(true)
+    expect(valueIsInQuote('3000', '$35.00 per approved deliverable', 'money')).toBe(false)
+  })
+
+  it('matches a count against the numbers in the line', () => {
+    expect(valueIsInQuote('60', 'completes when 60 deliverables', 'count')).toBe(true)
+    expect(valueIsInQuote('90', 'completes when 60 deliverables', 'count')).toBe(false)
+  })
+
+  it('treats text as literal when it is a substring of the quote', () => {
+    expect(valueIsInQuote('TikTok, Instagram', 'Required platforms: TikTok, Instagram.', 'text')).toBe(true)
+    expect(valueIsInQuote('A payment app for sellers', 'Inflow is a payment system for people who sell online', 'text')).toBe(false)
   })
 })

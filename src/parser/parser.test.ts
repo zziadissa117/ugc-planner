@@ -78,7 +78,7 @@ describe('the server parser', () => {
     const got = await parser.parse({ briefText: null, contractText: 'text' })
     expect(got).toEqual(result)
     expect(invoke).toHaveBeenCalledWith('parse-campaign', {
-      body: { briefText: null, contractText: 'text' },
+      body: { briefText: null, contractText: 'text', version: 2 },
     })
   })
 
@@ -121,15 +121,23 @@ describe('the pasted JSON parser', () => {
       JSON.stringify({
         campaign: { name: 'Inflow' },
         bonus_tiers: [
-          { label: '50k', threshold_views: 50_000, payout_cents: 5000, view_window_days: 30 },
+          { label: '50k', threshold_views: 50_000, payout_cents: 5000, view_window_days: 30, source_quote: null },
         ],
-        rules: ['Never name a competitor.'],
+        rules: [
+          'Never name a competitor.',
+          { body: 'No filters.', source_quote: 'No filters or built-in camera effects', from: 'brief' },
+        ],
       }),
     )
 
     expect(result.bonus_tiers).toHaveLength(1)
     expect(result.bonus_tiers[0]).toMatchObject({ threshold_views: 50_000, payout_cents: 5000 })
-    expect(result.rules).toEqual(['Never name a competitor.'])
+    // A bare string is its own quote: it survives only if those exact words
+    // are in a document.
+    expect(result.rules).toEqual([
+      { body: 'Never name a competitor.', source_quote: 'Never name a competitor.' },
+      { body: 'No filters.', source_quote: 'No filters or built-in camera effects', from: 'brief' },
+    ])
   })
 
   it('refuses a paste with no campaign name', async () => {
@@ -178,9 +186,9 @@ describe('saving a reviewed parse', () => {
       submission_url: { value: null, source_quote: null },
     },
     bonus_tiers: [
-      { label: '50k', threshold_views: 50_000, payout_cents: 5000, view_window_days: 30 },
+      { label: '50k', threshold_views: 50_000, payout_cents: 5000, view_window_days: 30, source_quote: null },
     ],
-    rules: ['Never name a competitor.'],
+    rules: [{ body: 'Never name a competitor.', source_quote: 'Never name a competitor.' }],
     brief_is_incomplete: false,
     warnings: [],
   })
@@ -289,7 +297,7 @@ describe('saving a reviewed parse', () => {
     // A tier the schema will refuse: threshold_views must be > 0. It is
     // written after the campaign, its documents and all of its fields.
     result.bonus_tiers = [
-      { label: 'bad', threshold_views: 0, payout_cents: 5000, view_window_days: 30 },
+      { label: 'bad', threshold_views: 0, payout_cents: 5000, view_window_days: 30, source_quote: null },
     ]
 
     await expect(apply(['pay_per_video_cents'], result)).rejects.toThrow()

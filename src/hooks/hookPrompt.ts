@@ -64,17 +64,28 @@ export interface HookContext {
 export interface GeneratedHook {
   /** The opening line itself. */
   body: string
-  /** Two or three beats after the hook, or null. */
+  /** The body of the video after this hook: two or three short spoken beats,
+   *  one per line, and never the close - "i already have the hook, i just
+   *  need inspiration for the body of what im going to say, not the CTA".
+   *  Null when the material gives nothing to build a body from. */
   outline: string | null
   /** Which of the campaign's angles this belongs to. Must be one of the ids
    *  passed in; the function drops anything else rather than inventing one. */
   angle_id: string | null
+  /** The kind of opening, in two or three words - "confession", "cold open".
+   *  Asked for so that no two hooks in a batch can share one, which is what
+   *  makes the batch actually varied. Never saved or shown. */
+  opening_move?: string
 }
 
 export interface GenerateHooksResult {
   hooks: GeneratedHook[]
   /** Anything the generator could not do, in plain words. */
   warnings: string[]
+  /** The model that actually wrote them, as the API reported it. A saved
+   *  hook records this - not the model the app asked for, which can differ
+   *  when a request is rerouted. Absent from an older function. */
+  model?: string
 }
 
 /** The families present in a campaign's angles, in the order they first
@@ -109,24 +120,30 @@ export function nextFamily(angles: readonly HookAngle[], lastFamily: string | nu
 
 /** The instruction the model is held to. Written here so it is one text, read
  *  by one prompt, rather than a rule the function states and the UI implies. */
-export const HOOK_SYSTEM_PROMPT = `You write opening hooks for a UGC creator's short videos. A hook is the first line said to camera: one or two sentences, spoken, that make someone stop scrolling.
+export const HOOK_SYSTEM_PROMPT = `You write opening hooks for a UGC creator's short videos, and the body beats that follow each one. A hook is the first line said to camera: one or two spoken sentences that make someone stop scrolling. He films these tonight, reading them off a laptop across the room.
 
-Rules that override everything else:
+## What is fixed
 
-1. Work only from the campaign material given to you. Every claim in a hook must be supported by the PRODUCT section. Do not add a statistic, a price, a percentage, a guarantee or a feature that is not stated there. If the material is thin, write fewer and simpler hooks and say so in warnings - a hook that invents a fact is worse than no hook, because it reaches a brand as though the creator said it.
-2. The NEVER DO list is absolute. A hook that breaks any of those rules is unusable, whatever else is good about it.
+1. Every claim - in a hook or in its beats - must be supported by the PRODUCT section or the WORKING BRIEF. No statistic, price, percentage, guarantee or feature that is not stated there. A hook that invents a fact reaches a brand as though he said it; thin material means fewer, simpler hooks, never invented ones.
+2. The NEVER DO list is absolute. A hook that breaks any of it is unusable, however good it is otherwise.
 3. One angle per hook. Never blend two storylines into one line.
-4. A hook is not the pitch. The STRUCTURE section describes what the video does AFTER the hook, and its first beat is usually the campaign's own thesis - "most X do A, this one does B". Never open with that sentence. The hook earns the three seconds in which the thesis then gets said: it is a moment, a receipt, a confession, a thing that just happened. Explaining the product IS the video; it is not the hook.
-5. Every hook in the batch must be a different hook. Not the same claim reworded, not the same sentence with a synonym swapped - a different situation, a different opening move, a different reason to stop scrolling. Before you return, read them as a list: if two would make a viewer feel the same thing, one of them is not doing any work. Where the material names formats or segments, spread across them and vary WITHIN each. If the material only supports fewer genuinely different hooks than were asked for, write the ones you can stand behind and say what was missing in warnings - a batch of ten variations on one line is worth less than four that differ, and it is the single most common way this goes wrong. Never return an empty list, and never fewer than three: thin material is a reason to write simply, not a reason to write nothing.
-6. If a WORKING BRIEF section is given, it is the creator's own worked-up brief for this campaign and it outranks every other section here. Follow its formats, its voice rules, its structure and its restrictions exactly, and honour any attribution it demands - if it says a claim must be phrased as something the company says rather than as fact, phrase it that way. Where it names formats or angles, spread the hooks across them rather than writing every hook for one. Where it contradicts a shorter section above, it wins.
-7. If a MATERIAL section is given, it is the creator's own hooks, video ideas, formats and concepts for this campaign. Build from it: take its angles of attack, its formats and its phrasing as the starting point, and write new lines in that vein. Match its register above all: if its lines are short, spoken and a little unhinged, yours are too - do not answer a bank of scroll-stoppers with a bank of product statements. But NEVER hand back a line he already has. A hook that shares its situation, its shape and most of its words with one in the MATERIAL or in a hook bank inside the WORKING BRIEF is that line, not a new one, and returning it is worse than returning nothing - he wrote it, he already has it, and it fills a slot that should have held something he does not. Those banks exist to show you the register and the situations that work; your job is the ones that are not in them yet. Before you return, read each hook against every line you were given and replace any that is recognisably the same line.
-8. The ANGLES section lists the angles saved in the app, and angle_id may only ever be one of those ids or null. Never invent an angle id, and use null whenever no angles are saved. But "no angles saved" is a fact about the app, NOT about the campaign: if the WORKING BRIEF names its own angles, storylines, families or formats, those are the campaign's angles and you spread the batch across them exactly as you would across saved ones - one per hook, no family used twice in a row where the brief groups them. Set angle_id to null for those, because they have no saved id, and never report that the campaign has no angles when its brief plainly lists them.
-9. Write the way the VOICE section describes. Spoken, not written: contractions, plain words, no marketing cadence, no "unlock", no "game-changer", no rhetorical question stacking.
-10. Do not number them, do not add hashtags, do not write the caption. The hook only.
+4. A WORKING BRIEF, when given, is his own worked-up brief and outranks every other section here: follow its formats, voice rules, structure and restrictions exactly, honour any attribution it demands (a claim phrased as something the company says rather than as fact), and where it contradicts a shorter section above, it wins.
+5. angle_id is one of the ids in the ANGLES section, or null. Never invent one. "No angles saved" is a fact about the app, not the campaign: if the WORKING BRIEF names its own angles, storylines, families or formats, spread the batch across those exactly as you would saved ones - one per hook, the same family never twice in a row where the brief groups them - with angle_id null.
 
-Call the return_hooks tool exactly once with your hooks. Do not explain yourself outside the tool call.
+## What makes a hook good
 
-The hooks array is the deliverable and the only thing he ever sees. Never return an empty hooks array while describing in warnings the hooks you wrote - if you wrote them, they belong in hooks. warnings is for what you could NOT do and what he should know, one short line each; it is not a place to narrate your process, restate these rules, or summarise the hooks you already returned.`
+- A hook is not the pitch. STRUCTURE describes what the video does after the hook, and its first beat is usually the campaign's thesis ("most X do A, this one does B"). Never open with that sentence. The hook buys the three seconds in which the thesis gets said: it is a moment, a receipt, a confession, a thing that just happened.
+- Every hook in the batch is a different hook: a different situation, a different opening move, a different reason to stop. Name each one's opening move in opening_move (two or three words - confession, cold open, overheard, receipt, mistake, contrarian, before-and-after, POV, question to self) and use each move at most once. Where the material names formats or audience segments, spread across them. Four hooks that genuinely differ are worth more than ten variations on one line - if the material only supports fewer, write fewer and say what was missing in warnings, but never fewer than three.
+- MATERIAL, when given, is his own hooks, ideas and formats. Build from it: its angles of attack, its formats, and above all its register - if his lines are short, spoken and a little unhinged, yours are too. But never hand back a line he already has, from MATERIAL or from a hook bank inside the WORKING BRIEF. One that shares its situation, shape and most of its words with his is his line, not a new one; those banks show you what works so you can write what is not in them yet.
+- Spoken, not written, in the VOICE the material describes: contractions, plain words, no marketing cadence, no "unlock", no "game-changer", no stacked rhetorical questions. No numbering, hashtags or captions.
+
+## Body beats
+
+outline is the middle of the video for that hook: two or three beats, one per line, each a few spoken words he can glance at between takes, in the order he would say them. Take them from STRUCTURE and the product facts, and keep them to that hook's angle. Never the call to action or the close - he writes that himself. Null only when the material gives you nothing to say.
+
+## Output
+
+hooks is the deliverable and the only thing he sees. warnings is for what you could not do and what he should know, one short line each - not a narration of your process or a summary of the hooks.`
 
 /** The user-side message: the campaign, as it is actually stored.
  *
@@ -205,27 +222,34 @@ export function buildHookRequest(context: HookContext): string {
   return lines.join('\n')
 }
 
-/** The tool schema the model fills. Shared so the function and any test of it
- *  are describing the same shape. */
+/** The JSON schema the answer must match - enforced by the API as a
+ *  structured output, not merely suggested the way a tool schema is. Shared
+ *  so the function and any test of it are describing the same shape. */
 export const RETURN_HOOKS_SCHEMA = {
   type: 'object',
+  additionalProperties: false,
   properties: {
     hooks: {
       type: 'array',
       items: {
         type: 'object',
+        additionalProperties: false,
         properties: {
           body: { type: 'string', description: 'The spoken hook. One or two sentences.' },
           outline: {
-            type: ['string', 'null'],
-            description: 'Two or three beats after the hook, or null.',
+            anyOf: [{ type: 'string' }, { type: 'null' }],
+            description: 'Two or three body beats after the hook, one per line. Never the close.',
           },
           angle_id: {
-            type: ['string', 'null'],
-            description: 'One of the angle ids given. Never invented.',
+            anyOf: [{ type: 'string' }, { type: 'null' }],
+            description: 'One of the angle ids given, or null. Never invented.',
+          },
+          opening_move: {
+            type: 'string',
+            description: 'The kind of opening, two or three words. Unique within the batch.',
           },
         },
-        required: ['body', 'outline', 'angle_id'],
+        required: ['body', 'outline', 'angle_id', 'opening_move'],
       },
     },
     warnings: { type: 'array', items: { type: 'string' } },

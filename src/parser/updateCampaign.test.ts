@@ -156,13 +156,13 @@ describe('diffFields', () => {
 
 describe('newRules', () => {
   it('keeps a rule the campaign does not already have', () => {
-    const result = parseResult({ rules: ['Every video carries #ad.'] })
+    const result = parseResult({ rules: [{ body: 'Every video carries #ad.', source_quote: 'Every video carries #ad.' }] })
     expect(newRules([], result)).toEqual(['Every video carries #ad.'])
   })
 
   it('drops one already present, even reworded with different spacing', () => {
     const current = rule({ body: 'Never  name   a competitor.' })
-    const result = parseResult({ rules: ['never name a competitor.'] })
+    const result = parseResult({ rules: [{ body: 'never name a competitor.', source_quote: 'never name a competitor.' }] })
     expect(newRules([current], result)).toEqual([])
   })
 
@@ -174,7 +174,7 @@ describe('newRules', () => {
   })
 
   it('does not duplicate the same new rule twice in one document', () => {
-    const result = parseResult({ rules: ['Never name a competitor.', 'Never name a competitor.'] })
+    const result = parseResult({ rules: [{ body: 'Never name a competitor.', source_quote: 'Never name a competitor.' }, { body: 'Never name a competitor.', source_quote: 'Never name a competitor.' }] })
     expect(newRules([], result)).toEqual(['Never name a competitor.'])
   })
 })
@@ -183,7 +183,7 @@ describe('newBonusTiers', () => {
   it('keeps a tier at a threshold the campaign does not have', () => {
     const current = tier({ threshold_views: 50000 })
     const result = parseResult({
-      bonus_tiers: [{ label: '100k', threshold_views: 100000, payout_cents: 10000, view_window_days: 30 }],
+      bonus_tiers: [{ label: '100k', threshold_views: 100000, payout_cents: 10000, view_window_days: 30, source_quote: null }],
     })
     expect(newBonusTiers([current], result)).toHaveLength(1)
   })
@@ -191,7 +191,7 @@ describe('newBonusTiers', () => {
   it('drops one at a threshold already saved, so the schema unique constraint is never hit', () => {
     const current = tier({ threshold_views: 50000 })
     const result = parseResult({
-      bonus_tiers: [{ label: '50k', threshold_views: 50000, payout_cents: 5000, view_window_days: 30 }],
+      bonus_tiers: [{ label: '50k', threshold_views: 50000, payout_cents: 5000, view_window_days: 30, source_quote: null }],
     })
     expect(newBonusTiers([current], result)).toEqual([])
   })
@@ -302,7 +302,7 @@ describe('applyCampaignUpdate', () => {
 
   it('adds a new rule without touching the one already there', async () => {
     const { adapter, campaign } = await setUp()
-    const result = parseResult({ rules: ['Every video carries #ad.'] })
+    const result = parseResult({ rules: [{ body: 'Every video carries #ad.', source_quote: 'Every video carries #ad.' }] })
 
     await applyCampaignUpdate(adapter, {
       campaignId: campaign.id,
@@ -351,10 +351,10 @@ describe('applyCampaignUpdate', () => {
       view_window_days: 30,
     })
     const result = parseResult({
-      rules: ['Every video carries #ad.'],
+      rules: [{ body: 'Every video carries #ad.', source_quote: 'Every video carries #ad.' }],
       bonus_tiers: [
-        { label: '50k', threshold_views: 50000, payout_cents: 5000, view_window_days: 30 },
-        { label: '100k', threshold_views: 100000, payout_cents: 10000, view_window_days: 30 },
+        { label: '50k', threshold_views: 50000, payout_cents: 5000, view_window_days: 30, source_quote: null },
+        { label: '100k', threshold_views: 100000, payout_cents: 10000, view_window_days: 30, source_quote: null },
       ],
     })
 

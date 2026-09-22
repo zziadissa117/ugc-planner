@@ -171,6 +171,10 @@ describe('updating an existing campaign', () => {
     const user = userEvent.setup()
     await renderScreen()
 
+    // The rule has to be in a document to survive verification, like any
+    // other parsed rule.
+    await user.click(screen.getByLabelText('NEW BRIEF (.md) text'))
+    await user.paste('Rules. A new rule from the update. Thanks.')
     await user.click(screen.getByLabelText('Parsed JSON'))
     await user.paste(pasteResult({ rules: ['A new rule from the update.'] }))
     await user.click(screen.getByRole('button', { name: 'Compare with what is saved' }))

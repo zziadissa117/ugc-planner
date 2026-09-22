@@ -29,7 +29,6 @@ import type {
 import { stripMarker, talkingPointsFromBrief } from '../data/briefSections'
 import { useData } from '../data/useData'
 import {
-  DEFAULT_HOOK_MODEL,
   GENERATION_BRIEF_KEY,
   buildContext,
   generateHooks,
@@ -194,12 +193,7 @@ export function Console({
       })
       const result = await generateHooks(context)
       const asked = Math.max(3, goal + 2)
-      const { saved, duplicates } = await saveGeneratedHooks(
-        data,
-        campaign.id,
-        result,
-        DEFAULT_HOOK_MODEL,
-      )
+      const { saved, duplicates } = await saveGeneratedHooks(data, campaign.id, result)
 
       // Silence when he got what he asked for: the hooks are the answer.
       const parts: string[] = []
@@ -441,7 +435,13 @@ function CanSay({ byKey }: { byKey: Map<string, string | null> }) {
 }
 
 /** The hooks he works down. Each carries its angle and the angle's family, so
- *  alternating FEAR and GREED is something he can see rather than remember. */
+ *  alternating FEAR and GREED is something he can see rather than remember.
+ *
+ *  A generated hook says so, on the hook itself - it used to render exactly
+ *  like a line he wrote, which is the one thing CLAUDE.md says a generated
+ *  hook must never do. Under it, while it is still to film, sit its body
+ *  beats: "i already have the hook, i just need inspiration for the body of
+ *  what im going to say". Once used, it collapses to the line, struck. */
 function Hooks({
   hooks,
   anglesById,
@@ -464,20 +464,42 @@ function Hooks({
       {hooks.map((hook) => {
         const angle = hook.angle_id === null ? undefined : anglesById.get(hook.angle_id)
         const used = hook.used_at !== null
+        const generated = hook.source === 'generated'
+        const beats =
+          used || hook.outline === null
+            ? []
+            : hook.outline
+                .split('\n')
+                .map((line) => stripMarker(line))
+                .filter((line) => line !== '')
         return (
           <li key={hook.id}>
             <button
               type="button"
               onClick={() => void onToggle(hook)}
+              aria-pressed={used}
               className="w-full rounded-lg border border-edge bg-surface px-3 py-2 text-left active:bg-surface-raised"
             >
               <span className={used ? 'text-state-later line-through' : 'text-text'}>
                 {hook.body}
               </span>
-              {angle ? (
-                <span className="ml-2 text-xs uppercase tracking-wide text-state-later">
-                  {angle.label}
-                  {angle.family === null ? '' : ` - ${angle.family}`}
+              {beats.length > 0 ? (
+                <ol className="mt-1.5 flex flex-col gap-0.5 border-l border-edge-lit pl-2.5">
+                  {beats.map((beat) => (
+                    <li key={beat} className="meta text-text-dim">
+                      {beat}
+                    </li>
+                  ))}
+                </ol>
+              ) : null}
+              {generated || angle ? (
+                <span className="mt-1 block label text-state-later">
+                  {[
+                    generated ? 'generated' : null,
+                    angle ? `${angle.label}${angle.family === null ? '' : ` - ${angle.family}`}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
                 </span>
               ) : null}
             </button>

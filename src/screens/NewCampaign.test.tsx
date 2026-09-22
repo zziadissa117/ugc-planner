@@ -193,7 +193,7 @@ describe('the drop box', () => {
       await screen.findByRole('heading', { name: 'Review' })
       expect(screen.getByText('Server-parsed campaign')).toBeInTheDocument()
       expect(invoke).toHaveBeenCalledWith('parse-campaign', {
-        body: { briefText: null, contractText: CONTRACT },
+        body: { briefText: null, contractText: CONTRACT, version: 2 },
       })
     })
 
@@ -370,6 +370,72 @@ describe('the review screen', () => {
     // The raw contract text is kept, so the quote can be checked again later.
     const documents = await adapter.listCampaignDocuments(campaign.id)
     expect(documents.find((d) => d.kind === 'contract')?.raw_text).toBe(CONTRACT)
+  })
+})
+
+describe('never-do rules and bonus tiers from a parse', () => {
+  const BRIEF = 'Rules: Never name or attack a competitor. No filters or built-in camera effects.'
+  const TERMS = 'Bonuses (per Deliverable):\n50,000 views: $50.00'
+
+  async function reachReview(user: ReturnType<typeof userEvent.setup>) {
+    renderDropBox()
+    await paste(user, 'BRIEF (.md) text', BRIEF)
+    await paste(user, 'CONTRACT (.md) text', TERMS)
+    await paste(
+      user,
+      'Parsed JSON',
+      JSON.stringify({
+        campaign: { name: 'Quoted' },
+        rules: [
+          { body: 'Never name a competitor.', source_quote: 'Never name or attack a competitor', from: 'brief' },
+          { body: 'No filters.', source_quote: 'No filters or built-in camera effects', from: 'brief' },
+          // Nobody wrote this down.
+          { body: 'Never film outdoors.', source_quote: 'Never film outdoors', from: 'brief' },
+        ],
+        bonus_tiers: [
+          { label: '50k', threshold_views: 50000, payout_cents: 5000, view_window_days: null,
+            source_quote: '50,000 views: $50.00', from: 'contract' },
+          // The line exists; the payout beside it was invented.
+          { label: '100k', threshold_views: 100000, payout_cents: 10000, view_window_days: null,
+            source_quote: '50,000 views: $50.00', from: 'contract' },
+        ],
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Review it' }))
+    await screen.findByRole('heading', { name: 'Review' })
+  }
+
+  it('shows only the rules and tiers a document actually states, with their quotes', async () => {
+    const user = userEvent.setup()
+    await reachReview(user)
+
+    const rules = within(screen.getByRole('list', { name: 'Parsed rules' })).getAllByRole('button')
+    expect(rules.map((rule) => rule.textContent)).toEqual([
+      expect.stringContaining('Never name a competitor.'),
+      expect.stringContaining('No filters.'),
+    ])
+    expect(screen.queryByText('Never film outdoors.')).not.toBeInTheDocument()
+
+    const tiers = within(screen.getByRole('list', { name: 'Parsed bonus tiers' })).getAllByRole('button')
+    expect(tiers).toHaveLength(1)
+    expect(tiers[0].textContent).toContain('50,000 views - $50.00')
+  })
+
+  it('leaves out a rule he unticked, and keeps the rest', async () => {
+    const user = userEvent.setup()
+    await reachReview(user)
+
+    await user.click(screen.getByRole('button', { name: /No filters\./ }))
+    await user.click(screen.getByRole('button', { name: 'Save campaign' }))
+
+    await waitFor(async () => {
+      const [saved] = await adapter.listCampaigns()
+      expect(saved).toBeDefined()
+      expect(await adapter.listBonusTiers(saved.id)).toHaveLength(1)
+    })
+    const [campaign] = await adapter.listCampaigns()
+    const rules = await adapter.listCampaignRules(campaign.id)
+    expect(rules.map((rule) => rule.body)).toEqual(['Never name a competitor.'])
   })
 })
 

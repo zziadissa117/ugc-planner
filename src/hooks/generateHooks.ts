@@ -143,6 +143,19 @@ export function leaningFamily(
   return nextFamily(toHookAngles(angles), lastFamily)
 }
 
+/** The function's own explanation, when it gave one - supabase-js reports
+ *  every non-2xx the same way and keeps the reason on the error's context. */
+async function describeError(error: { message: string; context?: unknown }): Promise<string> {
+  const context = error.context as { json?: () => Promise<unknown> } | undefined
+  try {
+    const body = (await context?.json?.()) as { error?: unknown } | undefined
+    if (body && typeof body.error === 'string') return body.error
+  } catch {
+    /* no readable body */
+  }
+  return error.message
+}
+
 /** Calls the function. Returns what it generated; writes nothing. */
 export async function generateHooks(context: HookContext): Promise<GenerateHooksResult> {
   const client = getSupabaseClient()
@@ -157,7 +170,7 @@ export async function generateHooks(context: HookContext): Promise<GenerateHooks
   })
 
   if (error) {
-    throw new HookGenerationError(`Hook generation failed: ${error.message}`)
+    throw new HookGenerationError(`Hook generation failed: ${await describeError(error)}`)
   }
   return data as GenerateHooksResult
 }
@@ -225,9 +238,15 @@ export async function saveGeneratedHooks(
   data: DataAdapter,
   campaignId: string,
   result: GenerateHooksResult,
-  model: string,
+  /** Recorded only when the function did not say which model it ran - an
+   *  older deployment. See LEGACY_HOOK_MODEL. */
+  fallbackModel: string = LEGACY_HOOK_MODEL,
 ): Promise<SaveOutcome> {
   const generatedAt = new Date().toISOString()
+  // What actually wrote them, as the API reported it. The app asking for one
+  // model is not proof that model answered.
+  const model =
+    typeof result.model === 'string' && result.model.trim() !== '' ? result.model : fallbackModel
   let saved = 0
   let duplicates = 0
 
@@ -260,6 +279,11 @@ export async function saveGeneratedHooks(
   return { saved, duplicates }
 }
 
-/** The model the function defaults to. Kept here only so a saved hook can say
- *  what wrote it; the function's own env var is what actually decides. */
-export const DEFAULT_HOOK_MODEL = 'claude-sonnet-5'
+/** What a saved hook records when the function did not report its model.
+ *
+ *  Every hook used to be saved under this constant, whatever the function had
+ *  actually run - its GENERATE_HOOKS_MODEL could say otherwise and the label
+ *  would still read Sonnet. The function now returns the model the API says
+ *  answered, and that is what is saved. This is only the truthful label for a
+ *  deployment from before that, which ran Sonnet by default. */
+export const LEGACY_HOOK_MODEL = 'claude-sonnet-5'

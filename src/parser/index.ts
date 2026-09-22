@@ -10,8 +10,15 @@ export {
   type ParseResult,
   type ParsedBonusTier,
   type ParsedField,
+  type ParsedRule,
 } from './types'
-export { inspectBrief, verifyQuotes, type BriefIntegrity, type VerificationOutcome } from './verify'
+export {
+  inspectBrief,
+  valueIsInQuote,
+  verifyQuotes,
+  type BriefIntegrity,
+  type VerificationOutcome,
+} from './verify'
 export {
   applyCampaignUpdate,
   diffFields,

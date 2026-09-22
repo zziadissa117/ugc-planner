@@ -6,7 +6,15 @@
 // findable in the text he uploaded.
 
 import { APPROVAL_MODE_VALUES, type ApprovalMode } from '../data'
-import { ParseError, type CampaignParser, type ParseInput, type ParseResult, type ParsedBonusTier, type ParsedField } from './types'
+import {
+  ParseError,
+  type CampaignParser,
+  type ParseInput,
+  type ParseResult,
+  type ParsedBonusTier,
+  type ParsedField,
+  type ParsedRule,
+} from './types'
 
 /** The shape to paste. Documented on the drop box so he can hand it to a model
  *  as the schema to fill in. */
@@ -25,9 +33,13 @@ export const PASTE_SCHEMA_EXAMPLE = `{
   },
   "bonus_tiers": [
     { "label": "50,000 views", "threshold_views": 50000,
-      "payout_cents": 5000, "view_window_days": 30 }
+      "payout_cents": 5000, "view_window_days": 30,
+      "source_quote": "50,000 views: $50.00", "from": "contract" }
   ],
-  "rules": ["Never name a competitor."]
+  "rules": [
+    { "body": "Never name a competitor.",
+      "source_quote": "Never name or attack a competitor", "from": "brief" }
+  ]
 }`
 
 function asRecord(value: unknown, what: string): Record<string, unknown> {
@@ -52,6 +64,14 @@ function optionalInteger(value: unknown, what: string): number | null {
   return value
 }
 
+function optionalFrom(value: unknown, what: string): 'brief' | 'contract' | null {
+  const from = optionalText(value, what)
+  if (from !== null && from !== 'brief' && from !== 'contract') {
+    throw new ParseError(`${what} must be "brief" or "contract".`)
+  }
+  return from
+}
+
 function parseFields(raw: unknown): Record<string, ParsedField> {
   if (raw === undefined || raw === null) return {}
   const record = asRecord(raw, 'fields')
@@ -66,15 +86,14 @@ function parseFields(raw: unknown): Record<string, ParsedField> {
     }
 
     const object = asRecord(entry, `fields.${key}`)
-    const from = optionalText(object.from, `fields.${key}.from`)
-    if (from !== null && from !== 'brief' && from !== 'contract') {
-      throw new ParseError(`fields.${key}.from must be "brief" or "contract".`)
-    }
+    const from = optionalFrom(object.from, `fields.${key}.from`)
 
+    const note = optionalText(object.note, `fields.${key}.note`)
     fields[key] = {
       value: optionalText(object.value, `fields.${key}.value`),
       source_quote: optionalText(object.source_quote, `fields.${key}.source_quote`),
       ...(from === null ? {} : { from }),
+      ...(note === null ? {} : { note }),
     }
   }
 
@@ -94,6 +113,7 @@ function parseBonusTiers(raw: unknown): ParsedBonusTier[] {
       throw new ParseError(`bonus_tiers[${i}] needs threshold_views and payout_cents.`)
     }
 
+    const from = optionalFrom(object.from, `bonus_tiers[${i}].from`)
     return {
       label: optionalText(object.label, `bonus_tiers[${i}].label`) ?? `${threshold} views`,
       threshold_views: threshold,
@@ -102,17 +122,36 @@ function parseBonusTiers(raw: unknown): ParsedBonusTier[] {
         object.view_window_days,
         `bonus_tiers[${i}].view_window_days`,
       ),
+      // No quote is accepted here and rejected by verification, the same as a
+      // field with none - refusing it would only invite him to make one up.
+      source_quote: optionalText(object.source_quote, `bonus_tiers[${i}].source_quote`),
+      ...(from === null ? {} : { from }),
     }
   })
 }
 
-function parseRules(raw: unknown): string[] {
+/** A rule is either an object with its quote, or a bare string. A bare
+ *  string is taken as its own quote: it survives verification only if those
+ *  exact words are in a document, which is the honest reading of a rule
+ *  pasted with no source. */
+function parseRules(raw: unknown): ParsedRule[] {
   if (raw === undefined || raw === null) return []
-  if (!Array.isArray(raw)) throw new ParseError('rules must be a list of strings.')
+  if (!Array.isArray(raw)) throw new ParseError('rules must be a list.')
   return raw.map((entry, i) => {
-    const text = optionalText(entry, `rules[${i}]`)
-    if (text === null) throw new ParseError(`rules[${i}] is empty.`)
-    return text
+    if (typeof entry === 'string') {
+      const text = optionalText(entry, `rules[${i}]`)
+      if (text === null) throw new ParseError(`rules[${i}] is empty.`)
+      return { body: text, source_quote: text }
+    }
+    const object = asRecord(entry, `rules[${i}]`)
+    const body = optionalText(object.body, `rules[${i}].body`)
+    if (body === null) throw new ParseError(`rules[${i}].body is empty.`)
+    const from = optionalFrom(object.from, `rules[${i}].from`)
+    return {
+      body,
+      source_quote: optionalText(object.source_quote, `rules[${i}].source_quote`),
+      ...(from === null ? {} : { from }),
+    }
   })
 }
 

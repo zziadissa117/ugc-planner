@@ -18,7 +18,7 @@ const bounds = { minX: 0, minY: 0, maxX: 100, maxY: 100 }
 function renderCanvas() {
   return render(
     <NeuralCanvas bounds={bounds}>
-      <button type="button">a node</button>
+      {() => <button type="button">a node</button>}
     </NeuralCanvas>,
   )
 }

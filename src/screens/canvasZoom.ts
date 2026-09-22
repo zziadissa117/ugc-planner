@@ -26,8 +26,8 @@ export interface Bounds {
   maxY: number
 }
 
-export const MIN_SCALE = 1
-export const MAX_SCALE = 14
+export const MIN_SCALE = 0.05
+export const MAX_SCALE = 12
 
 export function clampScale(scale: number): number {
   return Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale))
@@ -50,25 +50,20 @@ export function panBy(current: CanvasTransform, dx: number, dy: number): CanvasT
   return { ...current, x: current.x + dx, y: current.y + dy }
 }
 
-/** How large the automatic fit is allowed to zoom, well short of the
- *  MAX_SCALE a manual pinch or scroll can still reach. A graph with only two
- *  or three tightly clustered nodes has a tiny bounding box, and fitting
- *  that to fill the whole viewport blew every dot and label up past the
- *  point of being readable - the fit is meant to show him the whole graph
- *  at a comfortable size, not zoom in on a small one as far as it can. */
-const FIT_MAX_SCALE = 4.5
-
 /** The transform that fits `bounds` (in the same 0-100 stage space the graph
  *  is laid out in) inside `viewport`, so the whole graph is on screen the
  *  moment the canvas opens rather than him having to zoom out to find it
- *  first. `margin` leaves room around the edge - 1 would touch the sides. */
-export function fitTransform(bounds: Bounds, viewport: ViewportSize, margin = 0.82): CanvasTransform {
+ *  first. `margin` leaves room around the edge - 1 would touch the sides.
+ *
+ *  Nothing caps how far this may zoom any more. It used to, because every
+ *  dot and label was sized in raw pixels and a big fit scale blew them up -
+ *  but sizes are expressed relative to this scale now (see `unit` in
+ *  NeuralCanvas), so a graph is free to fill the whole screen at whatever
+ *  scale that takes, which is the entire point of a full-screen canvas. */
+export function fitTransform(bounds: Bounds, viewport: ViewportSize, margin = 0.9): CanvasTransform {
   const width = Math.max(1, bounds.maxX - bounds.minX)
   const height = Math.max(1, bounds.maxY - bounds.minY)
-  const scale = Math.min(
-    FIT_MAX_SCALE,
-    clampScale(Math.min(viewport.width / width, viewport.height / height) * margin),
-  )
+  const scale = clampScale(Math.min(viewport.width / width, viewport.height / height) * margin)
   const cx = (bounds.minX + bounds.maxX) / 2
   const cy = (bounds.minY + bounds.maxY) / 2
   return {

@@ -155,6 +155,48 @@ export function Posting() {
 
   if (!loaded) return null
 
+  const toggleButton = (
+    <button
+      type="button"
+      onClick={() => changeView(view === 'list' ? 'network' : 'list')}
+      aria-label={view === 'list' ? 'Switch to the neural view' : 'Switch to the list view'}
+      aria-pressed={view === 'network'}
+      className={[
+        'flex min-h-tap min-w-tap items-center justify-center border border-edge text-state-later active:bg-surface-raised',
+        // Round and glassy over the canvas, square in the page header - the
+        // same control, dressed for where it is sitting.
+        view === 'network' ? 'rounded-full bg-surface/80 backdrop-blur-md' : 'rounded-lg bg-surface',
+      ].join(' ')}
+    >
+      <NetworkIcon />
+    </button>
+  )
+
+  // The network view takes the whole screen. It is a picture of everything
+  // he is running, and a picture wants the room - boxed into a square in the
+  // middle of a page with a header above it, it read as a widget rather than
+  // a place. The negative margins undo the app shell's own padding so the
+  // black goes edge to edge, and the height leaves exactly the nav bar.
+  if (view === 'network' && boards.length > 0) {
+    return (
+      <div
+        className="relative -mx-3 -mb-3 -mt-4"
+        style={{ height: 'calc(100dvh - 3.5rem - env(safe-area-inset-bottom))' }}
+      >
+        <NeuralView boards={boards} busy={busy} onPost={postFromNetwork} />
+
+        {/* Everything else floats over the canvas rather than stacking above
+            it, so nothing eats into the graph's room. */}
+        <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-3 p-3">
+          <div className="pointer-events-auto">{toggleButton}</div>
+          <div className="pointer-events-auto">
+            <MadeToday cents={earned} />
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <section className="mx-auto flex max-w-3xl flex-col gap-4">
       <header className="flex flex-wrap items-end justify-between gap-3">
@@ -162,15 +204,7 @@ export function Posting() {
           {/* The one way into the network view - a small button rather than
               its own tab, because it is a second way to look at the same
               boxes, not a sixth place in the app. */}
-          <button
-            type="button"
-            onClick={() => changeView(view === 'list' ? 'network' : 'list')}
-            aria-label={view === 'list' ? 'Switch to the neural view' : 'Switch to the list view'}
-            aria-pressed={view === 'network'}
-            className="flex min-h-tap min-w-tap items-center justify-center rounded-lg border border-edge bg-surface text-state-later active:bg-surface-raised"
-          >
-            <NetworkIcon />
-          </button>
+          {toggleButton}
           <div>
             <h1 className="text-xl font-semibold text-text">Post</h1>
             <p className="text-sm text-state-later">
@@ -187,7 +221,7 @@ export function Posting() {
         <p className="text-sm text-state-later">
           No campaigns yet. Add one on <Link to="/campaigns" className="text-state-now">BRIEFS</Link>.
         </p>
-      ) : view === 'list' ? (
+      ) : (
         boards.map((board) => (
           <CampaignBoard
             key={board.campaign.id}
@@ -196,8 +230,6 @@ export function Posting() {
             onToggle={(account, slot, post) => void toggle(board, account, slot, post)}
           />
         ))
-      ) : (
-        <NeuralView boards={boards} busy={busy} onPost={postFromNetwork} />
       )}
     </section>
   )
@@ -407,156 +439,207 @@ function NeuralView({
   }, [positions])
 
   return (
-    <NeuralCanvas bounds={bounds} className="aspect-square w-full max-w-xl">
-      <svg viewBox="0 0 100 100" className="absolute inset-0 h-full w-full overflow-visible" aria-hidden>
-        {/* Structure first, underneath everything - every campaign's own
-            accounts, as plain thin lines that only turn green once that
-            platform has actually posted today. Zooming the canvas magnifies
-            these lines along with everything else, same as any diagram
-            viewer - non-scaling-stroke here only guards against the SVG's
-            own viewBox ever drifting out of sync with its element size. */}
-        {boards.map((board) =>
-          board.rows.map((row) => {
-            const from = at(board.campaign.id)
-            const to = at(row.account.id)
-            const posted = row.cells.some((cell) => cell.post !== null)
-            return (
-              <line
-                key={row.account.id}
-                x1={from.x}
-                y1={from.y}
-                x2={to.x}
-                y2={to.y}
-                stroke={posted ? 'var(--color-state-posted)' : 'var(--color-edge)'}
-                strokeWidth={1}
-                vectorEffect="non-scaling-stroke"
-              />
-            )
-          }),
-        )}
-
-        {boards.map((board) => {
-          const { x, y } = at(board.campaign.id)
-          const quota = board.quota
-          const progress = quota > 0 ? Math.min(1, board.doneToday / quota) : board.doneToday > 0 ? 1 : 0
-          const fx = 50 + (x - 50) * progress
-          const fy = 50 + (y - 50) * progress
-          return (
-            <g key={board.campaign.id}>
-              <line
-                x1={50}
-                y1={50}
-                x2={x}
-                y2={y}
-                stroke="var(--color-edge)"
-                strokeWidth={1}
-                vectorEffect="non-scaling-stroke"
-              />
-              {progress > 0 ? (
-                <line
-                  x1={50}
-                  y1={50}
-                  x2={fx}
-                  y2={fy}
-                  stroke="var(--color-state-posted)"
-                  strokeWidth={1.4}
-                  vectorEffect="non-scaling-stroke"
-                />
-              ) : null}
-            </g>
-          )
-        })}
-      </svg>
-
-      {/* Him, in the middle - every campaign runs off his own work. A plain
-          bright dot, nothing drawn around it. */}
-      <div
-        aria-hidden
-        className="absolute h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-state-now"
-        style={{ left: '50%', top: '50%' }}
-      />
-
-      {/* Every account, small and quiet - real structure (his own platforms),
-          not filler, and the reason the graph has enough in it to cluster. */}
-      {boards.map((board) =>
-        board.rows.map((row) => {
-          const { x, y } = at(row.account.id)
-          const posted = row.cells.some((cell) => cell.post !== null)
-          return (
-            <div
-              key={row.account.id}
-              aria-hidden
-              className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1"
-              style={{ left: `${x}%`, top: `${y}%` }}
-            >
-              <span
-                className={`h-[0.6px] w-[0.6px] rounded-full ${posted ? 'bg-state-posted' : 'bg-text-dim'}`}
-              />
-              <span className="whitespace-nowrap text-[1.8px] leading-none tracking-wide text-state-later">
-                {row.account.platform}
-              </span>
-            </div>
-          )
-        }),
-      )}
-
-      {boards.map((board) => {
-        const { x, y } = at(board.campaign.id)
-        const quota = board.quota
-        const done = quota > 0 && board.doneToday >= quota
-        const canPost = board.rows.length > 0
-        const next = canPost ? nextUnfilledCell(board) : null
-        const busyKey = next ? `${next.account.id}:${next.slot}` : null
-        const dotSize = campaignR(board) * 1.1
-
+    <NeuralCanvas bounds={bounds} className="h-full w-full">
+      {({ px, svg }) => {
+        // Every size below is "how many screen pixels this should be at the
+        // fitted view". The canvas turns that into its own coordinates, so
+        // the graph looks the same on a phone and a laptop, and zooming
+        // magnifies it the way zooming into a diagram should.
         return (
-          <div key={board.campaign.id}>
-            <Link
-              to={`/campaigns/${board.campaign.id}`}
-              aria-label={`Open the brief for ${board.campaign.name}`}
-              className="absolute flex w-20 -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1 p-1.5"
-              style={{ left: `${x}%`, top: `${y}%` }}
+          <>
+            <svg
+              viewBox="0 0 100 100"
+              className="absolute inset-0 h-full w-full overflow-visible"
+              aria-hidden
             >
-              <span
-                className={`rounded-full ${done ? 'bg-state-posted' : 'bg-text-dim'}`}
-                style={{ height: `${dotSize}px`, width: `${dotSize}px` }}
-              />
-              <span className="w-full truncate text-center text-[2.6px] font-medium leading-tight text-text">
-                {board.campaign.name}
-              </span>
-              <span className="numeric text-[2.1px] tracking-wide text-state-later">
-                {board.doneToday}/{quota}
-              </span>
-            </Link>
+              {/* Structure first, underneath everything - every campaign's
+                  own accounts, as plain thin lines that only turn green once
+                  that platform has actually posted today. */}
+              {boards.map((board) =>
+                board.rows.map((row) => {
+                  const from = at(board.campaign.id)
+                  const to = at(row.account.id)
+                  const posted = row.cells.some((cell) => cell.post !== null)
+                  return (
+                    <line
+                      key={row.account.id}
+                      x1={from.x}
+                      y1={from.y}
+                      x2={to.x}
+                      y2={to.y}
+                      stroke={posted ? 'var(--color-state-posted)' : 'var(--color-edge-lit)'}
+                      strokeOpacity={posted ? 0.55 : 0.7}
+                      strokeWidth={svg(1)}
+                    />
+                  )
+                }),
+              )}
 
-            {/* A small satellite dot beside the campaign's own, the one tap
-                target on the graph that writes anything - a fixed offset
-                rather than one sized to the campaign's own dot, so it never
-                depends on how big that dot happens to be. */}
-            {canPost ? (
-              <button
-                type="button"
-                disabled={busyKey !== null && busy === busyKey}
-                onClick={() => onPost(board)}
-                aria-label={
-                  done
-                    ? `${board.campaign.name} is posted today - tap for one more`
-                    : `Post for ${board.campaign.name}`
-                }
-                className={[
-                  'absolute flex h-[5px] w-[5px] -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border text-[3px] font-bold leading-none active:scale-90 disabled:opacity-50',
-                  done
-                    ? 'border-state-posted bg-state-posted text-ink'
-                    : 'border-state-now/70 bg-ink text-state-now',
-                ].join(' ')}
-                style={{ left: `calc(${x}% + 3.5px)`, top: `calc(${y}% - 3.5px)` }}
-              >
-                {done ? '✓' : '+'}
-              </button>
-            ) : null}
-          </div>
+              {boards.map((board) => {
+                const { x, y } = at(board.campaign.id)
+                const quota = board.quota
+                const progress =
+                  quota > 0 ? Math.min(1, board.doneToday / quota) : board.doneToday > 0 ? 1 : 0
+                const fx = 50 + (x - 50) * progress
+                const fy = 50 + (y - 50) * progress
+                return (
+                  <g key={board.campaign.id}>
+                    <line
+                      x1={50}
+                      y1={50}
+                      x2={x}
+                      y2={y}
+                      stroke="var(--color-edge-lit)"
+                      strokeOpacity={0.8}
+                      strokeWidth={svg(1.2)}
+                    />
+                    {progress > 0 ? (
+                      <line
+                        x1={50}
+                        y1={50}
+                        x2={fx}
+                        y2={fy}
+                        stroke="var(--color-state-posted)"
+                        strokeWidth={svg(1.6)}
+                      />
+                    ) : null}
+                  </g>
+                )
+              })}
+            </svg>
+
+            {/* Him, in the middle - every campaign runs off his own work. */}
+            <div
+              aria-hidden
+              className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full bg-state-now"
+              style={{
+                left: '50%',
+                top: '50%',
+                height: `${px(15)}px`,
+                width: `${px(15)}px`,
+                boxShadow: `0 0 ${px(14)}px ${px(1)}px color-mix(in oklab, var(--color-state-now) 45%, transparent)`,
+              }}
+            />
+
+            {/* Every account, small and quiet - real structure (his own
+                platforms), not filler, and the reason the graph has enough in
+                it to cluster. */}
+            {boards.map((board) =>
+              board.rows.map((row) => {
+                const { x, y } = at(row.account.id)
+                const posted = row.cells.some((cell) => cell.post !== null)
+                return (
+                  <div
+                    key={row.account.id}
+                    aria-hidden
+                    className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center"
+                    style={{ left: `${x}%`, top: `${y}%`, width: `${px(74)}px` }}
+                  >
+                    <span
+                      className={`rounded-full ${posted ? 'bg-state-posted' : 'bg-text-dim'}`}
+                      style={{
+                        height: `${px(6)}px`,
+                        width: `${px(6)}px`,
+                        boxShadow: posted
+                          ? `0 0 ${px(7)}px color-mix(in oklab, var(--color-state-posted) 60%, transparent)`
+                          : undefined,
+                      }}
+                    />
+                    <span
+                      className="truncate text-center leading-none text-state-later"
+                      style={{ fontSize: `${px(9)}px`, marginTop: `${px(5)}px`, width: '100%' }}
+                    >
+                      {row.account.platform}
+                    </span>
+                  </div>
+                )
+              }),
+            )}
+
+            {boards.map((board) => {
+              const { x, y } = at(board.campaign.id)
+              const quota = board.quota
+              const done = quota > 0 && board.doneToday >= quota
+              const canPost = board.rows.length > 0
+              const next = canPost ? nextUnfilledCell(board) : null
+              const busyKey = next ? `${next.account.id}:${next.slot}` : null
+              const dot = 11 + 7 * (campaignR(board) - 3.5) / 2.5
+              const badge = 15
+              // Far enough out, and ringed in the background colour, that a
+              // green badge on a green dot still reads as two things.
+              const offset = dot / 2 + 3
+
+              return (
+                <div key={board.campaign.id}>
+                  <Link
+                    to={`/campaigns/${board.campaign.id}`}
+                    aria-label={`Open the brief for ${board.campaign.name}`}
+                    className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center"
+                    style={{ left: `${x}%`, top: `${y}%`, width: `${px(108)}px` }}
+                  >
+                    <span
+                      className={`rounded-full ${done ? 'bg-state-posted' : 'bg-text-dim'}`}
+                      style={{
+                        height: `${px(dot)}px`,
+                        width: `${px(dot)}px`,
+                        boxShadow: done
+                          ? `0 0 ${px(13)}px color-mix(in oklab, var(--color-state-posted) 70%, transparent)`
+                          : undefined,
+                      }}
+                    />
+                    <span
+                      className="truncate text-center font-medium leading-tight text-text"
+                      style={{ fontSize: `${px(12.5)}px`, marginTop: `${px(7)}px`, width: '100%' }}
+                    >
+                      {board.campaign.name}
+                    </span>
+                    {/* Only where it says something a one-post day cannot:
+                        the dot already carries "done" on its own. */}
+                    {quota > 1 ? (
+                      <span
+                        className="numeric leading-none text-state-later"
+                        style={{ fontSize: `${px(10)}px`, marginTop: `${px(3)}px` }}
+                      >
+                        {board.doneToday}/{quota}
+                      </span>
+                    ) : null}
+                  </Link>
+
+                  {canPost ? (
+                    <button
+                      type="button"
+                      disabled={busyKey !== null && busy === busyKey}
+                      onClick={() => onPost(board)}
+                      aria-label={
+                        done
+                          ? `${board.campaign.name} is posted today - tap for one more`
+                          : `Post for ${board.campaign.name}`
+                      }
+                      className={[
+                        'absolute flex -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border font-bold leading-none active:scale-90 disabled:opacity-50',
+                        done
+                          ? 'border-state-posted bg-state-posted text-ink'
+                          : 'border-state-now/60 bg-ink text-state-now',
+                      ].join(' ')}
+                      style={{
+                        left: `calc(${x}% + ${px(offset)}px)`,
+                        top: `calc(${y}% - ${px(offset)}px)`,
+                        height: `${px(badge)}px`,
+                        width: `${px(badge)}px`,
+                        fontSize: `${px(9)}px`,
+                        borderWidth: `${px(1)}px`,
+                        boxShadow: `0 0 0 ${px(2)}px var(--color-ink)`,
+                      }}
+                    >
+                      {done ? '\u2713' : '+'}
+                    </button>
+                  ) : null}
+                </div>
+              )
+            })}
+          </>
         )
-      })}
+      }}
     </NeuralCanvas>
   )
 }

@@ -396,13 +396,29 @@ describe('the neural view', () => {
 
     await user.click(screen.getByRole('button', { name: 'Switch to the neural view' }))
 
-    await screen.findByText(/Tap a link to post/)
+    await screen.findByRole('button', { name: 'Switch to the list view' })
     expect(screen.getByRole('link', { name: 'Open the brief for Inflow' })).toHaveAttribute(
       'href',
       `/campaigns/${campaign.id}`,
     )
     expect(screen.getByRole('button', { name: 'Post for Inflow' })).toBeInTheDocument()
-    expect(screen.getByText('0/1')).toBeInTheDocument()
+    // A one-post day says everything through the dot's own colour; the
+    // count would only repeat it.
+    expect(screen.queryByText('0/1')).toBeNull()
+  })
+
+  it('shows the count only where a day owes more than one post', async () => {
+    // On a one-post day the dot's own colour already says done or not; the
+    // count would only repeat it. On a three-post day it is the only thing
+    // that says how far in he is.
+    await setUp(3, ['Instagram'])
+    const user = userEvent.setup()
+    renderScreen()
+    await screen.findByText(/Tick each platform/)
+
+    await user.click(screen.getByRole('button', { name: 'Switch to the neural view' }))
+
+    expect(await screen.findByText('0/3')).toBeInTheDocument()
   })
 
   it('remembers the chosen view across a remount', async () => {
@@ -411,11 +427,11 @@ describe('the neural view', () => {
     const first = renderScreen()
     await screen.findByText(/Tick each platform/)
     await user.click(screen.getByRole('button', { name: 'Switch to the neural view' }))
-    await screen.findByText(/Tap a link to post/)
+    await screen.findByRole('button', { name: 'Switch to the list view' })
     first.unmount()
 
     renderScreen()
-    await screen.findByText(/Tap a link to post/)
+    await screen.findByRole('button', { name: 'Switch to the list view' })
   })
 
   it('posts from the link exactly like a tap in the list view would', async () => {
@@ -424,7 +440,7 @@ describe('the neural view', () => {
     renderScreen()
     await screen.findByText(/Tick each platform/)
     await user.click(screen.getByRole('button', { name: 'Switch to the neural view' }))
-    await screen.findByText(/Tap a link to post/)
+    await screen.findByRole('button', { name: 'Switch to the list view' })
 
     await user.click(screen.getByRole('button', { name: 'Post for Inflow' }))
 
@@ -434,9 +450,8 @@ describe('the neural view', () => {
       )
       expect(posted).toHaveLength(1)
     })
-    expect(await screen.findByText('1/1')).toBeInTheDocument()
     expect(
-      screen.getByRole('button', { name: 'Inflow is posted today - tap for one more' }),
+      await screen.findByRole('button', { name: 'Inflow is posted today - tap for one more' }),
     ).toBeInTheDocument()
     // The rate is locked in the same way markPosted always does - proven by
     // the posted video above, which only exists with a rate snapshot once
@@ -471,8 +486,11 @@ describe('the neural view', () => {
     await screen.findByRole('heading', { name: 'Rich' })
     await user.click(screen.getByRole('button', { name: 'Switch to the neural view' }))
 
-    await screen.findByText(/Tap a link to post/)
-    const names = screen.getAllByRole('link').map((link) => link.getAttribute('aria-label'))
+    await screen.findByRole('button', { name: 'Switch to the list view' })
+    const names = screen
+      .getAllByRole('link')
+      .map((link) => link.getAttribute('aria-label'))
+      .filter((label) => label?.startsWith('Open the brief'))
     expect(names).toEqual([
       'Open the brief for Rich',
       'Open the brief for Cheap',

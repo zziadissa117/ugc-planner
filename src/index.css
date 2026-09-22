@@ -230,8 +230,49 @@ body {
   animation: indeterminate-sweep 1.4s ease-in-out infinite;
 }
 
+/* The neural view's core - a slow breathing glow so the centre reads as
+   alive without demanding attention, the way the rest of the app never asks
+   for attention it has not earned. Paused for anyone who asked for less
+   motion, same as the sweep above. */
+@keyframes core-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px color-mix(in oklab, var(--color-state-now) 45%, transparent),
+      0 0 22px 2px color-mix(in oklab, var(--color-state-now) 30%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px color-mix(in oklab, var(--color-state-now) 60%, transparent),
+      0 0 40px 8px color-mix(in oklab, var(--color-state-now) 40%, transparent);
+  }
+}
+
+.core-pulse {
+  animation: core-pulse 3.4s ease-in-out infinite;
+}
+
+/* A link he can still tap, inviting the tap the same quiet way. */
+@keyframes link-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-state-now) 55%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 5px transparent;
+  }
+}
+
+.link-pulse {
+  animation: link-pulse 2.4s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .indeterminate-bar {
+    animation: none;
+  }
+  .core-pulse,
+  .link-pulse {
     animation: none;
     transform: none;
     width: 100%;

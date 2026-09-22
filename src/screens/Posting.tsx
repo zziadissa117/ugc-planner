@@ -28,6 +28,7 @@ import { useData } from '../data/useData'
 import { byBestPay, formatCents, toCadCents } from '../money'
 import { isMuted, playCashRegister, primeCashRegister, setMuted } from '../sound'
 import { CORE_ID, layoutNetwork, type NetworkEdgeDef, type NetworkNodeDef } from './neuralLayout'
+import { NeuralCanvas } from './NeuralCanvas'
 
 interface Loaded {
   campaigns: Campaign[]
@@ -317,23 +318,28 @@ function MadeToday({ cents }: { cents: number }) {
 }
 
 /** All of today's campaigns as one graph, settled by a real force layout
- *  (see neuralLayout.ts) instead of drawn on a formula - a perfect wheel of
- *  spokes was the problem, however it was styled: "this does not look good,"
- *  and a real knowledge-graph, is nodes of different sizes scattered
- *  organically, clustered, thin edges everywhere. So the core sits fixed in
- *  the middle, every campaign hangs off it at whatever distance the
- *  simulation settles on, and every campaign's own accounts hang off IT in
- *  turn - real structure, not invented nodes, and enough of it to actually
- *  cluster the way a graph does.
+ *  (see neuralLayout.ts) and drawn plainly on a black, pannable, zoomable
+ *  canvas (see NeuralCanvas.tsx) - "make that little rectangle pitch black
+ *  ... make it cleaner, it's too messy, it's nothing like the picture I
+ *  showed you." What he pointed at was a real knowledge-graph: small solid
+ *  dots, thin plain lines, quiet labels, nothing glowing or bordered or
+ *  spelled out in a lettered avatar. So every ring, pulse, duplicate blurred
+ *  line and bordered badge from the earlier attempts is gone - a node is a
+ *  dot, an edge is a line, and colour still only ever means state.
  *
- *  The core-to-campaign edge still carries the day's progress: dim where
- *  nothing has gone out, filling in with a glowing green as he posts, solid
- *  and lit once the quota is met - "the more I post, it becomes green at the
- *  end of the day." The dot on it is the one control; tapping it posts the
+ *  The core sits fixed in the middle; every campaign hangs off it at
+ *  whatever distance the simulation settles on; every campaign's own
+ *  accounts hang off IT in turn - real structure, not invented nodes, and
+ *  enough of it to actually cluster the way a graph does.
+ *
+ *  The core-to-campaign line still carries the day's progress: grey where
+ *  nothing has gone out, green as far as he has posted, fully green once the
+ *  quota is met - "the more I post, it becomes green at the end of the day."
+ *  The small dot beside a campaign is the one control; tapping it posts the
  *  next open box on the campaign's first ready account, in the same order
- *  the list view would fill it. A campaign-to-account edge is only ever
- *  structure - it lights up once that platform has actually posted today,
- *  and nothing taps it. The campaign node opens the brief. */
+ *  the list view would fill it. A campaign-to-account line is only ever
+ *  structure - it turns green once that platform has actually posted today,
+ *  and nothing taps it. The campaign's own dot opens the brief. */
 function NeuralView({
   boards,
   busy,
@@ -343,28 +349,16 @@ function NeuralView({
   busy: string | null
   onPost: (board: PostingBoard) => void
 }) {
-  const CORE_R = 7.5
-  const LEAF_R = 2.1
+  const CORE_R = 6
+  const LEAF_R = 2.5
 
   // Sized by what the campaign pays a video - the same weight the whole app
   // now sorts by, made visible here as size instead of position. A campaign
   // with no rate saved gets the smallest node rather than the app guessing.
-  //
-  // Two different sizes come out of the same rate, on purpose: the canvas
-  // radius is what the layout spaces nodes apart by, in the 0-100 space
-  // everyone's x/y lives in, and it stays small so a modest rate does not
-  // shove its neighbours across the whole graph. The avatar is what he
-  // actually taps, in real pixels, and it needs its own floor regardless of
-  // canvas scale - using the canvas number for both once made the smallest
-  // node a 13px circle, too small to read the letter in, let alone tap.
   const maxRate = Math.max(1, ...boards.map((b) => b.campaign.pay_per_video_cents ?? 0))
-  const campaignCanvasR = (board: PostingBoard) => {
+  const campaignR = (board: PostingBoard) => {
     const rate = board.campaign.pay_per_video_cents ?? 0
-    return 3.6 + (5.6 - 3.6) * (rate / maxRate)
-  }
-  const campaignAvatarPx = (board: PostingBoard) => {
-    const rate = board.campaign.pay_per_video_cents ?? 0
-    return 34 + (48 - 34) * (rate / maxRate)
+    return 3.5 + (6 - 3.5) * (rate / maxRate)
   }
 
   // The graph's shape - which campaigns, which of their accounts - is what
@@ -379,11 +373,11 @@ function NeuralView({
     const nodeDefs: NetworkNodeDef[] = [{ id: CORE_ID, r: CORE_R }]
     const edgeDefs: NetworkEdgeDef[] = []
     for (const board of boards) {
-      nodeDefs.push({ id: board.campaign.id, r: campaignCanvasR(board) })
-      edgeDefs.push({ a: CORE_ID, b: board.campaign.id, ideal: 34 })
+      nodeDefs.push({ id: board.campaign.id, r: campaignR(board) })
+      edgeDefs.push({ a: CORE_ID, b: board.campaign.id, ideal: 38 })
       for (const row of board.rows) {
         nodeDefs.push({ id: row.account.id, r: LEAF_R, parentId: board.campaign.id })
-        edgeDefs.push({ a: board.campaign.id, b: row.account.id, ideal: 17 })
+        edgeDefs.push({ a: board.campaign.id, b: row.account.id, ideal: 20 })
       }
     }
     return layoutNetwork(nodeDefs, edgeDefs)
@@ -394,42 +388,33 @@ function NeuralView({
 
   const at = (id: string) => positions.get(id) ?? { x: 50, y: 50 }
 
+  // What the canvas has to show, padded for the largest node and its label -
+  // without this the fit-to-screen on open crops a node sitting right at the
+  // edge of where the layout happened to settle.
+  const bounds = useMemo(() => {
+    let minX = 50
+    let minY = 50
+    let maxX = 50
+    let maxY = 50
+    for (const { x, y } of positions.values()) {
+      minX = Math.min(minX, x)
+      minY = Math.min(minY, y)
+      maxX = Math.max(maxX, x)
+      maxY = Math.max(maxY, y)
+    }
+    const pad = 10
+    return { minX: minX - pad, minY: minY - pad, maxX: maxX + pad, maxY: maxY + pad }
+  }, [positions])
+
   return (
-    <div
-      className="relative mx-auto aspect-square w-full max-w-xl select-none py-10"
-      style={{
-        // A faint pool of light behind the whole thing, the same device the
-        // page background already uses for depth - never a state colour,
-        // only atmosphere.
-        backgroundImage:
-          'radial-gradient(60% 60% at 50% 50%, color-mix(in oklab, var(--color-edge-lit) 20%, transparent), transparent 72%)',
-      }}
-    >
-      <svg
-        viewBox="0 0 100 100"
-        className="absolute inset-0 h-full w-full overflow-visible"
-        aria-hidden
-      >
-        <defs>
-          <filter id="neural-glow" x="-60%" y="-60%" width="220%" height="220%">
-            <feGaussianBlur stdDeviation="1.6" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-          <radialGradient id="neural-core-glow" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="var(--color-state-now)" stopOpacity="0.6" />
-            <stop offset="100%" stopColor="var(--color-state-now)" stopOpacity="0" />
-          </radialGradient>
-        </defs>
-
-        {/* A soft halo behind the core, wider than the core itself. */}
-        <circle cx={50} cy={50} r={13} fill="url(#neural-core-glow)" />
-
+    <NeuralCanvas bounds={bounds} className="aspect-square w-full max-w-xl">
+      <svg viewBox="0 0 100 100" className="absolute inset-0 h-full w-full overflow-visible" aria-hidden>
         {/* Structure first, underneath everything - every campaign's own
-            accounts, as plain thin lines that only light up once that
-            platform has actually posted today. */}
+            accounts, as plain thin lines that only turn green once that
+            platform has actually posted today. Zooming the canvas magnifies
+            these lines along with everything else, same as any diagram
+            viewer - non-scaling-stroke here only guards against the SVG's
+            own viewBox ever drifting out of sync with its element size. */}
         {boards.map((board) =>
           board.rows.map((row) => {
             const from = at(board.campaign.id)
@@ -443,9 +428,8 @@ function NeuralView({
                 x2={to.x}
                 y2={to.y}
                 stroke={posted ? 'var(--color-state-posted)' : 'var(--color-edge)'}
-                strokeOpacity={posted ? 0.8 : 1}
-                strokeWidth={0.28}
-                strokeLinecap="round"
+                strokeWidth={1}
+                vectorEffect="non-scaling-stroke"
               />
             )
           }),
@@ -457,7 +441,6 @@ function NeuralView({
           const progress = quota > 0 ? Math.min(1, board.doneToday / quota) : board.doneToday > 0 ? 1 : 0
           const fx = 50 + (x - 50) * progress
           const fy = 50 + (y - 50) * progress
-
           return (
             <g key={board.campaign.id}>
               <line
@@ -466,56 +449,32 @@ function NeuralView({
                 x2={x}
                 y2={y}
                 stroke="var(--color-edge)"
-                strokeWidth={0.4}
-                strokeLinecap="round"
+                strokeWidth={1}
+                vectorEffect="non-scaling-stroke"
               />
               {progress > 0 ? (
-                <>
-                  {/* A wide, soft duplicate under the crisp line - the glow. */}
-                  <line
-                    x1={50}
-                    y1={50}
-                    x2={fx}
-                    y2={fy}
-                    stroke="var(--color-state-posted)"
-                    strokeWidth={1.5}
-                    strokeLinecap="round"
-                    opacity={0.35}
-                    filter="url(#neural-glow)"
-                  />
-                  <line
-                    x1={50}
-                    y1={50}
-                    x2={fx}
-                    y2={fy}
-                    stroke="var(--color-state-posted)"
-                    strokeWidth={0.5}
-                    strokeLinecap="round"
-                  />
-                </>
+                <line
+                  x1={50}
+                  y1={50}
+                  x2={fx}
+                  y2={fy}
+                  stroke="var(--color-state-posted)"
+                  strokeWidth={1.4}
+                  vectorEffect="non-scaling-stroke"
+                />
               ) : null}
             </g>
           )
         })}
       </svg>
 
-      {/* Him, in the middle - every campaign runs off his own work. Two thin
-          static rings stand in for orbits; the glow behind breathes slowly. */}
+      {/* Him, in the middle - every campaign runs off his own work. A plain
+          bright dot, nothing drawn around it. */}
       <div
-        className="core-pulse absolute flex h-16 w-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-state-now/60 bg-surface-raised"
-        style={{ left: '50%', top: '50%' }}
         aria-hidden
-      >
-        <span
-          aria-hidden
-          className="absolute inset-[-10px] rounded-full border border-state-now/15"
-        />
-        <span
-          aria-hidden
-          className="absolute inset-[-20px] rounded-full border border-state-now/[0.08]"
-        />
-        <span className="text-2xl drop-shadow-[0_0_10px_var(--color-state-now)]">🧠</span>
-      </div>
+        className="absolute h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-state-now"
+        style={{ left: '50%', top: '50%' }}
+      />
 
       {/* Every account, small and quiet - real structure (his own platforms),
           not filler, and the reason the graph has enough in it to cluster. */}
@@ -531,14 +490,9 @@ function NeuralView({
               style={{ left: `${x}%`, top: `${y}%` }}
             >
               <span
-                className={[
-                  'h-[9px] w-[9px] rounded-full border transition-shadow duration-300',
-                  posted
-                    ? 'border-state-posted bg-state-posted drop-shadow-[0_0_6px_var(--color-state-posted)]'
-                    : 'border-edge bg-surface-raised',
-                ].join(' ')}
+                className={`h-[0.6px] w-[0.6px] rounded-full ${posted ? 'bg-state-posted' : 'bg-text-dim'}`}
               />
-              <span className="meta whitespace-nowrap text-[10px] leading-none text-state-later">
+              <span className="whitespace-nowrap text-[1.8px] leading-none tracking-wide text-state-later">
                 {row.account.platform}
               </span>
             </div>
@@ -553,62 +507,32 @@ function NeuralView({
         const canPost = board.rows.length > 0
         const next = canPost ? nextUnfilledCell(board) : null
         const busyKey = next ? `${next.account.id}:${next.slot}` : null
-        const size = campaignAvatarPx(board)
-        // A corner badge on the avatar itself, not a dot floating somewhere
-        // along the edge - the edge's own length varies with the layout, and
-        // anything placed along it could end up sitting on top of a leaf or
-        // the node itself depending on how the graph happened to settle. A
-        // badge pinned to the avatar's own corner is never anywhere else.
-        // Top-right rather than bottom-right: the name and its count sit
-        // directly below the avatar, and a bottom badge sat on top of them.
-        //
-        // It has to be a sibling of the Link, not a child of it: an <a> may
-        // not contain a <button> under the HTML content model, and a browser
-        // asked to would close the anchor early rather than nest it,
-        // silently breaking the tap that opens the brief. The offset below
-        // is the same pixel corner either way - `calc()` reaches it from the
-        // node's own percentage position without needing the DOM nesting.
-        const badgeOffset = size / 2 - 3
+        const dotSize = campaignR(board) * 1.1
 
         return (
           <div key={board.campaign.id}>
             <Link
               to={`/campaigns/${board.campaign.id}`}
               aria-label={`Open the brief for ${board.campaign.name}`}
-              className="absolute flex w-24 -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1.5"
+              className="absolute flex w-20 -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1 p-1.5"
               style={{ left: `${x}%`, top: `${y}%` }}
             >
               <span
-                className="relative flex items-center justify-center"
-                style={{ height: `${size}px`, width: `${size}px` }}
-              >
-                {/* The same thin orbit ring the core wears, echoing it so
-                    every node in the diagram reads as one family of shapes. */}
-                <span
-                  aria-hidden
-                  className={`absolute inset-[-6px] rounded-full border ${
-                    done ? 'border-state-posted/25' : 'border-edge/50'
-                  }`}
-                />
-                <span
-                  className={[
-                    'relative flex h-full w-full items-center justify-center rounded-full border text-sm font-bold transition-shadow duration-300',
-                    done
-                      ? 'border-state-posted/70 bg-state-posted/15 text-state-posted drop-shadow-[0_0_12px_var(--color-state-posted)]'
-                      : 'border-edge bg-surface-raised text-text',
-                  ].join(' ')}
-                >
-                  {board.campaign.name.trim().charAt(0).toUpperCase() || '?'}
-                </span>
-              </span>
-              <span className="w-full truncate text-center text-xs font-semibold leading-tight text-text">
+                className={`rounded-full ${done ? 'bg-state-posted' : 'bg-text-dim'}`}
+                style={{ height: `${dotSize}px`, width: `${dotSize}px` }}
+              />
+              <span className="w-full truncate text-center text-[2.6px] font-medium leading-tight text-text">
                 {board.campaign.name}
               </span>
-              <span className="numeric text-[10px] tracking-wide text-state-later">
-                {board.doneToday} / {quota}
+              <span className="numeric text-[2.1px] tracking-wide text-state-later">
+                {board.doneToday}/{quota}
               </span>
             </Link>
 
+            {/* A small satellite dot beside the campaign's own, the one tap
+                target on the graph that writes anything - a fixed offset
+                rather than one sized to the campaign's own dot, so it never
+                depends on how big that dot happens to be. */}
             {canPost ? (
               <button
                 type="button"
@@ -620,15 +544,12 @@ function NeuralView({
                     : `Post for ${board.campaign.name}`
                 }
                 className={[
-                  'absolute flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border text-xs font-bold transition-transform duration-100 active:scale-90 disabled:opacity-50',
+                  'absolute flex h-[5px] w-[5px] -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border text-[3px] font-bold leading-none active:scale-90 disabled:opacity-50',
                   done
-                    ? 'border-state-posted bg-state-posted text-ink drop-shadow-[0_0_8px_var(--color-state-posted)]'
-                    : 'link-pulse border-state-now/60 bg-surface text-state-now active:bg-surface-raised',
+                    ? 'border-state-posted bg-state-posted text-ink'
+                    : 'border-state-now/70 bg-ink text-state-now',
                 ].join(' ')}
-                style={{
-                  left: `calc(${x}% + ${badgeOffset}px)`,
-                  top: `calc(${y}% - ${badgeOffset}px)`,
-                }}
+                style={{ left: `calc(${x}% + 3.5px)`, top: `calc(${y}% - 3.5px)` }}
               >
                 {done ? '✓' : '+'}
               </button>
@@ -636,7 +557,7 @@ function NeuralView({
           </div>
         )
       })}
-    </div>
+    </NeuralCanvas>
   )
 }
 

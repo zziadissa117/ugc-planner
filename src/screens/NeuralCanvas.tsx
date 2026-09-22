@@ -1,0 +1,215 @@
+// The pan-and-zoom black canvas the network view lives inside.
+//
+// "Make it so I can zoom inside of it, like it's a sort of sandbox... Make
+// that little rectangle pitch black." So this is a real viewport rather than
+// a fixed picture: content sits in a 100x100 "stage" (the same unit space
+// neuralLayout.ts works in), a CSS transform on that stage is what he
+// actually pans and zooms, and the outer box that clips it is plain black,
+// nothing painted behind the graph.
+//
+// The transform math itself lives in canvasZoom.ts, tested on its own -
+// everything here is wiring it to real pointer and wheel events.
+
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+  type WheelEvent as ReactWheelEvent,
+} from 'react'
+
+import { fitTransform, zoomAt, type Bounds, type CanvasTransform } from './canvasZoom'
+
+/** Screen pixels of movement before a pointer-down is treated as a drag
+ *  rather than a tap - below this it still reaches the node underneath. A
+ *  real tap is rarely perfectly still; too tight a threshold here turned an
+ *  ordinary tap into a phantom micro-drag that then ate the tap behind it. */
+const DRAG_THRESHOLD = 10
+
+export function NeuralCanvas({
+  bounds,
+  children,
+  className = '',
+}: {
+  /** The graph's extent in stage units (see neuralLayout.ts) - already
+   *  padded by the caller for node radii and label width. */
+  bounds: Bounds
+  children: ReactNode
+  className?: string
+}) {
+  const viewportRef = useRef<HTMLDivElement>(null)
+  const [viewport, setViewport] = useState({ width: 0, height: 0 })
+  const [transform, setTransform] = useState<CanvasTransform>({ scale: 1, x: 0, y: 0 })
+  const boundsKey = `${bounds.minX}:${bounds.minY}:${bounds.maxX}:${bounds.maxY}`
+
+  // The viewport's own real size, in pixels - both the initial fit and
+  // zooming toward the cursor need it, and neither can just assume the
+  // container's CSS size. Falls back to a window resize listener where
+  // ResizeObserver does not exist - an older browser, or a test environment
+  // - rather than throwing and leaving the canvas with no size at all.
+  useEffect(() => {
+    const el = viewportRef.current
+    if (!el) return
+    const measure = () => setViewport({ width: el.clientWidth, height: el.clientHeight })
+    measure()
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measure)
+      return () => window.removeEventListener('resize', measure)
+    }
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
+  const fit = useCallback(() => {
+    if (viewport.width === 0 || viewport.height === 0) return
+    setTransform(fitTransform(bounds, viewport))
+    // Keyed on the bounds' own values and the measured size, not on the
+    // `bounds` object identity, which is a fresh object every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewport.width, viewport.height, boundsKey])
+
+  // Fits the moment the viewport is measured, and again whenever the graph's
+  // own shape changes - a campaign gaining an account should not leave it
+  // sitting off screen with no sign anything is there to scroll to.
+  useEffect(() => {
+    fit()
+  }, [fit])
+
+  const drag = useRef({ down: false, moved: false, startX: 0, startY: 0, startTx: 0, startTy: 0 })
+  // A drag that ends on top of a node leaves a click behind it; this is what
+  // that click checks before letting the node's own tap through.
+  const justDragged = useRef(false)
+
+  const onPointerDown = (event: ReactPointerEvent) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return
+    drag.current = {
+      down: true,
+      moved: false,
+      startX: event.clientX,
+      startY: event.clientY,
+      startTx: transform.x,
+      startTy: transform.y,
+    }
+    // Capture is deliberately not taken here. Chrome retargets the click
+    // that follows to whichever element holds capture - so capturing on
+    // every pointerdown, including a plain tap that never moves, sent every
+    // tap's click to this container instead of the node underneath it, and
+    // no node was ever reachable. It is taken below, once a real drag is
+    // confirmed, which is the only time redirecting events here is wanted.
+  }
+
+  const onPointerMove = (event: ReactPointerEvent) => {
+    if (!drag.current.down) return
+    const dx = event.clientX - drag.current.startX
+    const dy = event.clientY - drag.current.startY
+    if (!drag.current.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return
+    if (!drag.current.moved) event.currentTarget.setPointerCapture?.(event.pointerId)
+    drag.current.moved = true
+    setTransform((current) => ({ ...current, x: drag.current.startTx + dx, y: drag.current.startTy + dy }))
+  }
+
+  const endDrag = () => {
+    if (drag.current.moved) justDragged.current = true
+    drag.current.down = false
+  }
+
+  const onClickCapture = (event: ReactMouseEvent) => {
+    if (!justDragged.current) return
+    event.preventDefault()
+    event.stopPropagation()
+    justDragged.current = false
+  }
+
+  const onWheel = (event: ReactWheelEvent) => {
+    event.preventDefault()
+    const rect = viewportRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const px = event.clientX - rect.left
+    const py = event.clientY - rect.top
+    // Exponential rather than linear, so a trackpad's small, frequent deltas
+    // and a mouse wheel's large, occasional ones both feel proportionate.
+    const factor = Math.exp(-event.deltaY * 0.0018)
+    setTransform((current) => zoomAt(current, factor, px, py))
+  }
+
+  const zoomBy = (factor: number) => () => {
+    setTransform((current) => zoomAt(current, factor, viewport.width / 2, viewport.height / 2))
+  }
+
+  return (
+    <div className={`relative overflow-hidden rounded-2xl border border-edge bg-ink ${className}`}>
+      <div
+        ref={viewportRef}
+        onWheel={onWheel}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        onClickCapture={onClickCapture}
+        // touch-none: without it a one-finger drag also tries to scroll the
+        // page underneath, and the two fight each other.
+        className="relative h-full w-full touch-none select-none [cursor:grab] active:[cursor:grabbing]"
+      >
+        <div
+          className="absolute left-0 top-0 origin-top-left"
+          style={{
+            width: '100px',
+            height: '100px',
+            transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
+          }}
+        >
+          {children}
+        </div>
+      </div>
+
+      <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
+        <div className="pointer-events-auto flex items-center gap-0.5 rounded-full border border-edge bg-surface/90 p-1 backdrop-blur-md">
+          <button
+            type="button"
+            onClick={zoomBy(0.75)}
+            aria-label="Zoom out"
+            className="flex h-8 w-8 items-center justify-center rounded-full text-base text-state-later active:bg-surface-raised"
+          >
+            −
+          </button>
+          <button
+            type="button"
+            onClick={fit}
+            aria-label="Reset the view"
+            className="flex h-8 w-8 items-center justify-center rounded-full text-state-later active:bg-surface-raised"
+          >
+            <FitIcon />
+          </button>
+          <button
+            type="button"
+            onClick={zoomBy(1.3)}
+            aria-label="Zoom in"
+            className="flex h-8 w-8 items-center justify-center rounded-full text-base text-state-later active:bg-surface-raised"
+          >
+            +
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** A viewfinder - four corner brackets - for "fit everything back on
+ *  screen", the one thing a pan-and-zoom canvas always needs a way back
+ *  from. */
+function FitIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4" aria-hidden>
+      <path
+        d="M4 9V5a1 1 0 0 1 1-1h4M20 9V5a1 1 0 0 0-1-1h-4M4 15v4a1 1 0 0 0 1 1h4M20 15v4a1 1 0 0 1-1 1h-4"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}

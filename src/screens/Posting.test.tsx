@@ -402,7 +402,7 @@ describe('the neural view', () => {
       `/campaigns/${campaign.id}`,
     )
     expect(screen.getByRole('button', { name: 'Post for Inflow' })).toBeInTheDocument()
-    expect(screen.getByText('0 / 1')).toBeInTheDocument()
+    expect(screen.getByText('0/1')).toBeInTheDocument()
   })
 
   it('remembers the chosen view across a remount', async () => {
@@ -434,7 +434,7 @@ describe('the neural view', () => {
       )
       expect(posted).toHaveLength(1)
     })
-    expect(await screen.findByText('1 / 1')).toBeInTheDocument()
+    expect(await screen.findByText('1/1')).toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: 'Inflow is posted today - tap for one more' }),
     ).toBeInTheDocument()

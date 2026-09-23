@@ -3,7 +3,9 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  WARMUP_LIMIT_DAYS,
   WARMUP_STALE_DAYS,
+  warmupLimitDays,
   compareWarmupPriority,
   daysSince,
   warmupTier,
@@ -25,21 +27,41 @@ describe('warmupTier', () => {
     expect(warmupTier(account('new'), ago(0), NOW)).toBe('urgent')
   })
 
-  it('treats a ready account nobody has ever warmed as neglected', () => {
-    expect(warmupTier(account('ready'), null, NOW)).toBe('urgent')
+  it('treats a ready account nobody has ever warmed as overdue', () => {
+    expect(warmupTier(account('ready'), null, NOW)).toBe('overdue')
   })
 
-  it('turns urgent exactly at the stale threshold, ready or warming', () => {
-    const justInside = ago(WARMUP_STALE_DAYS - 1)
-    const justOutside = ago(WARMUP_STALE_DAYS)
-    expect(warmupTier(account('ready'), justInside, NOW)).toBe('ready')
-    expect(warmupTier(account('ready'), justOutside, NOW)).toBe('urgent')
-    expect(warmupTier(account('warming'), justInside, NOW)).toBe('building')
-    expect(warmupTier(account('warming'), justOutside, NOW)).toBe('urgent')
+  it('turns overdue exactly at the platform limit, ready or warming', () => {
+    const limit = warmupLimitDays(account('ready'))
+    expect(warmupTier(account('ready'), ago(limit - 1), NOW)).toBe('ready')
+    expect(warmupTier(account('ready'), ago(limit), NOW)).toBe('overdue')
+    expect(warmupTier(account('warming'), ago(limit - 1), NOW)).toBe('building')
+    expect(warmupTier(account('warming'), ago(limit), NOW)).toBe('overdue')
   })
 
-  it('keeps a recently kept-fresh ready account out of the urgent group', () => {
+  it('keeps a recently kept-fresh ready account out of the overdue group', () => {
     expect(warmupTier(account('ready'), ago(1), NOW)).toBe('ready')
+  })
+})
+
+describe('the per-platform limits', () => {
+  const on = (platform: string, status: CampaignAccount['status'] = 'ready') =>
+    ({ id: `a-${platform}`, status, platform }) as CampaignAccount
+
+  it('gives TikTok and Instagram the two-day limit he set', () => {
+    expect(WARMUP_LIMIT_DAYS.TikTok).toBe(2)
+    expect(WARMUP_LIMIT_DAYS.Instagram).toBe(2)
+    expect(warmupTier(on('TikTok'), ago(2), NOW)).toBe('overdue')
+    expect(warmupTier(on('Instagram'), ago(2), NOW)).toBe('overdue')
+    expect(warmupTier(on('TikTok'), ago(1), NOW)).toBe('ready')
+  })
+
+  it('leaves every other platform on the general limit, not the two-day one', () => {
+    for (const platform of ['Facebook', 'X', 'Snapchat']) {
+      expect(warmupLimitDays(on(platform))).toBe(WARMUP_STALE_DAYS)
+      // Three days is overdue for TikTok and perfectly fine here.
+      expect(warmupTier(on(platform), ago(3), NOW)).toBe('ready')
+    }
   })
 })
 

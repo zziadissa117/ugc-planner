@@ -214,8 +214,8 @@ describe('the warm-up list, in order of priority', () => {
     renderScreen()
     const platforms = await order()
 
-    // New, then the neglected one, then in-progress, then ready-and-fresh.
-    expect(platforms).toEqual(['Facebook', 'Instagram', 'X', 'TikTok'])
+    // Overdue first, then new, then in-progress, then ready-and-fresh.
+    expect(platforms).toEqual(['Instagram', 'Facebook', 'X', 'TikTok'])
   })
 
   it('paints the top group red and says why in words', async () => {
@@ -229,9 +229,11 @@ describe('the warm-up list, in order of priority', () => {
 
     const fresh = screen.getByText('New - not warmed yet')
     expect(fresh).toHaveClass('text-state-blocked')
-    const stale = screen.getByText('Not warmed in 20 days')
+    const stale = screen.getByText('Overdue - 20 days, limit 2')
     expect(stale).toHaveClass('text-state-blocked')
-    expect(screen.getByText(/Warm these first - 3/)).toHaveClass('text-state-blocked')
+    // Overdue and new are separate sections, both red.
+    expect(screen.getByText(/Warm up urgently - 2/)).toHaveClass('text-state-blocked')
+    expect(screen.getByText(/Warm these first - 1/)).toHaveClass('text-state-blocked')
   })
 
   it('treats a ready account that was never warmed as neglected, not as fine', async () => {
@@ -240,13 +242,13 @@ describe('the warm-up list, in order of priority', () => {
 
     // The seed's two ready accounts have no sessions on record.
     expect(screen.getAllByText('Never warmed')).toHaveLength(2)
-    expect(screen.getByText(/Warm these first - 2/)).toBeInTheDocument()
+    expect(screen.getByText(/Warm up urgently - 2/)).toBeInTheDocument()
     expect(screen.queryByText(/Ready - keeping them fresh/)).toBeNull()
   })
 
   it('leaves a ready account that was warmed recently at the bottom, in grey', async () => {
     for (const a of await adapter.listCampaignAccounts(INFLOW_CAMPAIGN_ID)) {
-      await warmedDaysAgo(a.id, 2)
+      await warmedDaysAgo(a.id, 1)
     }
     await account('Facebook', '@brandnew', 'new')
 
@@ -255,8 +257,8 @@ describe('the warm-up list, in order of priority', () => {
 
     expect(platforms[0]).toBe('Facebook')
     expect(screen.getByText(/Ready - keeping them fresh/)).toBeInTheDocument()
-    expect(screen.getAllByText('2d ago')).toHaveLength(2)
-    expect(screen.getAllByText('2d ago')[0]).toHaveClass('text-state-later')
+    expect(screen.getAllByText('yesterday')).toHaveLength(2)
+    expect(screen.getAllByText('yesterday')[0]).toHaveClass('text-state-later')
     // Nothing red beyond the new account.
     expect(screen.getByText(/Warm these first - 1/)).toBeInTheDocument()
   })
@@ -273,8 +275,8 @@ describe('the warm-up list, in order of priority', () => {
 
     const rows = screen.getAllByRole('listitem')
     expect(rows[0]).toHaveTextContent('Instagram')
-    expect(rows[0]).toHaveTextContent('Not warmed in 30 days')
-    expect(rows[1]).toHaveTextContent('Not warmed in 9 days')
+    expect(rows[0]).toHaveTextContent('Overdue - 30 days, limit 2')
+    expect(rows[1]).toHaveTextContent('Overdue - 9 days, limit 2')
   })
 })
 
@@ -301,10 +303,9 @@ describe('the warm-up list, best-paying campaign first', () => {
   it('lists the campaign that pays best first within a group', async () => {
     // Inflow is the seed's, $35. All three of these are new, so they share the
     // red group and pay alone decides the order.
-    await adapter.updateCampaignAccount(
-      (await adapter.listCampaignAccounts(INFLOW_CAMPAIGN_ID))[0].id,
-      { status: 'new' },
-    )
+    for (const a of await adapter.listCampaignAccounts(INFLOW_CAMPAIGN_ID)) {
+      await adapter.updateCampaignAccount(a.id, { status: 'new' })
+    }
     await campaignPaying('Cheap', 1000, 'Facebook')
     await campaignPaying('Rich', 9000, 'X')
 

@@ -45,6 +45,7 @@ import {
   warmsUp,
   warmupCompletions,
   warmupMinutesFor,
+  warmupLimitDays,
   warmupTier,
 } from '../data'
 import { postingStreak } from '../data/streak'
@@ -715,15 +716,17 @@ function WarmupList({
   const todo = accounts.filter((account) => !warmedToday(account))
   const done = accounts.filter(warmedToday)
 
+  const overdue = prioritised(todo.filter((a) => warmupTier(a, lastOf(a), now) === 'overdue'))
   const urgent = prioritised(todo.filter((a) => warmupTier(a, lastOf(a), now) === 'urgent'))
   const building = prioritised(todo.filter((a) => warmupTier(a, lastOf(a), now) === 'building'))
   const ready = prioritised(todo.filter((a) => warmupTier(a, lastOf(a), now) === 'ready'))
 
-  type Group = 'urgent' | 'building' | 'ready' | 'done'
+  type Group = 'overdue' | 'urgent' | 'building' | 'ready' | 'done'
 
   /** Each group's state. Colour here is only ever the state: red is stopped
    *  and says why, amber is part-way, grey is fine, green is done. */
   const toneOf: Record<Group, Tone> = {
+    overdue: 'blocked',
     urgent: 'blocked',
     building: 'waiting',
     ready: 'later',
@@ -743,12 +746,12 @@ function WarmupList({
       group === 'done'
         ? 'warmed'
         : group === 'urgent'
-          ? account.status === 'new'
-            ? 'New - not warmed yet'
-            : last === null
+          ? 'New - not warmed yet'
+          : group === 'overdue'
+            ? last === null
               ? 'Never warmed'
-              : `Not warmed in ${daysSince(last, now)} days`
-          : group === 'building'
+              : `Overdue - ${daysSince(last, now)} days, limit ${warmupLimitDays(account)}`
+            : group === 'building'
             ? last === null
               ? 'in progress'
               : sinceLabel(last, now)
@@ -828,6 +831,7 @@ function WarmupList({
           <h2 className="text-sm font-semibold uppercase tracking-[0.1em] text-text-dim">
             {`Keep them warm - ${todo.length} left`}
           </h2>
+          {group(`Warm up urgently - ${overdue.length}`, overdue, 'overdue')}
           {group(`Warm these first - ${urgent.length}`, urgent, 'urgent')}
           {group('Warming up', building, 'building')}
           {group('Ready - keeping them fresh', ready, 'ready')}

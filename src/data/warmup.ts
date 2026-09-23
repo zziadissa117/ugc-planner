@@ -122,11 +122,34 @@ export function statusAfterWarmup(
   return completions > 0 ? 'warming' : account.status
 }
 
-/** How many whole days an account can go without a session before it counts as
- *  neglected. Seven is a starting point, not a rule from him or from any
- *  platform - it is the one number here that is a guess, so it lives in one
- *  place to be changed. */
+/** How many whole days an account with no platform rule of its own can go
+ *  without a session before it counts as overdue. Seven is a starting point,
+ *  not a rule from him or from any platform. */
 export const WARMUP_STALE_DAYS = 7
+
+/** Days without a session after which a TikTok or Instagram account is
+ *  overdue - the number he set: "no warmup for 2 days or more, tell me to warm
+ *  it up urgently."
+ *
+ *  It is NOT a published platform rule, and the app must not present it as
+ *  one. Neither platform publishes anything about warming up. What the
+ *  community and marketing guides agree on is qualitative: keep a little
+ *  human-looking activity going every day (roughly 5-10 minutes on TikTok once
+ *  warm), because a long silence followed by a burst of posting reads as
+ *  automation, and accounts idle for weeks generally need re-warming from
+ *  scratch. Two days is a deliberately tight reminder cadence well inside
+ *  that, so an account is never left anywhere near the point that starts to
+ *  cost reach. Other platforms have no entry here and fall back to
+ *  WARMUP_STALE_DAYS. */
+export const WARMUP_LIMIT_DAYS: Readonly<Record<string, number>> = {
+  TikTok: 2,
+  Instagram: 2,
+}
+
+/** The days this account can be left alone before it is overdue. */
+export function warmupLimitDays(account: CampaignAccount): number {
+  return WARMUP_LIMIT_DAYS[account.platform] ?? WARMUP_STALE_DAYS
+}
 
 /** Whole days since `iso`, the same rounding the "4d ago" label uses. */
 export function daysSince(iso: string, now: number = Date.now()): number {
@@ -135,17 +158,18 @@ export function daysSince(iso: string, now: number = Date.now()): number {
 
 /** Where an account sits on the warm-up list, most pressing first.
  *
- *    urgent   - brand new, or left alone for a long time (never warmed counts).
- *               Red: this is the account most likely to be throttled or to be
- *               holding a campaign off the Post tab.
- *    building - part-way through its first sessions, and not neglected.
- *    ready    - done, and warmed recently enough that it is only being kept
+ *    overdue  - past its platform's limit, or never warmed at all (see
+ *               warmupLimitDays). Red, and its own section: this is the list
+ *               of accounts to warm up right now to keep them from going cold.
+ *    urgent   - brand new. Red as well: it is what holds a campaign off the
+ *               Post tab.
+ *    building - part-way through its first sessions, and within its limit.
+ *    ready    - done, and warmed within its limit, so it is only being kept
  *               alive. Last on the list.
  *
- *  A ready account is not automatically at the bottom: one nobody has touched
- *  for a fortnight is urgent, because "ready" only says it may post, not that
- *  it is still fresh. */
-export type WarmupTier = 'urgent' | 'building' | 'ready'
+ *  A ready account is not automatically at the bottom: "ready" only says it
+ *  may post, not that it is still fresh. */
+export type WarmupTier = 'overdue' | 'urgent' | 'building' | 'ready'
 
 export function warmupTier(
   account: CampaignAccount,
@@ -153,7 +177,9 @@ export function warmupTier(
   now: number = Date.now(),
 ): WarmupTier {
   if (account.status === 'new') return 'urgent'
-  if (lastWarmedAt === null || daysSince(lastWarmedAt, now) >= WARMUP_STALE_DAYS) return 'urgent'
+  if (lastWarmedAt === null || daysSince(lastWarmedAt, now) >= warmupLimitDays(account)) {
+    return 'overdue'
+  }
   return account.status === 'warming' ? 'building' : 'ready'
 }
 

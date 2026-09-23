@@ -29,6 +29,7 @@ export {
   WARMUP_MINUTES_BUILDING,
   WARMUP_MINUTES_MAINTENANCE,
   WARMUP_SESSIONS_REQUIRED,
+  WARMUP_LIMIT_DAYS,
   WARMUP_STALE_DAYS,
   canPostFrom,
   compareWarmupPriority,
@@ -38,6 +39,7 @@ export {
   warmsUp,
   warmupCompletions,
   warmupMinutesFor,
+  warmupLimitDays,
   warmupTier,
 } from './warmup'
 export { PULL_CURSOR_COLUMN } from './sync'

@@ -210,5 +210,12 @@ describe('the deployed generate-hooks function', () => {
       const leaning = bodies.filter((body) => body.includes(word)).length
       expect(leaning).toBeLessThan(Math.ceil(bodies.length * 0.75))
     }
-  })
+
+    // Every hook carries its body beats, and none of them is the close.
+    console.log(`model: ${result.model}`)
+    for (const hook of result.hooks) console.log(`- ${hook.body}\n    ${(hook.outline ?? '').replace(/\n/g, '\n    ')}`)
+    expect(typeof result.model).toBe('string')
+    const withBeats = result.hooks.filter((hook) => (hook.outline ?? '').trim() !== '')
+    expect(withBeats.length).toBeGreaterThanOrEqual(Math.ceil(result.hooks.length * 0.75))
+  }, 120_000)
 })

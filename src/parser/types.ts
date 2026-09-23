@@ -1,9 +1,8 @@
 // The campaign parser contract.
 //
-// SPEC section 7: the real parser runs server-side, in a Supabase Edge
-// Function that calls a model API, so the key stays a server secret and never
-// reaches the browser. That function is not deployed, so EdgeFunctionParser is
-// a stub and PastedJsonParser is the path that works today.
+// SPEC section 7: the real parser runs server-side, in the parse-campaign
+// Edge Function, so the model key stays a server secret and never reaches the
+// browser. PastedJsonParser is the path that works with no network at all.
 //
 // Both go through the same verification, because the rule that matters is not
 // about who parsed - it is that no extracted value is trusted unless the exact

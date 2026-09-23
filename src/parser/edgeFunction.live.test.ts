@@ -100,5 +100,44 @@ describe('the deployed parse-campaign function', () => {
         expect(field.source_quote, `${key} had a value with no quote`).toBeTruthy()
       }
     }
-  }, 30_000)
+  }, 120_000)
+
+  it('quotes its rules and bonus tiers, and says which model answered', async () => {
+    const brief = [
+      '## 3. Rules',
+      '- Never name or attack a competitor. Say "your payment processor" or "most processors".',
+      '- No filters or built-in camera effects.',
+      '- Every Inflow video carries #ad and tags @inflowpay.',
+      '## 4. Product',
+      'Inflow is a payment system for people who sell online: paid instantly, from anywhere, at one flat price of 4% + $0.35 all inclusive.',
+    ].join('\n')
+
+    const started = Date.now()
+    const { data, error } = await client.functions.invoke('parse-campaign', {
+      body: { briefText: brief, contractText: CONTRACT, version: 2 },
+    })
+    const seconds = (Date.now() - started) / 1000
+    console.log(`parse-campaign answered in ${seconds.toFixed(1)}s`)
+
+    expect(error).toBeNull()
+    const result = data as {
+      model: string
+      rules: { body: string; source_quote: string }[]
+      bonus_tiers: { threshold_views: number; payout_cents: number; source_quote: string }[]
+      fields: Record<string, { value: string | null; source_quote: string | null; note?: string | null }>
+    }
+    console.log(`model: ${result.model}`)
+    console.log(JSON.stringify({ rules: result.rules, tiers: result.bonus_tiers }, null, 2))
+
+    expect(typeof result.model).toBe('string')
+    expect(result.rules.length).toBeGreaterThanOrEqual(2)
+    const both = `${brief}\n${CONTRACT}`.toLowerCase().replace(/\s+/g, ' ')
+    for (const rule of result.rules) {
+      expect(both).toContain(rule.source_quote.toLowerCase().replace(/\s+/g, ' '))
+    }
+    expect(result.bonus_tiers).toEqual([
+      expect.objectContaining({ threshold_views: 50000, payout_cents: 5000 }),
+    ])
+    expect(result.fields.product_facts?.value).toBeTruthy()
+  }, 120_000)
 })

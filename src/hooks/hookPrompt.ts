@@ -1,9 +1,9 @@
 // What the hook generator is allowed to work from, and what it must not do.
 //
-// This is the source of record. It is vendored verbatim into
+// This is the source of record. scripts/vendor-shared.mjs copies it into
 // supabase/functions/_shared/hookPrompt.ts, because Edge Functions run on Deno
-// and cannot import across the src/ boundary, and the two copies are held
-// together by src/hooks/hookPromptDriftGuard.test.ts.
+// and cannot import across the src/ boundary; the build and the tests fail if
+// the copy is stale.
 //
 // Two things live here rather than in the function alone:
 //

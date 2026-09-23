@@ -8,11 +8,22 @@
 // What is left is: the day's count, one tap to mark a filmed video edited,
 // FILM against a goal, and warm-up.
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 
+import {
+  BackIcon,
+  CheckIcon,
+  ChevronRightIcon,
+  FilmIcon,
+  PlatformGlyph,
+  PostIcon,
+} from '../components/icons'
+import { ActionTile, Button, SectionLabel, StateDot } from '../components/ui'
+import { INPUT_CLASS, TONE_TEXT, type Tone } from '../components/styles'
+
 import type { Streak } from '../data/streak'
-import { KNOWN_PLATFORMS } from '../components/AccountsEditor'
+import { KNOWN_PLATFORMS } from '../components/platforms'
 import { byBestPay } from '../money'
 import { formatClock, secondsLeft } from '../warmupTimer'
 import { useWarmupTimers } from '../warmupTimers'
@@ -99,15 +110,14 @@ export function Now() {
   }, [])
 
   const reload = useCallback(async () => {
-    const [nextCampaigns, nextVideos, nextWarmupEvents, nextAccounts] = await Promise.all([
-      data.listCampaigns(),
-      data.listVideos(),
-      data.listWarmupEvents(),
-      data.listCampaignAccounts(),
-    ])
-    const nextPosts = (
-      await Promise.all(nextVideos.map((video) => data.listVideoPosts(video.id)))
-    ).flat()
+    const [nextCampaigns, nextVideos, nextWarmupEvents, nextAccounts, nextPosts] =
+      await Promise.all([
+        data.listCampaigns(),
+        data.listVideos(),
+        data.listWarmupEvents(),
+        data.listCampaignAccounts(),
+        data.listAllVideoPosts(),
+      ])
 
     setCampaigns(nextCampaigns)
     setVideos(nextVideos)
@@ -228,7 +238,9 @@ export function Now() {
   if (!loaded) return null
 
   return (
-    <section className="mx-auto flex max-w-3xl flex-col gap-4">
+    // Keyed on the stage, so each step of the flow arrives on the settle
+    // spring instead of snapping in.
+    <section key={stage.kind} className="settle-in mx-auto flex max-w-3xl flex-col gap-6">
       {stage.kind === 'home' ? (
         <>
           <Header
@@ -238,22 +250,16 @@ export function Now() {
             onOpenWork={() => setStage({ kind: 'work' })}
           />
           <EditBacklog count={summary.editBacklog} busy={editBusy} onMarkEdited={markOneEdited} />
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-3">
             {/* FILM is the one thing on this screen that starts work, so it is
                 the only lit thing on it. */}
-            <button
-              type="button"
+            <ActionTile
+              lit
+              icon={<FilmIcon className="h-6 w-6" />}
+              label="FILM"
               onClick={() => setStage({ kind: 'pick_campaign' })}
-              className="lit min-h-tap rounded-xl border border-state-now/70 bg-surface-raised px-4 text-lg font-semibold tracking-[0.2em] text-state-now transition-transform duration-100 active:scale-[0.98] active:bg-surface"
-            >
-              FILM
-            </button>
-            <Link
-              to="/post"
-              className="flex min-h-tap items-center justify-center rounded-xl border border-edge bg-surface px-4 text-lg font-semibold tracking-[0.2em] text-text transition-transform duration-100 active:scale-[0.98] active:bg-surface-raised"
-            >
-              POST
-            </Link>
+            />
+            <ActionTile icon={<PostIcon className="h-6 w-6" />} label="POST" to="/post" />
           </div>
           <WarmupList
             accounts={warmupAccounts}
@@ -314,6 +320,15 @@ export function Now() {
   )
 }
 
+/** The size both of the header's figures are set at. Fluid, because the
+ *  clock and "0 of 1" at a fixed size do not both fit a 375px screen - the
+ *  clock once quietly overflowed its own column and painted over the score. */
+const HEADLINE_SIZE = 'clamp(1.75rem, 8.4vw, 2.75rem)'
+
+/** The day, as an instrument: the time on the left, the score on the right,
+ *  and one segment per deliverable owed underneath. No box around it - the
+ *  numbers are the heaviest thing on the screen, and that is the whole
+ *  hierarchy. */
 function Header({
   summary,
   streak,
@@ -337,19 +352,13 @@ function Header({
   }, [working])
 
   const worked = elapsedMs(workDay, now.getTime())
-
   const done = summary.owed > 0 && summary.posted >= summary.owed
 
   return (
-    <header className="relative overflow-hidden rounded-2xl border border-edge bg-gradient-to-b from-surface-raised to-surface px-4 py-3">
-      {/* A hairline catching the light along the top of the card. */}
-      <span aria-hidden className="absolute inset-x-0 top-0 h-px bg-edge-lit/70" />
-
-      <div className="flex items-end justify-between gap-3">
-        {/* shrink-0, so the clock keeps its own width. It was min-w-0, which
-            let the column collapse narrower than the time inside it - and a
-            nowrap span in a too-small box does not wrap, it just spills over
-            whatever sits to its right. */}
+    <header className="flex flex-col gap-4">
+      <div className="flex items-start justify-between gap-4">
+        {/* shrink-0, so the clock keeps its own width rather than collapsing
+            under a nowrap time that then spills over the score. */}
         <div className="shrink-0">
           {/* The time is the way into the work clock - he asked for it there
               rather than as another button on a screen he wants bare. */}
@@ -357,88 +366,94 @@ function Header({
             type="button"
             onClick={onOpenWork}
             aria-label={working ? `Working - ${formatElapsed(worked)}` : 'Start working'}
-            className="flex items-baseline gap-2 rounded-md text-left active:bg-surface"
+            className="press -mx-1 rounded-lg px-1 text-left active:bg-surface"
           >
-            {/* Fluid, because "03:00 PM" and "0 of 1" at a fixed 36px do not
-                both fit a 375px screen - the clock was quietly overflowing
-                its own column and painting over what sat beside it. */}
             <span
-              className="numeric whitespace-nowrap font-semibold leading-none text-text"
-              style={{ fontSize: 'clamp(1.5rem, 7.4vw, 2.25rem)' }}
+              className="numeric block whitespace-nowrap font-semibold leading-none text-text"
+              style={{ fontSize: HEADLINE_SIZE }}
             >
               {now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </span>
-            {worked > 0 || working ? (
-              <span
-                className={[
-                  'numeric whitespace-nowrap text-lg font-semibold leading-none',
-                  // Running is the thing happening now; a paused stretch he
-                  // has not come back to is grey like anything else waiting.
-                  working ? 'text-state-now' : 'text-state-later',
-                ].join(' ')}
-              >
-                {formatElapsed(worked)}
-              </span>
-            ) : null}
           </button>
-          <p className="mt-1.5 truncate label text-state-later">
-            {now.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })}
+          <p className="label mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-state-later">
+            <span>{now.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })}</span>
             {streak.days > 0 ? (
               <>
-                {' · '}
+                <span aria-hidden>·</span>
                 {/* Green once today is kept, white while it is still the thing
                     to do. Both are states the rest of the app already uses -
                     a streak is a fact counted from the log, not a badge. */}
-                <span
-                  className={streak.includesToday ? 'text-state-posted' : 'text-state-now'}
-                >
+                <span className={streak.includesToday ? 'text-state-posted' : 'text-state-now'}>
                   {streak.days} day{streak.days === 1 ? '' : 's'} running
                 </span>
               </>
             ) : null}
           </p>
+          {worked > 0 || working ? (
+            // Running is the thing happening now; a paused stretch he has not
+            // come back to is grey like anything else waiting.
+            <p
+              className={`numeric mt-1.5 flex items-center gap-2 text-base font-semibold leading-none ${
+                working ? 'text-state-now' : 'text-state-later'
+              }`}
+            >
+              <StateDot tone={working ? 'now' : 'later'} />
+              {formatElapsed(worked)}
+            </p>
+          ) : null}
         </div>
-        {/* The clock and the day's score are both big tabular figures sitting
-            next to each other, and without something between them they read
-            as one run of digits - "02:59 PM 0 of 1". The rule belongs to the
-            score's column so it lands against it rather than floating in the
-            middle of the card. It is structure, not signal: it says nothing
-            about state, it just stops one number being read as the other. */}
-        {/* Not shrink-0: it was holding 208px for its own caption and
-            squeezing the clock into 106px, which the clock then overflowed -
-            running the time underneath this very rule. It gives way now and
-            lets its caption wrap instead, which costs a line and keeps both
-            figures whole. */}
-        <div className="min-w-0 flex-1 border-l border-edge pl-3 text-right">
-          <p
-            className="numeric whitespace-nowrap font-semibold leading-none"
-            style={{ fontSize: 'clamp(1.5rem, 7.4vw, 2.25rem)' }}
-          >
+
+        {/* Gives way rather than holding width for its caption: the caption
+            wraps and both figures stay whole. The hairline is structure, not
+            signal - without it two big tabular figures side by side read as
+            one run of digits, "08:17 PM 0 of 1". */}
+        <div className="min-w-0 flex-1 border-l border-rule pl-4 text-right">
+          <p className="numeric whitespace-nowrap font-semibold leading-none" style={{ fontSize: HEADLINE_SIZE }}>
             {/* Green only once the day is actually filled - it is the same
                 "posted" state the boxes use, not a flourish. */}
             <span className={done ? 'text-state-posted' : 'text-text'}>{summary.posted}</span>
             <span className="text-state-later"> of {summary.owed}</span>
           </p>
-          <p className="mt-1.5 label text-state-later">
+          <p className="label mt-2.5 text-state-later">
             posted today
             {summary.runwayDays === null ? '' : ` · ${summary.runwayDays}d banked`}
           </p>
         </div>
       </div>
 
-      {/* The day, as one bar. Nothing new is being said - it is the same two
-          numbers above, at a glance from across the room. */}
-      {summary.owed > 0 ? (
-        <div className="mt-3 h-1 overflow-hidden rounded-full bg-ink">
-          <div
-            className={`h-full rounded-full transition-[width] duration-500 ease-out ${
-              done ? 'bg-state-posted cleared' : 'bg-state-now'
-            }`}
-            style={{ width: `${Math.min(100, (summary.posted / summary.owed) * 100)}%` }}
-          />
-        </div>
-      ) : null}
+      {summary.owed > 0 ? <DayBar posted={summary.posted} owed={summary.owed} done={done} /> : null}
     </header>
+  )
+}
+
+/** The day's deliverables, one segment each, lit green as each goes out -
+ *  the same two numbers as above, readable from across the room. A day owing
+ *  more than a dozen is drawn as one continuous bar, because segments that
+ *  thin stop reading as individual things. */
+function DayBar({ posted, owed, done }: { posted: number; owed: number; done: boolean }) {
+  if (owed > 12) {
+    return (
+      <div aria-hidden className="h-1 overflow-hidden rounded-full bg-rule">
+        <div
+          className={`h-full rounded-full transition-[width] duration-700 [transition-timing-function:var(--ease-settle)] ${
+            done ? 'cleared bg-state-posted' : 'bg-state-posted'
+          }`}
+          style={{ width: `${Math.min(100, (posted / owed) * 100)}%` }}
+        />
+      </div>
+    )
+  }
+  return (
+    <div aria-hidden className={`flex gap-1.5 ${done ? 'cleared rounded-full' : ''}`}>
+      {Array.from({ length: owed }, (_, index) => (
+        <span
+          key={index}
+          className={`h-1 flex-1 rounded-full transition-colors duration-500 ${
+            index < posted ? 'bg-state-posted' : 'bg-rule'
+          }`}
+        />
+      ))}
+    </div>
   )
 }
 
@@ -457,17 +472,23 @@ function EditBacklog({
   if (count === 0) return null
 
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border border-edge bg-surface px-3 py-2">
-      <p className="text-sm text-text">{count} filmed, ready to edit</p>
-      <button
-        type="button"
-        onClick={onMarkEdited}
-        disabled={busy}
-        className="min-h-tap shrink-0 rounded-md border border-edge bg-surface-raised px-3 text-sm font-semibold text-text active:bg-surface disabled:text-state-later"
-      >
+    <div className="flex items-center justify-between gap-3 border-y border-rule py-2">
+      <p className="text-base text-text">{count} filmed, ready to edit</p>
+      <Button onClick={onMarkEdited} disabled={busy} className="shrink-0">
         {busy ? '·' : 'Mark edited'}
-      </button>
+      </Button>
     </div>
+  )
+}
+
+/** Back to where he came from - a quiet line of text, never competing with
+ *  the thing the screen is for. */
+function BackButton({ onClick, children = 'Back' }: { onClick: () => void; children?: string }) {
+  return (
+    <Button variant="ghost" onClick={onClick} className="self-start !px-2">
+      <BackIcon className="h-4 w-4" />
+      {children}
+    </Button>
   )
 }
 
@@ -484,43 +505,37 @@ function CampaignPicker({
   onBack: () => void
 }) {
   return (
-    <div className="flex flex-col gap-2">
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-state-later">
-        Which campaign?
-      </h2>
+    <div className="flex flex-col gap-4">
+      <BackButton onClick={onBack} />
+      <SectionLabel>Which campaign?</SectionLabel>
 
       {campaigns.length === 0 ? (
-        <p className="text-sm text-state-later">
-          No campaigns yet. Add one on <Link to="/campaigns" className="text-state-now">BRIEFS</Link>.
+        <p className="text-base text-state-later">
+          No campaigns yet. Add one on <Link to="/campaigns" className="text-state-now underline underline-offset-4">BRIEFS</Link>.
         </p>
       ) : (
-        <ul className="flex flex-col gap-1.5">
+        <ul className="flex flex-col divide-y divide-rule border-y border-rule">
           {campaigns.map((campaign) => (
             <li key={campaign.id}>
               <button
                 type="button"
                 onClick={() => onPick(campaign)}
-                className="flex min-h-tap w-full items-center justify-between rounded-lg border border-edge bg-surface px-3 font-semibold text-text active:bg-surface-raised"
+                className="press flex min-h-[4.25rem] w-full items-center justify-between gap-3 text-left active:bg-surface"
               >
-                <span className="truncate">{campaign.name}</span>
-                <span className="shrink-0 text-sm tabular-nums text-state-later">
-                  {campaign.pay_per_video_cents === null
-                    ? 'no rate yet'
-                    : formatCents(campaign.pay_per_video_cents)}
+                <span className="display min-w-0 truncate text-2xl text-text">{campaign.name}</span>
+                <span className="flex shrink-0 items-center gap-2 text-state-later">
+                  <span className="numeric text-base">
+                    {campaign.pay_per_video_cents === null
+                      ? 'no rate yet'
+                      : formatCents(campaign.pay_per_video_cents)}
+                  </span>
+                  <ChevronRightIcon className="h-5 w-5" />
                 </span>
               </button>
             </li>
           ))}
         </ul>
       )}
-
-      <button
-        type="button"
-        onClick={onBack}
-        className="min-h-tap rounded-lg border border-edge bg-surface px-4 text-sm font-semibold text-state-later active:bg-surface-raised"
-      >
-        Back
-      </button>
     </div>
   )
 }
@@ -552,52 +567,51 @@ function Briefing({
 
   if (rules === null) return null
 
+  const chosen = typedGoal.trim() === '' ? goal : Number(typedGoal)
+
   return (
-    <div className="flex flex-col gap-3">
-      <h2 className="text-lg font-semibold text-text">{campaign.name}</h2>
+    <div className="flex flex-col gap-6">
+      <BackButton onClick={onBack}>Pick a different campaign</BackButton>
+      <h2 className="display text-4xl text-text">{campaign.name}</h2>
 
       {rules.length > 0 ? (
-        <div>
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-state-blocked">
+        <div className="flex flex-col gap-3">
+          <SectionLabel tone="blocked" as="h3">
             Never do
-          </h3>
-          <ul className="mt-1 flex flex-col gap-1">
+          </SectionLabel>
+          <div className="flex flex-col gap-2.5">
             {rules.map((rule) => (
-              <li
-                key={rule.id}
-                className="border-l-2 border-state-blocked/50 pl-2 text-sm text-text"
-              >
+              <p key={rule.id} className="border-l border-state-blocked/70 pl-3 text-base leading-snug text-text">
                 {rule.body}
-              </li>
+              </p>
             ))}
-          </ul>
+          </div>
         </div>
       ) : null}
 
-      <div>
-        <h3 className="text-sm font-semibold uppercase tracking-wide text-state-later">
-          How many to film?
-        </h3>
-        <div className="mt-1 grid grid-cols-4 gap-2">
-          {GOAL_PRESETS.map((preset) => (
-            <button
-              key={preset}
-              type="button"
-              onClick={() => {
-                setGoal(preset)
-                setTypedGoal('')
-              }}
-              aria-pressed={goal === preset && typedGoal === ''}
-              className={[
-                'min-h-tap rounded-lg border font-semibold active:bg-surface-raised',
-                goal === preset && typedGoal === ''
-                  ? 'border-state-now bg-surface-raised text-state-now'
-                  : 'border-edge bg-surface text-text',
-              ].join(' ')}
-            >
-              {preset}
-            </button>
-          ))}
+      <div className="flex flex-col gap-3">
+        <SectionLabel as="h3">How many to film?</SectionLabel>
+        <div className="grid grid-cols-4 gap-2">
+          {GOAL_PRESETS.map((preset) => {
+            const on = goal === preset && typedGoal === ''
+            return (
+              <button
+                key={preset}
+                type="button"
+                onClick={() => {
+                  setGoal(preset)
+                  setTypedGoal('')
+                }}
+                aria-pressed={on}
+                className={[
+                  'press numeric min-h-[3.75rem] rounded-xl border text-2xl font-semibold',
+                  on ? 'border-state-now bg-surface text-state-now' : 'border-edge text-text-dim active:bg-surface',
+                ].join(' ')}
+              >
+                {preset}
+              </button>
+            )
+          })}
         </div>
         <input
           type="number"
@@ -607,26 +621,18 @@ function Briefing({
           onChange={(event) => setTypedGoal(event.target.value)}
           aria-label="or type a number"
           placeholder="or type a number"
-          className="mt-2 min-h-tap w-full rounded-lg border border-edge bg-surface px-3 text-text placeholder:text-state-later"
+          className={`${INPUT_CLASS} w-full`}
         />
       </div>
 
-      <button
-        type="button"
-        onClick={() => onStart(typedGoal.trim() === '' ? goal : Number(typedGoal))}
+      <Button
+        variant="now"
+        size="big"
+        onClick={() => onStart(chosen)}
         disabled={typedGoal.trim() !== '' && Number(typedGoal) <= 0}
-        className="min-h-tap rounded-lg border border-state-now bg-surface-raised px-4 text-lg font-semibold tracking-wide text-state-now active:bg-surface disabled:opacity-60"
       >
         Start filming
-      </button>
-
-      <button
-        type="button"
-        onClick={onBack}
-        className="min-h-tap rounded-lg border border-edge bg-surface px-4 text-sm font-semibold text-state-later active:bg-surface-raised"
-      >
-        Pick a different campaign
-      </button>
+      </Button>
     </div>
   )
 }
@@ -648,7 +654,13 @@ function Briefing({
  *  under its own heading at the very end, and stops counting as "left". Red
  *  keeps its meaning - stopped, with the reason in plain words - because a new
  *  or neglected account is exactly what holds a campaign off the Post tab or
- *  gets an account throttled, and every red row says which of the two it is. */
+ *  gets an account throttled, and every red row says which of the two it is.
+ *
+ *  Rows rather than cards: he picked the network view's language for every
+ *  screen, and a run of boxed cards was the heaviest thing on this one. Each
+ *  row still stands on its own - a state dot, the platform large, the reason
+ *  in its state colour, generous room above and below - so a run of them does
+ *  not read as one block of text, which is what the old shared box did. */
 function WarmupList({
   accounts,
   campaigns,
@@ -663,10 +675,13 @@ function WarmupList({
   /** Campaign id -> how well it pays, 0 being the best. */
   payRank: ReadonlyMap<string, number>
 }) {
+  // Read once per mount rather than every render: "now" for the tiers only
+  // has to be as fresh as the list itself.
+  const [now] = useState(() => Date.now())
+
   if (accounts.length === 0) return null
 
   const today = localToday()
-  const now = Date.now()
   const nameById = new Map(campaigns.map((campaign) => [campaign.id, campaign.name]))
 
   const lastById = new Map(
@@ -708,112 +723,79 @@ function WarmupList({
   const building = prioritised(todo.filter((a) => warmupTier(a, lastOf(a), now) === 'building'))
   const ready = prioritised(todo.filter((a) => warmupTier(a, lastOf(a), now) === 'ready'))
 
-  type Tone = 'urgent' | 'building' | 'ready' | 'done'
+  type Group = 'urgent' | 'building' | 'ready' | 'done'
 
-  /** What each state looks like. Colour here is only ever the state: red is
-   *  stopped and says why, amber is part-way, grey is fine, green is done. */
-  const toneStyle: Record<Tone, { edge: string; card: string; pill: string; text: string }> = {
-    urgent: {
-      edge: 'bg-state-blocked',
-      card: 'border-state-blocked/45 bg-state-blocked/[0.06]',
-      pill: 'border-state-blocked/50 bg-state-blocked/15',
-      text: 'text-state-blocked font-semibold',
-    },
-    building: {
-      edge: 'bg-state-waiting',
-      card: 'border-state-waiting/35 bg-surface',
-      pill: 'border-state-waiting/45 bg-state-waiting/10',
-      text: 'text-state-waiting font-semibold',
-    },
-    ready: {
-      edge: 'bg-state-later/60',
-      card: 'border-edge bg-surface',
-      pill: 'border-edge bg-surface-raised',
-      text: 'text-state-later font-semibold',
-    },
-    done: {
-      edge: 'bg-state-posted',
-      card: 'border-state-posted/40 bg-state-posted/[0.06]',
-      pill: 'border-state-posted/45 bg-state-posted/10',
-      text: 'text-state-posted font-semibold',
-    },
+  /** Each group's state. Colour here is only ever the state: red is stopped
+   *  and says why, amber is part-way, grey is fine, green is done. */
+  const toneOf: Record<Group, Tone> = {
+    urgent: 'blocked',
+    building: 'waiting',
+    ready: 'later',
+    done: 'posted',
   }
 
-  /** One account, as a card of its own. It used to be a row in a shared box
-   *  with hairlines between, and a run of them read as one block of text - he
-   *  called it aesthetically lazy. Each is separate now, with the state on its
-   *  left edge and in a pill, the handle given room, and the session progress
-   *  drawn as pips so "1 of 2" is seen rather than read. */
-  const row = (account: CampaignAccount, tone: Tone) => {
-    const building = needsWarmup(account)
+  let order = 0
+
+  const row = (account: CampaignAccount, group: Group) => {
+    const warming = needsWarmup(account)
     const sessions = warmupCompletions(account.id, warmupEvents)
     const last = lastOf(account)
-    const style = toneStyle[tone]
+    const tone = toneOf[group]
 
     // Every colour here is a state, and the red ones say why in words.
     const reason =
-      tone === 'done'
+      group === 'done'
         ? 'warmed'
-        : tone === 'urgent'
+        : group === 'urgent'
           ? account.status === 'new'
             ? 'New - not warmed yet'
             : last === null
               ? 'Never warmed'
               : `Not warmed in ${daysSince(last, now)} days`
-          : tone === 'building'
+          : group === 'building'
             ? last === null
               ? 'in progress'
-              : sinceLabel(last)
+              : sinceLabel(last, now)
             : last === null
               ? 'never warmed'
-              : sinceLabel(last)
+              : sinceLabel(last, now)
 
     return (
-      <li key={account.id}>
+      <li key={account.id} className="settle-in" style={{ '--i': order++ } as CSSProperties}>
         <button
           type="button"
           onClick={() => onPick(account)}
-          className={[
-            'relative block w-full overflow-hidden rounded-2xl border py-3 pl-5 pr-4 text-left',
-            'shadow-[0_1px_0_0_rgb(255_255_255/0.03)_inset] transition-transform duration-100',
-            'active:scale-[0.99] focus-visible:outline focus-visible:outline-2 focus-visible:outline-state-now',
-            style.card,
-          ].join(' ')}
+          className="press block w-full py-4 text-left active:bg-surface"
         >
-          <span aria-hidden className={`absolute inset-y-0 left-0 w-1.5 ${style.edge}`} />
-
-          <span className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-            <span className="text-lg font-semibold leading-tight text-text">{account.platform}</span>
-            <span
-              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 ${style.pill}`}
-            >
-              {tone === 'done' ? (
-                <span aria-hidden className="text-state-posted">
-                  ✓
-                </span>
-              ) : null}
-              <span className={`text-sm leading-tight ${style.text}`}>{reason}</span>
+          <span className="flex items-center justify-between gap-3">
+            <span className="flex min-w-0 items-center gap-3">
+              <StateDot tone={tone} />
+              <span className="text-lg font-semibold leading-tight text-text">{account.platform}</span>
+              <PlatformGlyph platform={account.platform} className="h-4 w-4 shrink-0 text-state-later" />
+            </span>
+            <span className={`flex shrink-0 items-center gap-1.5 ${TONE_TEXT[tone]}`}>
+              {group === 'done' ? <CheckIcon className="h-4 w-4" strokeWidth={2} /> : null}
+              <span className={`text-sm font-semibold ${TONE_TEXT[tone]}`}>{reason}</span>
             </span>
           </span>
 
-          <span className="mt-1 block break-all text-base text-text-dim">
+          <span className="mt-1 block break-all pl-5 text-base text-text-dim">
             {account.handle ?? 'no handle saved'}
           </span>
 
-          <span className="mt-3 flex items-center justify-between gap-3 border-t border-edge/70 pt-2.5">
+          <span className="mt-2 flex items-center justify-between gap-3 pl-5">
             <span className="meta min-w-0 truncate text-state-later">
               {nameById.get(account.campaign_id) ?? 'unknown campaign'}
             </span>
             <span className="meta flex shrink-0 items-center gap-2 text-state-later">
-              {building ? (
+              {warming ? (
                 <>
+                  {/* Sessions as pips, so "1 of 2" is seen rather than read. */}
                   <span aria-hidden className="flex gap-1">
                     {Array.from({ length: WARMUP_SESSIONS_REQUIRED }, (_, index) => (
                       <span
                         key={index}
-                        className={`h-2 w-5 rounded-full ${
-                          index < sessions ? 'bg-state-posted' : 'bg-edge-lit'
-                        }`}
+                        className={`h-1 w-5 rounded-full ${index < sessions ? 'bg-state-posted' : 'bg-edge-lit'}`}
                       />
                     ))}
                   </span>
@@ -831,45 +813,39 @@ function WarmupList({
     )
   }
 
-  const group = (
-    heading: string,
-    headingClass: string,
-    list: CampaignAccount[],
-    tone: Tone,
-  ) =>
+  const group = (heading: string, list: CampaignAccount[], kind: Group) =>
     list.length === 0 ? null : (
-      <div className="flex flex-col gap-2.5">
-        <div className="flex items-center gap-3">
-          <h3 className={`label ${headingClass}`}>{heading}</h3>
-          <span aria-hidden className="h-px flex-1 bg-edge" />
-        </div>
-        <ul className="grid gap-3 sm:grid-cols-2">{list.map((account) => row(account, tone))}</ul>
+      <div className="flex flex-col gap-1">
+        <SectionLabel tone={toneOf[kind]} as="h3">
+          {heading}
+        </SectionLabel>
+        <ul className="grid divide-y divide-rule sm:grid-cols-2 sm:gap-x-8 sm:divide-y-0">
+          {list.map((account) => row(account, kind))}
+        </ul>
       </div>
     )
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-6">
       {todo.length > 0 ? (
-        <div className="flex flex-col gap-3">
-          <h2 className="text-sm font-semibold uppercase tracking-[0.1em] text-state-later">
+        <div className="flex flex-col gap-5">
+          <h2 className="text-sm font-semibold uppercase tracking-[0.1em] text-text-dim">
             {`Keep them warm - ${todo.length} left`}
           </h2>
-          {group(`Warm these first - ${urgent.length}`, 'text-state-blocked', urgent, 'urgent')}
-          {group('Warming up', 'text-state-waiting', building, 'building')}
-          {group('Ready - keeping them fresh', 'text-state-later', ready, 'ready')}
+          {group(`Warm these first - ${urgent.length}`, urgent, 'urgent')}
+          {group('Warming up', building, 'building')}
+          {group('Ready - keeping them fresh', ready, 'ready')}
         </div>
       ) : null}
-      {done.length > 0
-        ? group('Warmed today', 'text-state-posted', prioritised(done), 'done')
-        : null}
+      {done.length > 0 ? group('Warmed today', prioritised(done), 'done') : null}
     </div>
   )
 }
 
 /** "today", "yesterday", "4d ago". Whole days only - the point is remembering
  *  roughly how long an account has been left alone, not timing it. */
-function sinceLabel(iso: string): string {
-  const days = daysSince(iso)
+function sinceLabel(iso: string, now = Date.now()): string {
+  const days = daysSince(iso, now)
   if (days <= 0) return 'today'
   if (days === 1) return 'yesterday'
   return `${days}d ago`
@@ -909,72 +885,59 @@ function WorkTimer({
   const reached = MILESTONES_MS.filter((ms) => worked >= ms).length
 
   return (
-    <div className="flex flex-col gap-5">
-      <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-state-later">
-        Time at the desk today
-      </h2>
+    <div className="flex flex-col gap-7">
+      <SectionLabel>Time at the desk today</SectionLabel>
 
       <p
         aria-live="off"
         aria-label="Time worked today"
         className={[
-          'numeric text-center text-6xl font-semibold leading-none',
+          'numeric text-center font-semibold leading-none',
           running ? 'text-state-now' : 'text-state-later',
         ].join(' ')}
+        style={{ fontSize: 'clamp(3.5rem, 18vw, 5rem)' }}
       >
         {formatElapsed(worked)}
       </p>
 
       {/* Four marks, lighting as the evening goes. The only scoreboard the
           app keeps that is about him rather than about the work. */}
-      <div className="flex items-center justify-center gap-2">
-        {MILESTONES_MS.map((ms) => {
-          const passed = worked >= ms
-          return (
+      <div className="flex flex-col gap-2.5">
+        <div className="flex items-center justify-center gap-1.5">
+          {MILESTONES_MS.map((ms) => (
             <span
               key={ms}
               aria-hidden
               className={[
-                'h-1.5 flex-1 rounded-full transition-colors duration-500',
-                passed ? 'bg-state-posted' : 'bg-surface-raised',
+                'h-1 flex-1 rounded-full transition-colors duration-500',
+                worked >= ms ? 'bg-state-posted' : 'bg-rule',
               ].join(' ')}
             />
-          )
-        })}
+          ))}
+        </div>
+        <p className="text-center label text-state-later">
+          {reached === 0 ? '30m · 1h · 2h · 3h' : `${reached} of ${MILESTONES_MS.length} marks`}
+        </p>
       </div>
-      <p className="-mt-3 text-center label text-state-later">
-        {reached === 0
-          ? '30m · 1h · 2h · 3h'
-          : `${reached} of ${MILESTONES_MS.length} marks`}
-      </p>
 
-      <button
-        type="button"
+      <Button
+        variant={running ? 'quiet' : 'now'}
+        size="big"
         onClick={() => onChange(running ? pauseWork(day) : startWork(day))}
-        className={[
-          'min-h-tap rounded-xl border px-4 text-lg font-semibold tracking-[0.2em]',
-          'transition-transform duration-100 active:scale-[0.98]',
-          running
-            ? 'border-edge bg-surface text-text active:bg-surface-raised'
-            : 'lit border-state-now/70 bg-surface-raised text-state-now active:bg-surface',
-        ].join(' ')}
+        className="!tracking-[0.2em]"
       >
         {running ? 'PAUSE' : worked > 0 ? 'BACK TO WORK' : 'START WORKING'}
-      </button>
+      </Button>
 
-      <button
-        type="button"
-        onClick={onBack}
-        className="min-h-tap rounded-lg border border-edge bg-surface px-4 text-sm font-semibold text-state-later active:bg-surface-raised"
-      >
+      <Button variant="ghost" onClick={onBack}>
         {running ? 'Leave it running' : 'Back'}
-      </button>
+      </Button>
 
       {worked > 0 && !running ? (
         <button
           type="button"
           onClick={() => onChange(resetWork(day))}
-          className="text-xs text-state-later underline-offset-4 active:underline"
+          className="self-center text-sm text-state-later underline-offset-4 active:underline"
         >
           Clear today
         </button>
@@ -983,8 +946,6 @@ function WorkTimer({
   )
 }
 
-/** The account to warm up, and a countdown. Nothing here touches the video
- *  pipeline - warming up is using the account itself, not filming anything. */
 /** How long a session runs, offered as quick choices alongside the account's
  *  own default (5 minutes ready, 15 building) - he picks it once, before the
  *  clock starts, rather than being stuck with what the account's status
@@ -993,6 +954,56 @@ function WorkTimer({
 function warmupMinuteChoices(account: CampaignAccount): number[] {
   const usual = warmupMinutesFor(account)
   return [...new Set([1, 3, usual, 5, 10, 15, 20, 30])].sort((a, b) => a - b)
+}
+
+/** Whose warm-up this is: platform, handle, campaign. Shared by both halves
+ *  of the timer so the account never changes shape when the clock starts. */
+function WarmupWho({ account, campaign }: { account: CampaignAccount; campaign: Campaign | null }) {
+  return (
+    <div className="flex items-start gap-3">
+      <PlatformGlyph platform={account.platform} className="mt-1 h-6 w-6 shrink-0 text-state-later" />
+      <div className="min-w-0">
+        <h2 className="text-2xl font-semibold leading-tight text-text">
+          {account.platform}
+          <span className="ml-2 break-all text-lg font-normal text-state-later">
+            {account.handle ?? 'no handle saved'}
+          </span>
+        </h2>
+        <p className="meta mt-1 text-state-later">{campaign?.name ?? 'unknown campaign'}</p>
+      </div>
+    </div>
+  )
+}
+
+/** The countdown as a ring that empties, with the time inside it. The ring
+ *  is the same thin line the network view draws with; it is white while the
+ *  clock runs and green once the time is up. */
+function CountdownRing({ left, total, children }: { left: number; total: number; children: ReactNode }) {
+  const finished = left === 0
+  const remaining = total > 0 ? left / total : 0
+  return (
+    <div className="relative mx-auto aspect-square w-full max-w-[17rem]">
+      <svg viewBox="0 0 100 100" className="absolute inset-0 h-full w-full -rotate-90" aria-hidden>
+        <circle cx="50" cy="50" r="46" fill="none" stroke="var(--color-rule)" strokeWidth="1.25" />
+        <circle
+          cx="50"
+          cy="50"
+          r="46"
+          fill="none"
+          stroke={finished ? 'var(--color-state-posted)' : 'var(--color-state-now)'}
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          pathLength={1}
+          strokeDasharray="1"
+          strokeDashoffset={1 - remaining}
+          // One second per tick, linear: the ring moves continuously rather
+          // than jumping once a second.
+          className="transition-[stroke-dashoffset] duration-1000 ease-linear"
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">{children}</div>
+    </div>
+  )
 }
 
 /** The account to warm up. Before the clock starts, this is a choice of how
@@ -1043,34 +1054,33 @@ function WarmupTimer({
     const parsed = Number.isFinite(minutes) && minutes > 0 ? Math.floor(minutes) : null
 
     return (
-      <div className="flex flex-col gap-4">
-        <h2 className="text-lg font-semibold text-text">
-          {account.platform}
-          <span className="ml-2 text-state-later">{account.handle ?? 'no handle saved'}</span>
-        </h2>
-        <p className="-mt-3 text-sm text-state-later">{campaign?.name ?? 'unknown campaign'}</p>
+      <div className="flex flex-col gap-6">
+        <BackButton onClick={onBack} />
+        <WarmupWho account={account} campaign={campaign} />
 
-        <div>
-          <p className="label text-state-later">How long</p>
-          <div className="mt-2 flex flex-wrap gap-2">
+        <div className="flex flex-col gap-3">
+          <SectionLabel as="h3">How long</SectionLabel>
+          <div className="grid grid-cols-4 gap-2">
             {warmupMinuteChoices(account).map((choice) => (
               <button
                 key={choice}
                 type="button"
                 onClick={() => setMinutes(choice)}
                 aria-pressed={minutes === choice}
+                aria-label={`${choice} min${choice === usual ? ' - usual' : ''}`}
                 className={[
-                  'min-h-tap rounded-lg border px-3 text-sm font-semibold',
+                  'press flex min-h-[3.75rem] flex-col items-center justify-center rounded-xl border',
                   minutes === choice
-                    ? 'border-state-now bg-surface-raised text-state-now'
-                    : 'border-edge text-state-later active:bg-surface-raised',
+                    ? 'border-state-now bg-surface text-state-now'
+                    : 'border-edge text-text-dim active:bg-surface',
                 ].join(' ')}
               >
-                {choice} min{choice === usual ? ' - usual' : ''}
+                <span className="numeric text-xl font-semibold leading-none">{choice}</span>
+                <span className="mt-1 text-xs leading-none">{choice === usual ? 'usual' : 'min'}</span>
               </button>
             ))}
           </div>
-          <label className="mt-2 flex items-center gap-2">
+          <label className="flex items-center gap-3">
             <span className="label text-state-later">Or type one</span>
             <input
               type="number"
@@ -1079,30 +1089,22 @@ function WarmupTimer({
               value={minutes}
               onChange={(event) => setMinutes(Number(event.target.value))}
               aria-label="Minutes to warm up for"
-              className="min-h-tap w-20 rounded-lg border border-edge bg-surface-raised px-2 text-text"
+              className={`${INPUT_CLASS} w-24`}
             />
           </label>
         </div>
 
-        <button
-          type="button"
+        <Button
+          variant="now"
+          size="big"
           disabled={parsed === null}
           onClick={() => {
             if (parsed === null) return
             start(account, campaign?.name ?? 'unknown campaign', parsed)
           }}
-          className="min-h-tap rounded-lg border border-state-now bg-surface-raised px-4 text-lg font-semibold tracking-wide text-state-now active:bg-surface disabled:opacity-40"
         >
           Start - {parsed ?? '?'} min
-        </button>
-
-        <button
-          type="button"
-          onClick={onBack}
-          className="min-h-tap rounded-lg border border-edge bg-surface px-4 text-sm font-semibold text-state-later active:bg-surface-raised"
-        >
-          Back
-        </button>
+        </Button>
       </div>
     )
   }
@@ -1111,17 +1113,22 @@ function WarmupTimer({
   const finished = left === 0
 
   return (
-    <div className="flex flex-col gap-4">
-      <h2 className="text-lg font-semibold text-text">
-        {account.platform}
-        <span className="ml-2 text-state-later">{account.handle ?? 'no handle saved'}</span>
-      </h2>
-      <p className="-mt-3 text-sm text-state-later">{campaign?.name ?? 'unknown campaign'}</p>
+    <div className="flex flex-col gap-6">
+      <BackButton onClick={onBack}>Back - the timer keeps running</BackButton>
+      <WarmupWho account={account} campaign={campaign} />
 
-      <p className="numeric text-center text-6xl font-semibold text-text" aria-live="polite">
-        {formatClock(left)}
-      </p>
-      <p className="text-center text-sm text-state-later">
+      <CountdownRing left={left} total={timer.minutes * 60}>
+        <p
+          className={`numeric font-semibold leading-none ${finished ? 'text-state-posted' : 'text-text'}`}
+          style={{ fontSize: 'clamp(3rem, 15vw, 4rem)' }}
+          aria-live="polite"
+        >
+          {formatClock(left)}
+        </p>
+        <p className="label mt-3 text-state-later">{timer.minutes} min</p>
+      </CountdownRing>
+
+      <p className="text-center text-base text-text-dim">
         {finished
           ? "Time's up."
           : needsWarmup(account)
@@ -1129,30 +1136,19 @@ function WarmupTimer({
             : 'Scroll the feed until this runs out - just enough to keep it alive.'}
       </p>
 
-      <button
-        type="button"
+      <Button
+        variant={finished ? 'posted' : 'now'}
+        size="big"
         onClick={() => void handleDone()}
         disabled={busy}
-        className="min-h-tap rounded-lg border border-state-now bg-surface-raised px-4 text-lg font-semibold tracking-wide text-state-now active:bg-surface disabled:opacity-60"
       >
         Mark warmed up
-      </button>
+      </Button>
 
-      <button
-        type="button"
-        onClick={onBack}
-        className="min-h-tap rounded-lg border border-edge bg-surface px-4 text-sm font-semibold text-state-later active:bg-surface-raised"
-      >
-        Back - the timer keeps running
-      </button>
       {finished ? null : (
-        <button
-          type="button"
-          onClick={onCancel}
-          className="min-h-tap rounded-lg px-4 text-sm text-state-later active:bg-surface-raised"
-        >
+        <Button variant="ghost" onClick={onCancel}>
           Cancel this timer
-        </button>
+        </Button>
       )}
     </div>
   )

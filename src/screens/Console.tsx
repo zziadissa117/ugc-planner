@@ -26,6 +26,9 @@ import type {
   CampaignRule,
   PhaseEvent,
 } from '../data'
+import { CheckIcon, ChevronDownIcon, SparkIcon } from '../components/icons'
+import { Button, SectionLabel } from '../components/ui'
+import { type Tone } from '../components/styles'
 import { stripMarker, talkingPointsFromBrief } from '../data/briefSections'
 import { useData } from '../data/useData'
 import {
@@ -230,67 +233,72 @@ export function Console({
   })()
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-7">
       <SayThis lines={sayThis} />
 
       <Scoreboard done={done} goal={goal} campaignName={campaign.name} />
 
-      <button
-        type="button"
-        onClick={() => void advance()}
-        disabled={busy}
-        className="min-h-[4.5rem] w-full rounded-lg border border-state-now bg-surface-raised px-4 text-xl font-semibold tracking-wide text-state-now active:bg-surface disabled:opacity-60"
-      >
+      <Button variant="now" size="big" onClick={() => void advance()} disabled={busy} className="!min-h-[5rem] !text-xl">
         Filmed one
-      </button>
+      </Button>
 
-      {error ? <p className="text-sm text-state-blocked">{error}</p> : null}
+      {error ? <p className="text-base text-state-blocked">{error}</p> : null}
 
-      <Section title="Hooks">
-        {lastFamily !== null && leaningFamily(angles, lastFamily) !== null ? (
-          <p className="mb-2 text-xs uppercase tracking-wide text-state-later">
-            Last one was {lastFamily} - lean {leaningFamily(angles, lastFamily)} next
-          </p>
-        ) : null}
-
+      <Section
+        title="Hooks"
+        trailing={
+          lastFamily !== null && leaningFamily(angles, lastFamily) !== null
+            ? `last ${lastFamily} · lean ${leaningFamily(angles, lastFamily)}`
+            : undefined
+        }
+      >
         <Hooks hooks={hooks} anglesById={anglesById} onToggle={toggleHook} />
 
         {hookGenerationAvailable() ? (
-          <button
-            type="button"
-            onClick={() => void generate()}
-            disabled={generating}
-            className="mt-3 min-h-tap w-full rounded-lg border border-edge bg-surface px-4 font-semibold text-text active:bg-surface-raised disabled:text-state-later"
-          >
-            {generating ? 'Writing hooks...' : 'Write me some hooks'}
-          </button>
+          <div className="mt-4 flex flex-col gap-2">
+            <Button onClick={() => void generate()} disabled={generating} className="w-full">
+              <SparkIcon className="h-5 w-5" />
+              {generating ? 'Writing hooks...' : 'Write me some hooks'}
+            </Button>
+            {generating ? (
+              // One request, no progress to report - so it says "working"
+              // without pretending to know how far along it is.
+              <div aria-hidden className="h-px overflow-hidden bg-rule">
+                <div className="indeterminate-bar h-full w-1/4 bg-state-now" />
+              </div>
+            ) : null}
+          </div>
         ) : null}
 
-        {note === null ? null : <p className="mt-2 text-xs text-state-later">{note}</p>}
+        {note === null ? null : <p className="meta mt-2 text-state-later">{note}</p>}
       </Section>
 
       <Section title="The campaign, quickly">
         {SUMMARY_KEYS.every((key) => !byKey.get(key)) ? (
-          <p className="text-sm text-state-later">
+          <p className="text-base text-state-later">
             Nothing saved yet. Nothing is written here on your behalf.
           </p>
         ) : (
-          SUMMARY_KEYS.map((key) => <Prose key={key} value={byKey.get(key) ?? null} missing={null} />)
+          <div className="flex flex-col gap-3">
+            {SUMMARY_KEYS.map((key) => (
+              <Prose key={key} value={byKey.get(key) ?? null} missing={null} />
+            ))}
+          </div>
         )}
       </Section>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Section title="You can say">
+      <div className="grid gap-7 sm:grid-cols-2">
+        <Section title="You can say" tone="posted">
           <CanSay byKey={byKey} />
         </Section>
 
-        <Section title="Never do">
+        <Section title="Never do" tone="blocked">
           {rules.length === 0 ? (
-            <p className="text-sm text-state-later">No rules saved for this campaign yet.</p>
+            <p className="text-base text-state-later">No rules saved for this campaign yet.</p>
           ) : (
-            <ul className="flex flex-col gap-2">
+            <ul className="flex flex-col gap-2.5">
               {rules.map((rule) => (
-                <li key={rule.id} className="border-l-2 border-state-blocked/60 pl-3 text-sm text-text">
+                <li key={rule.id} className="border-l border-state-blocked/70 pl-3 text-base leading-snug text-text">
                   {rule.body}
                 </li>
               ))}
@@ -299,26 +307,20 @@ export function Console({
         </Section>
       </div>
 
-      <button
-        type="button"
-        onClick={onFinish}
-        className="min-h-tap rounded-lg border border-edge bg-surface px-4 font-semibold text-state-later active:bg-surface-raised"
-      >
+      <Button variant="quiet" onClick={onFinish}>
         Finish this session
-      </button>
+      </Button>
     </div>
   )
 }
 
-/** How many, of how many. The one number he asked to be able to watch - no
- *  clock next to it, since nothing here is timed. */
 /** The body of the video, pinned to the top of the console.
  *
  *  Sticky rather than just first, because he scrolls this screen while the
  *  camera is running and asked for something that stays: "a widget that i can
  *  see no matter where i scroll on the app that tells me what i need to say".
- *  Same glass as the nav bar, so the screen visibly continues underneath it
- *  rather than the page appearing to start here.
+ *  Black glass with a hairline edge, so the screen visibly continues
+ *  underneath rather than the page appearing to start here.
  *
  *  Collapsible, and that is the whole of its chrome: on a phone five lines is
  *  most of the screen, and between takes he wants the hooks back. */
@@ -328,26 +330,27 @@ function SayThis({ lines }: { lines: string[] }) {
   if (lines.length === 0) return null
 
   return (
-    <div className="sticky top-0 z-20 -mx-1 rounded-b-xl border-b border-edge-lit/60 bg-ink px-3 py-2 shadow-lg shadow-ink/90">
+    <div className="sticky top-0 z-20 -mx-4 border-b border-rule bg-ink/90 px-4 pb-3 pt-2 backdrop-blur-xl">
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
         aria-expanded={open}
-        className="flex w-full items-center justify-between gap-3 text-left"
+        className="flex min-h-10 w-full items-center justify-between gap-3 text-left"
       >
-        <span className="label text-state-later">
-          Say this
-        </span>
-        <span className="label text-state-later">
+        <span className="label text-state-later">Say this</span>
+        <span className="label flex items-center gap-1.5 text-state-later">
           {open ? 'hide' : `${lines.length} ${lines.length === 1 ? 'point' : 'points'}`}
+          <ChevronDownIcon
+            className={`h-4 w-4 transition-transform duration-300 [transition-timing-function:var(--ease-settle)] ${open ? 'rotate-180' : ''}`}
+          />
         </span>
       </button>
 
       {open ? (
-        <ol className="mt-1 flex flex-col gap-0.5">
+        <ol className="settle-in flex flex-col gap-1.5">
           {lines.map((line, index) => (
-            <li key={line} className="flex gap-2 text-sm leading-snug text-text">
-              <span className="numeric shrink-0 text-state-later">{index + 1}</span>
+            <li key={line} className="flex gap-3 text-base leading-snug text-text">
+              <span className="numeric w-4 shrink-0 text-right text-state-later">{index + 1}</span>
               <span>{line}</span>
             </li>
           ))}
@@ -357,6 +360,9 @@ function SayThis({ lines }: { lines: string[] }) {
   )
 }
 
+/** How many, of how many. The one number he asked to be able to watch - no
+ *  clock next to it, since nothing here is timed. One segment per video in
+ *  the goal, each landing green with the pop spring as it is filmed. */
 function Scoreboard({
   done,
   goal,
@@ -366,25 +372,36 @@ function Scoreboard({
   goal: number
   campaignName: string
 }) {
+  const segmented = goal > 0 && goal <= 20
   const percent = goal === 0 ? 0 : Math.min(100, Math.round((done / goal) * 100))
 
   return (
-    <div>
-      <p className="text-sm uppercase tracking-wide text-state-later">{campaignName}</p>
-      <p className="mt-1 text-3xl font-semibold tabular-nums text-text">
-        {done} <span className="text-state-later">of {goal}</span>
+    <div className="flex flex-col gap-3">
+      <p className="display text-2xl text-text-dim">{campaignName}</p>
+      <p className="numeric font-semibold leading-none text-text" style={{ fontSize: 'clamp(3.25rem, 17vw, 4.5rem)' }}>
+        <span className={done >= goal && goal > 0 ? 'text-state-posted' : 'text-text'}>{done}</span>{' '}
+        <span className="text-state-later">of {goal}</span>
       </p>
-      <div
-        role="progressbar"
-        aria-valuenow={done}
-        aria-valuemin={0}
-        aria-valuemax={goal}
-        className="mt-2 h-2 w-full overflow-hidden rounded-full bg-surface-raised"
-      >
-        <div className="h-full bg-state-posted" style={{ width: `${percent}%` }} />
+      <div role="progressbar" aria-valuenow={done} aria-valuemin={0} aria-valuemax={goal}>
+        {segmented ? (
+          <div className="flex gap-1.5">
+            {Array.from({ length: goal }, (_, index) => (
+              <span key={index} className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-rule">
+                {index < done ? <span className="pop-in absolute inset-0 rounded-full bg-state-posted" /> : null}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-rule">
+            <div
+              className="h-full bg-state-posted transition-[width] duration-700 [transition-timing-function:var(--ease-settle)]"
+              style={{ width: `${percent}%` }}
+            />
+          </div>
+        )}
       </div>
       {done >= goal ? (
-        <p className="mt-2 text-sm text-state-posted">
+        <p className="settle-in text-base text-state-posted">
           Goal reached. Anything more tonight is stock in the bank.
         </p>
       ) : null}
@@ -392,20 +409,32 @@ function Scoreboard({
   )
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function Section({
+  title,
+  tone = 'later',
+  trailing,
+  children,
+}: {
+  title: string
+  tone?: Tone
+  trailing?: string
+  children: ReactNode
+}) {
   return (
-    <div>
-      <h2 className="text-sm font-semibold uppercase tracking-wide text-state-later">{title}</h2>
-      <div className="mt-2">{children}</div>
-    </div>
+    <section className="flex flex-col gap-3">
+      <SectionLabel tone={tone} trailing={trailing}>
+        {title}
+      </SectionLabel>
+      <div>{children}</div>
+    </section>
   )
 }
 
 function Prose({ value, missing }: { value: string | null; missing: string | null }) {
   if (value === null || value === '') {
-    return missing === null ? null : <p className="text-sm text-state-later">{missing}</p>
+    return missing === null ? null : <p className="text-base text-state-later">{missing}</p>
   }
-  return <p className="text-sm leading-relaxed text-text">{value}</p>
+  return <p className="text-base leading-relaxed text-text">{value}</p>
 }
 
 /** Built from what the brief already says, so there is no second list to keep
@@ -417,16 +446,16 @@ function CanSay({ byKey }: { byKey: Map<string, string | null> }) {
 
   if (lines.length === 0) {
     return (
-      <p className="text-sm text-state-later">
+      <p className="text-base text-state-later">
         Nothing saved yet. Nothing is assumed on your behalf.
       </p>
     )
   }
 
   return (
-    <ul className="flex flex-col gap-2">
+    <ul className="flex flex-col gap-2.5">
       {lines.map((line) => (
-        <li key={line} className="border-l-2 border-state-posted/50 pl-3 text-sm text-text">
+        <li key={line} className="border-l border-state-posted/60 pl-3 text-base leading-snug text-text">
           {line}
         </li>
       ))}
@@ -441,7 +470,8 @@ function CanSay({ byKey }: { byKey: Map<string, string | null> }) {
  *  like a line he wrote, which is the one thing CLAUDE.md says a generated
  *  hook must never do. Under it, while it is still to film, sit its body
  *  beats: "i already have the hook, i just need inspiration for the body of
- *  what im going to say". Once used, it collapses to the line, struck. */
+ *  what im going to say". Once used, it collapses to the line, struck, with a
+ *  tick - done is a state, so it is green. */
 function Hooks({
   hooks,
   anglesById,
@@ -453,14 +483,14 @@ function Hooks({
 }) {
   if (hooks.length === 0) {
     return (
-      <p className="text-sm text-state-later">
+      <p className="text-base text-state-later">
         No hooks saved yet. Add them on the brief page - nothing is written for you here.
       </p>
     )
   }
 
   return (
-    <ul className="flex flex-col gap-2">
+    <ul className="flex flex-col divide-y divide-rule border-y border-rule">
       {hooks.map((hook) => {
         const angle = hook.angle_id === null ? undefined : anglesById.get(hook.angle_id)
         const used = hook.used_at !== null
@@ -478,30 +508,42 @@ function Hooks({
               type="button"
               onClick={() => void onToggle(hook)}
               aria-pressed={used}
-              className="w-full rounded-lg border border-edge bg-surface px-3 py-2 text-left active:bg-surface-raised"
+              className="press flex w-full gap-3 py-3.5 text-left active:bg-surface"
             >
-              <span className={used ? 'text-state-later line-through' : 'text-text'}>
-                {hook.body}
+              <span
+                aria-hidden
+                className={`mt-1 flex size-5 shrink-0 items-center justify-center rounded-md border ${
+                  used ? 'border-state-posted text-state-posted' : 'border-edge-lit'
+                }`}
+              >
+                {used ? <CheckIcon className="draw-check h-4 w-4" strokeWidth={2.25} /> : null}
               </span>
-              {beats.length > 0 ? (
-                <ol className="mt-1.5 flex flex-col gap-0.5 border-l border-edge-lit pl-2.5">
-                  {beats.map((beat) => (
-                    <li key={beat} className="meta text-text-dim">
-                      {beat}
-                    </li>
-                  ))}
-                </ol>
-              ) : null}
-              {generated || angle ? (
-                <span className="mt-1 block label text-state-later">
-                  {[
-                    generated ? 'generated' : null,
-                    angle ? `${angle.label}${angle.family === null ? '' : ` - ${angle.family}`}` : null,
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')}
+              <span className="min-w-0 flex-1">
+                <span
+                  className={`block text-lg leading-snug ${used ? 'text-state-later line-through decoration-state-later/60' : 'text-text'}`}
+                >
+                  {hook.body}
                 </span>
-              ) : null}
+                {beats.length > 0 ? (
+                  <ol className="mt-2 flex flex-col gap-1 border-l border-edge-lit pl-3">
+                    {beats.map((beat) => (
+                      <li key={beat} className="meta text-text-dim">
+                        {beat}
+                      </li>
+                    ))}
+                  </ol>
+                ) : null}
+                {generated || angle ? (
+                  <span className="mt-2 block label text-state-later">
+                    {[
+                      generated ? 'generated' : null,
+                      angle ? `${angle.label}${angle.family === null ? '' : ` - ${angle.family}`}` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </span>
+                ) : null}
+              </span>
             </button>
           </li>
         )

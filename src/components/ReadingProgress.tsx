@@ -26,11 +26,11 @@ export function ReadingProgress() {
       aria-busy="true"
       className="flex flex-col gap-2"
     >
-      <div className="h-1 w-full overflow-hidden rounded-full bg-surface-raised">
-        <div className="indeterminate-bar h-full w-1/4 rounded-full bg-state-now" />
+      <div className="h-px w-full overflow-hidden bg-rule">
+        <div className="indeterminate-bar h-full w-1/4 bg-state-now" />
       </div>
-      <p className="text-sm text-state-later">
-        Reading the documents - {seconds}s. Usually takes about ten.
+      <p className="meta text-state-later">
+        Reading the documents - {seconds}s. Usually ten to twenty.
       </p>
     </div>
   )

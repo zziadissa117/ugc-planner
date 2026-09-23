@@ -26,21 +26,6 @@ import {
   type ParseResult,
 } from './types'
 
-/** The prompt contract the Edge Function has to hold up, kept next to the stub
- *  so it is written down before it is written. */
-export const EDGE_FUNCTION_CONTRACT = {
-  /** Return null for anything not present. Never infer, never fill a gap. */
-  returnNullWhenAbsent: true,
-  /** Every extracted field carries the exact substring it came from. */
-  requireSourceQuote: true,
-  /** The function verifies each quote against the uploaded text and blanks any
-   *  field whose quote it cannot find - see verifyQuotes, which is the same
-   *  check, running client-side until the function exists. */
-  verifyQuotesServerSide: true,
-  /** Fields no document contains are never attempted. */
-  neverAttempt: ['handles', 'setup type', 'per-stage minutes', 'daily quota'],
-} as const
-
 export class EdgeFunctionParser implements CampaignParser {
   readonly name = 'Server parser'
 

@@ -28,6 +28,11 @@
   /* A brighter hairline for the edge that catches the light - the top of a
      raised surface, the ring around the thing in focus. */
   --color-edge-lit: #33404f;
+  /* The faintest line there is: the rule between two rows of a list. Rows
+     are separated by hairlines rather than boxed into cards - the network
+     view's language, carried to every screen - so this has to be visible
+     without ever competing with what it separates. */
+  --color-rule: #18202b;
 
   --color-state-posted: #2fd472;
   --color-state-now: #ffffff;
@@ -86,23 +91,10 @@ body {
   touch-action: manipulation;
   overscroll-behavior-y: none;
 
-  /* Two very wide, very dim pools of light, fixed behind everything. They give
-     the black some depth on an OLED phone instead of reading as a dead panel.
-     No element sits on top of either one strongly enough for it to change how
-     that element reads. */
-  background-image:
-    radial-gradient(
-      80rem 40rem at 12% -10%,
-      color-mix(in oklab, var(--color-edge-lit) 26%, transparent),
-      transparent 70%
-    ),
-    radial-gradient(
-      60rem 34rem at 100% 8%,
-      color-mix(in oklab, var(--color-edge) 30%, transparent),
-      transparent 70%
-    );
-  background-attachment: fixed;
-  background-repeat: no-repeat;
+  /* Pitch black, flat. The two dim pools of light that used to sit behind
+     everything are gone: the network view is the best-looking thing in the
+     app, and it is a black canvas with nothing painted on it. Depth now comes
+     from type, spacing and hairlines - not from a glow behind the page. */
 }
 
 /* ---------------------------------------------------------------------------
@@ -169,11 +161,47 @@ body {
   letter-spacing: -0.02em;
 }
 
-/* Every screen arrives rather than appearing. 160ms, once, on mount. */
-@keyframes rise-in {
+/* ---------------------------------------------------------------------------
+   Motion. Three springs, simulated in src/motion.ts and installed at startup
+   as linear() easings - press, pop, settle. The cubic-beziers here are only
+   stand-ins for a browser that cannot play linear(); the durations are
+   overwritten with the springs' real settling times.
+
+     .press       gives under a finger and rebounds when let go
+     .settle-in   arrives once: rises a few pixels and fades in. Set --i on a
+                  list's items to stagger them.
+     .pop-in      lands with the one visible bounce in the app - a tick
+     .draw-check  strokes a CheckIcon on, start to finish
+
+   Nothing here loops. Everything is off under prefers-reduced-motion.
+   --------------------------------------------------------------------------- */
+
+:root {
+  --ease-press: cubic-bezier(0.25, 1.35, 0.5, 1);
+  --ease-pop: cubic-bezier(0.34, 1.7, 0.6, 1);
+  --ease-settle: cubic-bezier(0.2, 0.9, 0.25, 1);
+  --dur-press: 300ms;
+  --dur-pop: 560ms;
+  --dur-settle: 620ms;
+}
+
+.press {
+  transition: transform var(--dur-press) var(--ease-press);
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Down is immediate and plain - a finger landing is not a spring. Only the
+   release uses the spring, which is where the rebound lives. */
+.press:active:not(:disabled) {
+  transform: scale(0.965);
+  transition: transform 70ms ease-out;
+}
+
+@keyframes settle-in {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(10px);
   }
   to {
     opacity: 1;
@@ -181,8 +209,47 @@ body {
   }
 }
 
+.settle-in {
+  animation: settle-in var(--dur-settle) var(--ease-settle) both;
+  animation-delay: calc(min(var(--i, 0), 12) * 38ms);
+}
+
+/* Every screen arrives rather than appearing - the same spring, once, on
+   mount. Kept as its own name because the app shell keys on it. */
 .rise-in {
-  animation: rise-in 0.16s ease-out both;
+  animation: settle-in var(--dur-settle) var(--ease-settle) both;
+}
+
+@keyframes pop-in {
+  from {
+    transform: scale(0.55);
+    opacity: 0.4;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+.pop-in {
+  animation: pop-in var(--dur-pop) var(--ease-pop) both;
+}
+
+/* CheckIcon's path has pathLength 1, so one dash of length 1 is the whole
+   tick at any size. */
+@keyframes draw-check {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.draw-check .check-path {
+  stroke-dasharray: 1;
+  animation: draw-check calc(var(--dur-settle) * 0.55) var(--ease-settle) both;
+  animation-delay: 60ms;
 }
 
 /* The day's bar, the moment it fills. One pass, then it stays lit - the only
@@ -280,8 +347,16 @@ body {
   }
 
   .rise-in,
-  .cleared {
+  .cleared,
+  .settle-in,
+  .pop-in,
+  .draw-check .check-path {
     animation: none;
+  }
+  .press,
+  .press:active:not(:disabled) {
+    transition: none;
+    transform: none;
   }
 }
 

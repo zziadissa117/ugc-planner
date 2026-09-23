@@ -21,6 +21,7 @@ import {
 } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import { StateDot } from './components/ui'
 import { warmupMinutesFor, type CampaignAccount } from './data'
 import { useData } from './data/useData'
 import { playWarmupDone, unlockAudio } from './sound'
@@ -213,43 +214,42 @@ function WarmupBar({ viewing }: { viewing: string | null }) {
 
   return (
     <div
-      className="sticky top-0 z-40 flex flex-col gap-1.5 border-b border-edge bg-surface/90 px-3 pb-2 backdrop-blur-xl"
-      style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.5rem)' }}
+      className="sticky top-0 z-40 flex flex-col border-b border-rule bg-ink/90 px-4 backdrop-blur-xl"
+      style={{ paddingTop: 'env(safe-area-inset-top)' }}
       role="region"
       aria-label="Warm-up timers"
     >
       {shown.map((timer) => {
         const done = isFinished(timer, now)
+        const total = timer.minutes * 60
+        const left = secondsLeft(timer, now)
         return (
-          <div
-            key={timer.accountId}
-            className={[
-              'flex items-center gap-3 rounded-xl border px-3 py-2',
-              done ? 'border-state-posted/50 bg-state-posted/10' : 'border-edge bg-surface-raised',
-            ].join(' ')}
-          >
+          <div key={timer.accountId} className="relative flex items-center gap-3 py-2">
             <button
               type="button"
               onClick={() => navigate('/', { state: { openTimer: timer.accountId } })}
-              className="flex min-h-tap min-w-0 flex-1 items-center justify-between gap-3 text-left"
+              className="press flex min-h-tap min-w-0 flex-1 items-center justify-between gap-3 text-left"
               aria-label={`Open the ${timer.platform} warm-up timer`}
             >
-              <span className="min-w-0">
-                <span className="block truncate text-base font-semibold text-text">
-                  {timer.platform}
-                  <span className="ml-2 font-normal text-state-later">
-                    {timer.handle ?? timer.campaignName}
+              <span className="flex min-w-0 items-center gap-3">
+                <StateDot tone={done ? 'posted' : 'now'} />
+                <span className="min-w-0">
+                  <span className="block truncate text-base font-semibold text-text">
+                    {timer.platform}
+                    <span className="ml-2 font-normal text-state-later">
+                      {timer.handle ?? timer.campaignName}
+                    </span>
                   </span>
-                </span>
-                <span className="meta block text-state-later">
-                  {done ? "Time's up - warm-up done" : 'Warm-up running'}
+                  <span className="meta block text-state-later">
+                    {done ? "Time's up - warm-up done" : 'Warm-up running'}
+                  </span>
                 </span>
               </span>
               <span
                 className={`numeric shrink-0 text-2xl font-semibold ${done ? 'text-state-posted' : 'text-text'}`}
                 aria-live="off"
               >
-                {formatClock(secondsLeft(timer, now))}
+                {formatClock(left)}
               </span>
             </button>
             {done ? (
@@ -260,7 +260,7 @@ function WarmupBar({ viewing }: { viewing: string | null }) {
                   setBusy(timer.accountId)
                   void complete(timer.accountId).finally(() => setBusy(null))
                 }}
-                className="min-h-tap shrink-0 rounded-lg border border-state-posted/60 bg-surface px-3 text-base font-semibold text-state-posted active:bg-surface-raised disabled:opacity-60"
+                className="press min-h-tap shrink-0 rounded-xl border border-state-posted/60 px-3 text-base font-semibold text-state-posted active:bg-state-posted/10 disabled:opacity-60"
               >
                 Mark warmed
               </button>
@@ -269,11 +269,19 @@ function WarmupBar({ viewing }: { viewing: string | null }) {
                 type="button"
                 onClick={() => cancel(timer.accountId)}
                 aria-label={`Cancel the ${timer.platform} timer`}
-                className="min-h-tap shrink-0 rounded-lg px-2 text-base text-state-later active:bg-surface"
+                className="press min-h-tap shrink-0 rounded-xl px-2 text-base text-state-later active:bg-surface"
               >
                 Cancel
               </button>
             )}
+            {/* How much of the sitting is left, as a hairline along the
+                bottom: the same line the ring on the full timer draws. */}
+            <span aria-hidden className="absolute inset-x-0 bottom-0 h-px">
+              <span
+                className={`block h-px transition-[width] duration-1000 ease-linear ${done ? 'bg-state-posted' : 'bg-state-now/70'}`}
+                style={{ width: `${total > 0 ? ((total - left) / total) * 100 : 100}%` }}
+              />
+            </span>
           </div>
         )
       })}

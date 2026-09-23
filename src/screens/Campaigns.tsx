@@ -1,6 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
 
+import { ChevronRightIcon, PlatformGlyph, PlusIcon } from '../components/icons'
+import { ScreenHeader } from '../components/ui'
+import { INPUT_CLASS, buttonClass } from '../components/styles'
 import type { Campaign, CampaignAccount } from '../data'
 import { centsToDollarsInput, parseDollarsToCents } from '../data/campaignFields'
 import { useData } from '../data/useData'
@@ -45,14 +48,22 @@ export function Campaigns() {
   )
 
   return (
-    <section className="mx-auto flex max-w-3xl flex-col gap-3">
-      <h1 className="text-xl font-semibold text-text">Briefs</h1>
+    <section className="mx-auto flex max-w-3xl flex-col gap-6">
+      <ScreenHeader
+        title="Briefs"
+        aside={
+          <Link to="/campaigns/new" aria-label="New campaign" className={`${buttonClass('quiet', 'small')} !rounded-full !px-3`}>
+            <PlusIcon className="h-4 w-4" />
+            New
+          </Link>
+        }
+      />
 
       {campaigns === null ? null : campaigns.length === 0 ? (
-        <p className="text-sm text-state-later">No campaigns yet.</p>
+        <p className="text-base text-state-later">No campaigns yet.</p>
       ) : (
-        <ul className="flex flex-col gap-1.5">
-          {byBestPay(campaigns, accounts).map((campaign) => {
+        <ul className="flex flex-col divide-y divide-rule border-y border-rule">
+          {byBestPay(campaigns, accounts).map((campaign, index) => {
             const platforms = accounts
               .filter((a) => a.campaign_id === campaign.id)
               .map((a) => a.platform)
@@ -60,16 +71,27 @@ export function Campaigns() {
             return (
               <li
                 key={campaign.id}
-                className="flex items-center gap-3 rounded-lg border border-edge bg-surface px-3 py-2"
+                className="settle-in flex items-start gap-3 py-4"
+                style={{ '--i': index } as CSSProperties}
               >
                 <div className="min-w-0 flex-1">
-                  <Link
-                    to={`/campaigns/${campaign.id}`}
-                    className="block min-w-0 active:opacity-70"
-                  >
-                    <span className="script block break-words text-3xl text-text">{campaign.name}</span>
-                    <span className="block truncate text-xs text-state-later">
-                      {platforms.length === 0 ? 'no platforms yet' : platforms.join(' · ')}
+                  <Link to={`/campaigns/${campaign.id}`} className="press block min-w-0 active:opacity-70">
+                    <span className="script block break-words text-[2.125rem] leading-tight text-text">
+                      {campaign.name}
+                    </span>
+                    <span className="mt-1.5 flex min-w-0 items-center gap-2 text-state-later">
+                      {platforms.length === 0 ? (
+                        <span className="meta">no platforms yet</span>
+                      ) : (
+                        <>
+                          <span aria-hidden className="flex shrink-0 gap-1.5">
+                            {platforms.map((platform) => (
+                              <PlatformGlyph key={platform} platform={platform} className="h-4 w-4" />
+                            ))}
+                          </span>
+                          <span className="meta truncate">{platforms.join(' · ')}</span>
+                        </>
+                      )}
                     </span>
                   </Link>
 
@@ -84,17 +106,20 @@ export function Campaigns() {
 
                 <Link
                   to={`/campaigns/${campaign.id}`}
-                  className="shrink-0 text-right active:opacity-70"
+                  className="press flex shrink-0 items-center gap-1 pt-2 text-right active:opacity-70"
                 >
-                  <span className="block text-sm font-semibold tabular-nums text-text">
-                    {campaign.pay_per_video_cents === null
-                      ? 'no rate'
-                      : `${formatCents(campaign.pay_per_video_cents)}/video`}
+                  <span>
+                    <span className="numeric block text-lg font-semibold text-text">
+                      {campaign.pay_per_video_cents === null
+                        ? 'no rate'
+                        : `${formatCents(campaign.pay_per_video_cents)}/video`}
+                    </span>
+                    <span className="numeric meta block text-state-later">
+                      {campaign.daily_post_quota}/day
+                      {paying > 1 ? ` x ${paying}` : ''}
+                    </span>
                   </span>
-                  <span className="block text-xs tabular-nums text-state-later">
-                    {campaign.daily_post_quota}/day
-                    {paying > 1 ? ` x ${paying}` : ''}
-                  </span>
+                  <ChevronRightIcon className="h-5 w-5 text-state-later" />
                 </Link>
               </li>
             )
@@ -102,11 +127,9 @@ export function Campaigns() {
         </ul>
       )}
 
-      <Link
-        to="/campaigns/new"
-        className="flex min-h-tap items-center justify-center rounded-lg border border-edge bg-surface px-4 text-sm font-semibold text-text active:bg-surface-raised"
-      >
-        + New campaign
+      <Link to="/campaigns/new" className={buttonClass('quiet')}>
+        <PlusIcon className="h-5 w-5" />
+        New campaign
       </Link>
     </section>
   )
@@ -158,7 +181,7 @@ function MonthlyPay({
 
   if (editing) {
     return (
-      <span className="mt-1 flex items-center gap-1">
+      <span className="mt-2 flex flex-wrap items-center gap-2">
         <input
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
@@ -170,13 +193,13 @@ function MonthlyPay({
           inputMode="decimal"
           placeholder="per month"
           autoFocus
-          className="min-h-tap w-24 rounded-md border border-state-now bg-surface-raised px-2 text-sm text-text placeholder:text-state-later"
+          className={`${INPUT_CLASS} w-28 text-base`}
         />
         <button
           type="button"
           onClick={() => void save()}
           disabled={busy}
-          className="rounded-md border border-state-now px-2 py-1 text-xs font-semibold text-state-now active:bg-surface disabled:opacity-60"
+          className={buttonClass('now', 'small')}
         >
           Save
         </button>
@@ -185,12 +208,12 @@ function MonthlyPay({
             type="button"
             onClick={() => void commit(null)}
             disabled={busy}
-            className="rounded-md border border-edge px-2 py-1 text-xs font-semibold text-state-later active:bg-surface-raised disabled:opacity-60"
+            className={buttonClass('ghost', 'small')}
           >
             Reset
           </button>
         ) : null}
-        {error ? <span className="text-xs text-state-blocked">{error}</span> : null}
+        {error ? <span className="meta text-state-blocked">{error}</span> : null}
       </span>
     )
   }
@@ -203,7 +226,7 @@ function MonthlyPay({
         setDraft(monthly === null || !mine ? '' : centsToDollarsInput(monthly))
         setEditing(true)
       }}
-      className="mt-0.5 block rounded text-left text-xs tabular-nums text-state-later active:opacity-70"
+      className="press meta mt-1.5 block whitespace-nowrap rounded text-left tabular-nums text-state-later underline decoration-edge-lit decoration-dotted underline-offset-4 active:opacity-70"
     >
       {monthly === null
         ? 'tap to set pay per month'

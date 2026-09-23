@@ -15,10 +15,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 
 import type { AccountStatus, CampaignAccount, DataAdapter } from '../data'
+import { KNOWN_PLATFORMS } from './platforms'
+import { INPUT_CLASS, buttonClass } from './styles'
 
-/** The platforms the app knows about. Free text still works underneath, so
- *  adding one here is a convenience rather than a migration. */
-export const KNOWN_PLATFORMS = ['Instagram', 'TikTok', 'YouTube', 'Facebook', 'X', 'Snapchat'] as const
 
 const STATUS_LABELS: Record<AccountStatus, string> = {
   new: 'New',
@@ -104,22 +103,21 @@ export function AccountsEditor({
 
   return (
     <div>
-      <div className="flex items-baseline justify-between gap-2">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-state-later">
-          Platforms
-        </h2>
+      <div className="flex items-center gap-3">
+        <h2 className="label shrink-0 text-state-later">Platforms</h2>
+        <span aria-hidden className="h-px flex-1 bg-rule" />
         <button
           type="button"
           onClick={() => setAdding((open) => !open)}
           aria-expanded={adding}
-          className="rounded-md border border-edge px-2 py-0.5 text-xs font-semibold text-state-later active:bg-surface-raised"
+          className={`${buttonClass(adding ? 'now' : 'quiet', 'small')} !min-h-9 !rounded-full`}
         >
           {adding ? 'Done' : 'Add'}
         </button>
       </div>
 
       {accounts.length === 0 ? (
-        <p className="mt-1 text-sm text-state-blocked">
+        <p className="mt-2 text-base text-state-blocked">
           None yet - add the platforms this campaign posts to.
         </p>
       ) : (
@@ -133,7 +131,7 @@ export function AccountsEditor({
       )}
 
       {adding ? (
-        <div className="mt-2 rounded-lg border border-edge bg-surface p-2">
+        <div className="settle-in mt-2 rounded-xl border border-rule p-2.5">
           <div className="flex flex-wrap gap-1.5">
             {KNOWN_PLATFORMS.map((name) => {
               const already = chosen.has(name.toLowerCase())
@@ -145,10 +143,10 @@ export function AccountsEditor({
                   onClick={() => void add(name)}
                   aria-pressed={already}
                   className={[
-                    'rounded-md border px-2.5 py-1 text-sm font-semibold active:bg-surface',
+                    'press min-h-10 rounded-full border px-3 text-sm font-semibold active:bg-surface',
                     already
                       ? 'border-state-posted/50 bg-state-posted/10 text-state-posted'
-                      : 'border-edge bg-surface-raised text-text',
+                      : 'border-edge text-text',
                   ].join(' ')}
                 >
                   {already ? `${name} ✓` : name}
@@ -162,13 +160,13 @@ export function AccountsEditor({
               onChange={(event) => setCustom(event.target.value)}
               aria-label="Other platform"
               placeholder="Other platform"
-              className="min-h-tap min-w-0 flex-1 rounded-md border border-edge bg-surface-raised px-2 text-sm text-text placeholder:text-state-later"
+              className={`${INPUT_CLASS} min-w-0 flex-1 text-base`}
             />
             <button
               type="button"
               onClick={() => void add(custom)}
               disabled={busy || custom.trim() === ''}
-              className="min-h-tap shrink-0 rounded-md border border-edge px-3 text-sm font-semibold text-text active:bg-surface-raised disabled:text-state-later"
+              className={buttonClass('quiet')}
             >
               Add
             </button>
@@ -279,8 +277,11 @@ function AccountRow({
     void onPatch(account.id, { [key]: value.trim() === '' ? null : value })
 
   return (
-    <div className="rounded-lg border border-edge bg-surface px-2 py-1.5">
+    <div className="rounded-xl border border-rule px-2 py-2">
       <div className="flex flex-wrap items-center gap-1.5">
+        {/* Name only, at its original width: a glyph in this slot cut
+            "Instagram" to "Insta...", and every box on this row has to show
+            its whole value. */}
         <span className="w-20 shrink-0 truncate text-sm font-semibold text-text">
           {account.platform}
         </span>
@@ -290,7 +291,7 @@ function AccountRow({
           onCommit={(next) => field('handle', next)}
           label={`${account.platform} handle`}
           placeholder="@handle"
-          className="min-h-tap min-w-0 flex-[1_1_10rem] rounded-md border border-edge bg-surface-raised px-2 text-sm text-text placeholder:text-state-later"
+          className="min-h-tap min-w-0 flex-[1_1_10rem] rounded-lg border border-edge bg-surface px-2 text-sm text-text placeholder:text-state-later focus:border-state-now/80 focus:outline-none"
         />
         <GrowingBox
           value={account.email ?? ''}
@@ -298,7 +299,7 @@ function AccountRow({
           label={`${account.platform} email`}
           placeholder="email"
           autoComplete="off"
-          className="min-h-tap min-w-0 flex-[1_1_13rem] rounded-md border border-edge bg-surface-raised px-2 text-sm text-text placeholder:text-state-later"
+          className="min-h-tap min-w-0 flex-[1_1_13rem] rounded-lg border border-edge bg-surface px-2 text-sm text-text placeholder:text-state-later focus:border-state-now/80 focus:outline-none"
         />
         {/* The password box and its Show button travel together, so Show never
             ends up stranded on a line of its own. */}
@@ -311,7 +312,7 @@ function AccountRow({
               placeholder="password"
               autoComplete="new-password"
               mask={!show}
-              className="min-h-tap min-w-0 flex-1 rounded-md border border-edge bg-surface-raised px-2 text-sm text-text placeholder:text-state-later"
+              className="min-h-tap min-w-0 flex-1 rounded-lg border border-edge bg-surface px-2 text-sm text-text placeholder:text-state-later focus:border-state-now/80 focus:outline-none"
             />
           ) : (
             <input
@@ -321,20 +322,20 @@ function AccountRow({
               aria-label={`${account.platform} password`}
               placeholder="password"
               autoComplete="new-password"
-              className="min-h-tap min-w-0 flex-1 rounded-md border border-edge bg-surface-raised px-2 text-sm text-text placeholder:text-state-later"
+              className="min-h-tap min-w-0 flex-1 rounded-lg border border-edge bg-surface px-2 text-sm text-text placeholder:text-state-later focus:border-state-now/80 focus:outline-none"
             />
           )}
           <button
             type="button"
             onClick={() => setShow((current) => !current)}
-            className="mt-2 shrink-0 rounded-md border border-edge px-2 py-1 text-xs font-semibold text-state-later active:bg-surface-raised"
+            className="press mt-2 shrink-0 rounded-full border border-edge px-2.5 py-1 text-xs font-semibold text-state-later active:bg-surface"
           >
             {show ? 'Hide' : 'Show'}
           </button>
         </div>
       </div>
 
-      <div className="mt-1 flex items-center gap-1.5">
+      <div className="mt-1.5 flex items-center gap-1">
         {STATUS_ORDER.map((status) => (
           <button
             key={status}
@@ -342,10 +343,10 @@ function AccountRow({
             onClick={() => void onPatch(account.id, { status })}
             aria-pressed={account.status === status}
             className={[
-              'rounded px-1.5 py-0.5 label',
+              'press rounded-full px-2.5 py-1 label',
               account.status === status
                 ? 'bg-surface-raised text-state-now'
-                : 'text-state-later active:bg-surface-raised',
+                : 'text-state-later active:bg-surface',
             ].join(' ')}
           >
             {STATUS_LABELS[status]}
@@ -354,7 +355,7 @@ function AccountRow({
         <button
           type="button"
           onClick={() => void onPatch(account.id, { is_active: false })}
-          className="ml-auto rounded px-1.5 py-0.5 label text-state-later active:bg-surface-raised"
+          className="press ml-auto rounded-full px-2.5 py-1 label text-state-later active:bg-surface"
         >
           Remove
         </button>

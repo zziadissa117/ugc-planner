@@ -30,6 +30,7 @@ import {
   type WheelEvent as ReactWheelEvent,
 } from 'react'
 
+import { FitIcon, MinusIcon, PlusIcon } from '../components/icons'
 import { fitTransform, zoomAt, type Bounds, type CanvasTransform } from './canvasZoom'
 
 /** The stage's own size in CSS pixels, for the 0-100 unit space the graph is
@@ -218,49 +219,33 @@ export function NeuralCanvas({
       </div>
 
       <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
-        <div className="pointer-events-auto flex items-center gap-0.5 rounded-full border border-edge bg-surface/90 p-1 backdrop-blur-md">
+        <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-edge bg-ink/80 p-1 backdrop-blur-md">
           <button
             type="button"
             onClick={zoomBy(0.75)}
             aria-label="Zoom out"
-            className="flex h-8 w-8 items-center justify-center rounded-full text-base text-state-later active:bg-surface-raised"
+            className="press flex size-10 items-center justify-center rounded-full text-state-later active:bg-surface"
           >
-            −
+            <MinusIcon className="h-4 w-4" />
           </button>
           <button
             type="button"
             onClick={fit}
             aria-label="Reset the view"
-            className="flex h-8 w-8 items-center justify-center rounded-full text-state-later active:bg-surface-raised"
+            className="press flex size-10 items-center justify-center rounded-full text-state-later active:bg-surface"
           >
-            <FitIcon />
+            <FitIcon className="h-4 w-4" />
           </button>
           <button
             type="button"
             onClick={zoomBy(1.3)}
             aria-label="Zoom in"
-            className="flex h-8 w-8 items-center justify-center rounded-full text-base text-state-later active:bg-surface-raised"
+            className="press flex size-10 items-center justify-center rounded-full text-state-later active:bg-surface"
           >
-            +
+            <PlusIcon className="h-4 w-4" />
           </button>
         </div>
       </div>
     </div>
-  )
-}
-
-/** A viewfinder - four corner brackets - for "fit everything back on
- *  screen", the one thing a pan-and-zoom canvas always needs a way back
- *  from. */
-function FitIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4" aria-hidden>
-      <path
-        d="M4 9V5a1 1 0 0 1 1-1h4M20 9V5a1 1 0 0 0-1-1h-4M4 15v4a1 1 0 0 0 1 1h4M20 15v4a1 1 0 0 1-1 1h-4"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-      />
-    </svg>
   )
 }

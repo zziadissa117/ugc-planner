@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
+import { CheckIcon, CloseIcon, CopyIcon, UploadIcon } from '../components/icons'
+import { Button, Disclosure, ScreenHeader, SectionLabel } from '../components/ui'
+import { INPUT_CLASS } from '../components/styles'
 import { EXPORT_REMINDER_DAYS } from '../data'
 import type { Campaign } from '../data'
 import { useData } from '../data/useData'
@@ -83,11 +86,11 @@ export function Settings() {
   }, [data, json])
 
   return (
-    <section className="mx-auto flex max-w-screen-sm flex-col gap-6">
-      <h1 className="text-2xl font-semibold text-text">Setup</h1>
+    <section className="mx-auto flex max-w-screen-sm flex-col gap-8">
+      <ScreenHeader title="Setup" />
 
       {exportIsStale ? (
-        <p className="rounded-lg border border-state-waiting/40 bg-state-waiting/10 px-4 py-3 text-state-waiting">
+        <p className="border-l-2 border-state-waiting pl-3 text-base text-state-waiting">
           Your last export is more than {EXPORT_REMINDER_DAYS} days old.
         </p>
       ) : null}
@@ -96,57 +99,38 @@ export function Settings() {
 
       <TodoList campaigns={campaigns} />
 
-      <details className="group">
-        <summary className="flex min-h-tap cursor-pointer list-none items-center justify-between text-lg font-semibold text-text">
-          Backup
-          <span className="text-sm font-normal text-state-later group-open:hidden">Export / import</span>
-        </summary>
+      <Disclosure summary="Backup" tone="now" trailing="Export / import" className="border-t">
+        <div className="flex flex-col gap-3 pt-1">
+          <div className="grid grid-cols-2 gap-3">
+            <Button onClick={() => void handleExport()}>
+              <UploadIcon className="h-5 w-5" />
+              Export
+            </Button>
+            <Button onClick={() => void handleCopy()} disabled={json === ''}>
+              <CopyIcon className="h-5 w-5" />
+              Copy
+            </Button>
+          </div>
 
-        <div className="mt-3 flex gap-3">
-          <button
-            type="button"
-            onClick={() => void handleExport()}
-            className="min-h-tap flex-1 rounded-lg border border-edge bg-surface px-4 font-semibold text-text active:bg-surface-raised"
-          >
-            Export
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleCopy()}
-            disabled={json === ''}
-            className="min-h-tap flex-1 rounded-lg border border-edge bg-surface px-4 font-semibold text-text active:bg-surface-raised disabled:text-state-later"
-          >
-            Copy
-          </button>
+          <textarea
+            value={json}
+            onChange={(event) => setJson(event.target.value)}
+            spellCheck={false}
+            placeholder="Export puts your backup here. Or paste one in and import it."
+            className={`${INPUT_CLASS} h-32 w-full resize-y py-3 font-mono text-xs`}
+          />
+
+          <Button variant="waiting" onClick={() => void handleImport()} disabled={json === ''}>
+            Import - replaces everything
+          </Button>
+
+          {status.kind === 'ok' ? <p className="text-base text-state-posted">{status.message}</p> : null}
+          {status.kind === 'error' ? <p className="text-base text-state-blocked">{status.message}</p> : null}
+          {status.kind === 'busy' ? <p className="text-base text-state-later">Working...</p> : null}
         </div>
+      </Disclosure>
 
-        <textarea
-          value={json}
-          onChange={(event) => setJson(event.target.value)}
-          spellCheck={false}
-          placeholder="Export puts your backup here. Or paste one in and import it."
-          className="mt-3 h-32 w-full resize-y rounded-lg border border-edge bg-surface p-3 font-mono text-xs text-text placeholder:text-state-later"
-        />
-
-        <button
-          type="button"
-          onClick={() => void handleImport()}
-          disabled={json === ''}
-          className="mt-3 min-h-tap w-full rounded-lg border border-state-waiting/50 bg-surface px-4 font-semibold text-state-waiting active:bg-surface-raised disabled:border-edge disabled:text-state-later"
-        >
-          Import - replaces everything
-        </button>
-
-        {status.kind === 'ok' ? (
-          <p className="mt-3 text-state-posted">{status.message}</p>
-        ) : null}
-        {status.kind === 'error' ? (
-          <p className="mt-3 text-state-blocked">{status.message}</p>
-        ) : null}
-        {status.kind === 'busy' ? <p className="mt-3 text-state-later">Working...</p> : null}
-      </details>
-
-      <p className="text-sm text-state-later">
+      <p className="meta text-state-later">
         The reset buttons are not built. Nothing else here needs setting.
       </p>
     </section>
@@ -177,7 +161,11 @@ function TodoList({ campaigns }: { campaigns: Campaign[] }) {
   )
 
   useEffect(() => {
-    localStorage.setItem(TODO_KEY, JSON.stringify(todos))
+    try {
+      localStorage.setItem(TODO_KEY, JSON.stringify(todos))
+    } catch {
+      // Private browsing or full storage: the list still works for this visit.
+    }
   }, [todos])
 
   const add = () => {
@@ -190,53 +178,82 @@ function TodoList({ campaigns }: { campaigns: Campaign[] }) {
   const remaining = todos.filter((todo) => !todo.done).length
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-edge bg-surface shadow-[0_12px_36px_rgba(0,0,0,0.18)]">
-      <div className="flex items-center justify-between border-b border-edge bg-surface-raised px-4 py-3">
-        <div>
-          <h2 className="font-semibold text-text">Studio list</h2>
-          <p className="text-xs text-text-dim">
-            {remaining === 0 ? 'Clear runway.' : `${remaining} thing${remaining === 1 ? '' : 's'} left`}
-          </p>
-        </div>
-        <span className="rounded-full border border-state-waiting/30 bg-state-waiting/10 px-2.5 py-1 text-xs font-semibold text-state-waiting">
-          {todos.length}
-        </span>
-      </div>
+    <div className="flex flex-col gap-3">
+      {/* The count is plain grey text. It used to be an amber pill, and amber
+          means waiting on someone or unconfirmed - a to-do count is neither. */}
+      <SectionLabel
+        trailing={remaining === 0 ? (todos.length === 0 ? undefined : 'clear') : `${remaining} left`}
+      >
+        Studio list
+      </SectionLabel>
 
-      <div className="p-3">
-        {todos.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-edge px-3 py-5 text-center text-sm text-text-dim">
-            Add the next small thing and get it out of your head.
-          </p>
-        ) : (
-          <ul className="space-y-1">
-            {todos.map((todo) => (
-              <li key={todo.id} className="group flex min-h-11 items-center gap-3 rounded-xl px-2 py-1.5 active:bg-surface-raised">
-                <button type="button" aria-label={`Mark ${todo.text} ${todo.done ? 'incomplete' : 'complete'}`} onClick={() => setTodos((current) => current.map((item) => item.id === todo.id ? { ...item, done: !item.done } : item))} className={`flex size-5 shrink-0 items-center justify-center rounded-full border ${todo.done ? 'border-state-posted bg-state-posted text-ink' : 'border-text-dim'}`}>
-                  {todo.done ? '✓' : null}
+      {todos.length === 0 ? (
+        <p className="py-2 text-base text-text-dim">Add the next small thing and get it out of your head.</p>
+      ) : (
+        <ul className="flex flex-col divide-y divide-rule border-y border-rule">
+          {todos.map((todo) => {
+            const match = matchFor(todo.text)
+            return (
+              <li key={todo.id} className="flex min-h-tap items-center gap-3 py-1.5">
+                <button
+                  type="button"
+                  aria-label={`Mark ${todo.text} ${todo.done ? 'incomplete' : 'complete'}`}
+                  onClick={() =>
+                    setTodos((current) =>
+                      current.map((item) => (item.id === todo.id ? { ...item, done: !item.done } : item)),
+                    )
+                  }
+                  className="press -m-2 flex size-11 shrink-0 items-center justify-center"
+                >
+                  <span
+                    className={`flex size-6 items-center justify-center rounded-full border ${
+                      todo.done ? 'border-state-posted text-state-posted' : 'border-edge-lit'
+                    }`}
+                  >
+                    {todo.done ? <CheckIcon className="draw-check h-4 w-4" strokeWidth={2.25} /> : null}
+                  </span>
                 </button>
-                <span className={`min-w-0 flex-1 text-sm ${todo.done ? 'text-text-dim line-through' : 'text-text'}`}>{todo.text}</span>
-                {(() => {
-                  const match = matchFor(todo.text)
-                  return match ? (
-                    <Link
-                      to={`/campaigns/${match.id}`}
-                      aria-label={`Open the brief for ${match.name}`}
-                      className="shrink-0 rounded-lg border border-edge px-2 py-1 text-xs font-semibold text-state-later active:bg-ink active:text-text"
-                    >
-                      {match.name}
-                    </Link>
-                  ) : null
-                })()}
-                <button type="button" aria-label={`Remove ${todo.text}`} onClick={() => setTodos((current) => current.filter((item) => item.id !== todo.id))} className="rounded-lg px-2 py-1 text-text-dim active:bg-ink active:text-text">×</button>
+                <span
+                  className={`min-w-0 flex-1 text-base ${todo.done ? 'text-state-later line-through' : 'text-text'}`}
+                >
+                  {todo.text}
+                </span>
+                {match ? (
+                  <Link
+                    to={`/campaigns/${match.id}`}
+                    aria-label={`Open the brief for ${match.name}`}
+                    className="press shrink-0 rounded-full border border-edge px-3 py-1 text-sm font-semibold text-text-dim active:bg-surface"
+                  >
+                    {match.name}
+                  </Link>
+                ) : null}
+                <button
+                  type="button"
+                  aria-label={`Remove ${todo.text}`}
+                  onClick={() => setTodos((current) => current.filter((item) => item.id !== todo.id))}
+                  className="press -mr-2 flex size-10 shrink-0 items-center justify-center rounded-full text-state-later active:bg-surface"
+                >
+                  <CloseIcon className="h-4 w-4" />
+                </button>
               </li>
-            ))}
-          </ul>
-        )}
-        <div className="mt-3 flex gap-2 border-t border-edge pt-3">
-          <input value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') add() }} placeholder="e.g. Charge the phone rig" className="min-h-tap min-w-0 flex-1 rounded-xl border border-edge bg-ink px-3 text-sm text-text placeholder:text-text-dim" />
-          <button type="button" onClick={add} disabled={!draft.trim()} className="min-h-tap rounded-xl bg-state-now px-4 text-sm font-bold text-ink disabled:bg-surface-raised disabled:text-text-dim">Add</button>
-        </div>
+            )
+          })}
+        </ul>
+      )}
+
+      <div className="flex gap-2">
+        <input
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') add()
+          }}
+          placeholder="e.g. Charge the phone rig"
+          className={`${INPUT_CLASS} min-w-0 flex-1`}
+        />
+        <Button onClick={add} disabled={!draft.trim()}>
+          Add
+        </Button>
       </div>
     </div>
   )
@@ -273,31 +290,27 @@ function Account() {
 
   if (auth.email) {
     return (
-      <div>
-        <h2 className="text-lg font-semibold text-text">Account</h2>
-        <p className="mt-1 text-state-later">
+      <div className="flex flex-col gap-3">
+        <SectionLabel>Account</SectionLabel>
+        <p className="text-base text-text-dim">
           Signed in as <span className="text-text">{auth.email}</span>. Syncs across devices, and
           the AI parser can read your documents on the New campaign screen.
         </p>
-        <button
-          type="button"
-          onClick={() => void auth.signOut()}
-          className="mt-3 min-h-tap rounded-lg border border-edge bg-surface px-4 font-semibold text-text active:bg-surface-raised"
-        >
+        <Button onClick={() => void auth.signOut()} className="self-start">
           Sign out
-        </button>
+        </Button>
       </div>
     )
   }
 
   return (
-    <div>
-      <h2 className="text-lg font-semibold text-text">Account</h2>
-      <p className="mt-1 text-state-later">
+    <div className="flex flex-col gap-3">
+      <SectionLabel>Account</SectionLabel>
+      <p className="text-base text-text-dim">
         Sign in to sync across devices and let the AI parser read your campaign documents. Not
         required otherwise - everything works signed out.
       </p>
-      <div className="mt-3 flex gap-3">
+      <div className="flex gap-2">
         <input
           type="email"
           inputMode="email"
@@ -306,24 +319,22 @@ function Account() {
           onChange={(event) => setEmail(event.target.value)}
           placeholder="you@example.com"
           disabled={auth.requestStatus === 'sending' || auth.requestStatus === 'sent'}
-          className="min-h-tap flex-1 rounded-lg border border-edge bg-surface px-4 text-text placeholder:text-state-later disabled:text-state-later"
+          className={`${INPUT_CLASS} min-w-0 flex-1 disabled:text-state-later`}
         />
-        <button
-          type="button"
+        <Button
           onClick={() => void auth.requestLink(email)}
           disabled={
             email.trim() === '' || auth.requestStatus === 'sending' || auth.requestStatus === 'sent'
           }
-          className="min-h-tap rounded-lg border border-edge bg-surface px-5 font-semibold text-text active:bg-surface-raised disabled:text-state-later"
         >
           {auth.requestStatus === 'sending' ? 'Sending...' : 'Send link'}
-        </button>
+        </Button>
       </div>
       {auth.requestStatus === 'sent' ? (
-        <p className="mt-2 text-state-posted">Check your email for the sign-in link.</p>
+        <p className="text-base text-state-posted">Check your email for the sign-in link.</p>
       ) : null}
       {auth.requestStatus === 'error' ? (
-        <p className="mt-2 text-state-blocked">{auth.requestError}</p>
+        <p className="text-base text-state-blocked">{auth.requestError}</p>
       ) : null}
     </div>
   )

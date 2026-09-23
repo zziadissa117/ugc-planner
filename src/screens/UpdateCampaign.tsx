@@ -11,7 +11,7 @@
 // Only a conflict - a confirmed value the new document disagrees with - stops
 // and asks, one field at a time, defaulting to "keep what I have."
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 
 import { DocumentInput, type Upload } from '../components/DocumentInput'
@@ -59,7 +59,9 @@ export function UpdateCampaign() {
   const briefText = brief.text.trim() === '' ? null : brief.text
   const contractText = contract.text.trim() === '' ? null : contract.text
 
-  const edgeParser = new EdgeFunctionParser()
+  // One instance for the life of the screen, so the callbacks that use it
+  // are not rebuilt on every keystroke.
+  const edgeParser = useMemo(() => new EdgeFunctionParser(), [])
   const serverAvailable = edgeParser.isAvailable()
   const useServer = serverAvailable && json.trim() === ''
 
@@ -111,7 +113,7 @@ export function UpdateCampaign() {
     } finally {
       setParsing(false)
     }
-  }, [briefText, campaignId, contractText, data, edgeParser, json, useServer])
+  }, [briefText, campaign, campaignId, contractText, data, edgeParser, json, useServer])
 
   const apply = useCallback(async () => {
     if (!campaignId || !result) return
@@ -147,9 +149,9 @@ export function UpdateCampaign() {
     const unchanged = fieldDiffs.filter((d) => d.status === 'same')
 
     return (
-      <section className="mx-auto flex max-w-screen-sm flex-col gap-6">
+      <section className="mx-auto flex max-w-screen-sm flex-col gap-7">
         <header>
-          <h1 className="text-2xl font-semibold text-text">Update {campaign.name}</h1>
+          <h1 className="text-[1.625rem] font-semibold leading-tight tracking-[-0.015em] text-text">Update {campaign.name}</h1>
           <p className="text-state-later">
             Nothing changes until you tap Apply. Nothing already confirmed changes without you
             choosing it below.
@@ -171,7 +173,7 @@ export function UpdateCampaign() {
             <h2 className="text-lg font-semibold text-state-blocked">
               Disagrees with what you already confirmed - {conflicts.length}
             </h2>
-            <p className="mt-1 text-sm text-state-later">
+            <p className="meta mt-1 text-state-later">
               Nothing here changes unless you tap "Use new". The default is to keep what you have.
             </p>
             <div className="mt-2 flex flex-col gap-3">
@@ -197,17 +199,17 @@ export function UpdateCampaign() {
         {newFields.length > 0 ? (
           <div>
             <h2 className="text-lg font-semibold text-text">New in this document - {newFields.length}</h2>
-            <p className="mt-1 text-sm text-state-later">
+            <p className="meta mt-1 text-state-later">
               Nothing here existed before, so all of it will be added - amber until you confirm it,
               same as a fresh parse.
             </p>
             <ul className="mt-2 flex flex-col gap-2">
               {newFields.map((diff) => (
-                <li key={diff.key} className="rounded-lg border border-edge bg-surface p-3">
+                <li key={diff.key} className="rounded-2xl border border-rule p-4">
                   <p className="text-sm text-state-later">{fieldLabel(diff.key)}</p>
                   <p className="text-text">{diff.parsedValue}</p>
                   {diff.parsedQuote ? (
-                    <p className="mt-1 text-xs text-state-later">"{diff.parsedQuote}"</p>
+                    <p className="meta mt-1 text-state-later">"{diff.parsedQuote}"</p>
                   ) : null}
                 </li>
               ))}
@@ -218,13 +220,13 @@ export function UpdateCampaign() {
         {addedRules.length > 0 ? (
           <div>
             <h2 className="text-lg font-semibold text-text">New rules - {addedRules.length}</h2>
-            <p className="mt-1 text-sm text-state-later">
+            <p className="meta mt-1 text-state-later">
               Added to what you already have. A rule missing from this document is not proof the
               old ones stopped applying, so nothing is ever removed here.
             </p>
             <ul className="mt-2 flex flex-col gap-2">
               {addedRules.map((body) => (
-                <li key={body} className="border-l-2 border-state-blocked/50 pl-3 text-sm text-text">
+                <li key={body} className="border-l border-state-blocked/70 pl-3 text-base text-text">
                   {body}
                 </li>
               ))}
@@ -259,14 +261,14 @@ export function UpdateCampaign() {
             type="button"
             onClick={() => void apply()}
             disabled={busy}
-            className="min-h-tap flex-1 rounded-lg border border-state-now bg-surface-raised px-4 font-semibold text-state-now active:bg-surface disabled:opacity-60"
+            className="flex-1 min-h-tap rounded-xl border border-state-now/80 bg-surface px-4 font-semibold text-state-now lit press inline-flex items-center justify-center gap-2 active:bg-surface-raised disabled:border-edge disabled:text-state-later disabled:shadow-none"
           >
             Apply update
           </button>
           <button
             type="button"
             onClick={() => setResult(null)}
-            className="min-h-tap rounded-lg border border-edge bg-surface px-4 font-semibold text-state-later active:bg-surface-raised"
+            className="min-h-tap rounded-xl border border-transparent px-4 font-semibold text-state-later press inline-flex items-center justify-center gap-2 active:bg-surface"
           >
             Back
           </button>
@@ -276,9 +278,9 @@ export function UpdateCampaign() {
   }
 
   return (
-    <section className="mx-auto flex max-w-screen-sm flex-col gap-6">
+    <section className="mx-auto flex max-w-screen-sm flex-col gap-7">
       <header>
-        <h1 className="text-2xl font-semibold text-text">Update {campaign.name}</h1>
+        <h1 className="text-[1.625rem] font-semibold leading-tight tracking-[-0.015em] text-text">Update {campaign.name}</h1>
         <p className="text-state-later">
           Drop the new brief or contract. What has not changed is left alone; what has is flagged,
           never overwritten without a tap.
@@ -289,10 +291,10 @@ export function UpdateCampaign() {
       <DocumentInput label="NEW CONTRACT (.md)" upload={contract} onChange={setContract} />
 
       <div>
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-state-later">
+        <h2 className="label text-state-later">
           Parsed JSON
         </h2>
-        <p className="mt-1 text-sm text-state-later">
+        <p className="meta mt-1 text-state-later">
           {serverAvailable
             ? "Tap Compare and the server reads the documents above for you."
             : 'The server parser is not deployed, so run the documents through a model yourself and paste what it gives back.'}
@@ -302,7 +304,7 @@ export function UpdateCampaign() {
           onChange={(event) => setJson(event.target.value)}
           aria-label="Parsed JSON"
           spellCheck={false}
-          className="mt-3 h-40 w-full resize-y rounded-lg border border-edge bg-surface p-3 font-mono text-xs text-text placeholder:text-state-later"
+          className="mt-3 h-40 w-full resize-y rounded-xl border border-edge bg-surface p-3 font-mono text-xs text-text placeholder:text-state-later/80 transition-colors focus:border-state-now/80 focus:outline-none focus-visible:outline-none"
         />
       </div>
 
@@ -315,7 +317,7 @@ export function UpdateCampaign() {
         disabled={
           parsing || (useServer ? briefText === null && contractText === null : json.trim() === '')
         }
-        className="min-h-tap rounded-lg border border-state-now bg-surface-raised px-4 font-semibold text-state-now active:bg-surface disabled:border-edge disabled:bg-surface disabled:text-state-later"
+        className="min-h-tap rounded-xl border border-state-now/80 bg-surface px-4 font-semibold text-state-now lit press inline-flex items-center justify-center gap-2 active:bg-surface-raised disabled:border-edge disabled:text-state-later disabled:shadow-none"
       >
         {parsing ? 'Reading the documents...' : 'Compare with what is saved'}
       </button>
@@ -333,20 +335,20 @@ function ConflictRow({
   onChoose: (choose: boolean) => void
 }) {
   return (
-    <div className="rounded-lg border border-state-blocked/50 bg-surface p-3">
+    <div className="rounded-2xl border border-state-blocked/50 p-4">
       <p className="text-sm font-semibold text-text">{fieldLabel(diff.key)}</p>
 
-      <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-state-later">
+      <p className="mt-2 label text-state-later">
         You have
       </p>
       <p className="text-text">{diff.currentValue}</p>
 
-      <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-state-waiting">
+      <p className="mt-2 label text-state-waiting">
         New document says
       </p>
       <p className="text-text">{diff.parsedValue}</p>
       {diff.parsedQuote ? (
-        <p className="mt-1 text-xs text-state-later">"{diff.parsedQuote}"</p>
+        <p className="meta mt-1 text-state-later">"{diff.parsedQuote}"</p>
       ) : null}
 
       <div className="mt-3 flex gap-2">

@@ -769,6 +769,10 @@ export class LocalAdapter implements DataAdapter {
     return this.db.video_posts.where('video_id').equals(videoId).toArray()
   }
 
+  async listAllVideoPosts(): Promise<VideoPost[]> {
+    return this.db.video_posts.toArray()
+  }
+
   async setViewCount(videoPostId: string, viewCount: number): Promise<VideoPost> {
     return this.tx([this.db.video_posts, this.db._outbox], async (tx) => {
       const existing = (await this.requireRow(tx, 'video_posts', videoPostId)) as VideoPost

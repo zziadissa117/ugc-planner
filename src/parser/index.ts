@@ -1,5 +1,5 @@
 export { applyParseResult, type ApplyInput } from './apply'
-export { EDGE_FUNCTION_CONTRACT, EdgeFunctionParser } from './edgeFunction'
+export { EdgeFunctionParser } from './edgeFunction'
 export { PASTE_SCHEMA_EXAMPLE, PastedJsonParser } from './pastedJson'
 export {
   NEVER_PARSED_FIELDS,

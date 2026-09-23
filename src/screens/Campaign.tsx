@@ -18,6 +18,9 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import { AccountsEditor } from '../components/AccountsEditor'
 import { EditableField } from '../components/EditableField'
+import { CloseIcon, TrashIcon, UploadIcon } from '../components/icons'
+import { Button, Disclosure, SectionLabel } from '../components/ui'
+import { INPUT_CLASS, buttonClass } from '../components/styles'
 import type {
   Campaign as CampaignRow,
   CampaignAccount,
@@ -162,22 +165,20 @@ export function Campaign() {
   const perDay = dailyEarningsCents(campaign, accounts)
 
   return (
-    <section className="mx-auto flex max-w-4xl flex-col gap-3">
-      <header className="flex flex-wrap items-center justify-between gap-2">
+    <section className="mx-auto flex max-w-4xl flex-col gap-5">
+      <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <CampaignTitle
             name={campaign.name}
             onSave={(next) => saveColumn({ name: next })}
           />
           {campaign.company ? (
-            <p className="text-xs text-state-later">{campaign.company}</p>
+            <p className="meta mt-1 text-state-later">{campaign.company}</p>
           ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <Link
-            to={`/campaigns/${campaign.id}/update`}
-            className="rounded-md border border-edge px-2 py-1 text-xs font-semibold text-state-later active:bg-surface-raised"
-          >
+          <Link to={`/campaigns/${campaign.id}/update`} className={buttonClass('quiet', 'small')}>
+            <UploadIcon className="h-4 w-4" />
             Update from a new brief
           </Link>
           <DeleteCampaign
@@ -191,7 +192,7 @@ export function Campaign() {
       </header>
 
       {/* The three numbers that decide what today owes and what it pays. */}
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-edge bg-surface px-3 py-2">
+      <div className="flex flex-wrap items-center gap-2 border-y border-rule py-3">
         {/* Through the field row rather than straight at the column: the
             provenance row and the column the app plans against have to move
             together, or the screen ends up showing a confirmed rate beside
@@ -209,10 +210,8 @@ export function Campaign() {
           onSave={(next) => saveColumn({ daily_post_quota: next })}
         />
         <div className="ml-auto text-right">
-          <p className="label text-state-later">
-            per day
-          </p>
-          <p className="text-sm font-semibold tabular-nums text-text">
+          <p className="label text-state-later">per day</p>
+          <p className="numeric mt-1 text-2xl font-semibold leading-none text-text">
             {perDay === null ? 'no rate yet' : formatCents(perDay)}
           </p>
         </div>
@@ -225,18 +224,16 @@ export function Campaign() {
       />
 
       {campaign.brief_is_incomplete ? (
-        <p className="rounded-md border border-state-waiting/40 bg-state-waiting/10 px-3 py-1.5 text-sm text-state-waiting">
+        <p className="border-l-2 border-state-waiting pl-3 text-base text-state-waiting">
           This brief looks incomplete. Some rules may be missing.
         </p>
       ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="flex flex-col gap-3">
+      <div className="grid gap-x-10 gap-y-6 sm:grid-cols-2">
+        <div className="flex flex-col gap-5">
           <div>
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-state-later">
-              The brief
-            </h2>
-            <div className="mt-1 flex flex-col divide-y divide-edge rounded-lg border border-edge bg-surface px-3 text-sm">
+            <SectionLabel>The brief</SectionLabel>
+            <div className="mt-2 flex flex-col divide-y divide-rule border-b border-rule">
               {BRIEF_KEYS.map((key) => (
                 <EditableField
                   key={key}
@@ -262,33 +259,24 @@ export function Campaign() {
           <HooksEditor campaignId={campaign.id} />
         </div>
 
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-5">
           <AccountsEditor data={data} campaignId={campaign.id} onChanged={() => void refresh()} />
 
           {rules.length > 0 ? (
-            <details className="rounded-lg border border-edge bg-surface">
-              <summary className="flex min-h-tap cursor-pointer items-center px-3 text-sm font-semibold text-state-blocked">
-                Never do - {rules.length}
-              </summary>
-              <ul className="flex flex-col gap-2 border-t border-edge px-3 py-2">
+            <Disclosure summary={`Never do - ${rules.length}`} tone="blocked" className="border-t">
+              <ul className="flex flex-col gap-2.5">
                 {rules.map((rule) => (
-                  <li
-                    key={rule.id}
-                    className="border-l-2 border-state-blocked/50 pl-2 text-sm text-text"
-                  >
+                  <li key={rule.id} className="border-l border-state-blocked/70 pl-3 text-base text-text">
                     {rule.body}
                   </li>
                 ))}
               </ul>
-            </details>
+            </Disclosure>
           ) : null}
 
           {rest.length > 0 ? (
-            <details className="rounded-lg border border-edge bg-surface">
-              <summary className="flex min-h-tap cursor-pointer items-center px-3 text-sm font-semibold text-state-later">
-                Everything else from the documents - {rest.length}
-              </summary>
-              <div className="flex flex-col divide-y divide-edge border-t border-edge px-3 py-1 text-sm">
+            <Disclosure summary={`Everything else from the documents - ${rest.length}`} className="border-t">
+              <div className="flex flex-col divide-y divide-rule text-sm">
                 {rest.map((field) => (
                   <EditableField
                     key={field.id}
@@ -302,7 +290,7 @@ export function Campaign() {
                   />
                 ))}
               </div>
-            </details>
+            </Disclosure>
           ) : null}
         </div>
       </div>
@@ -341,46 +329,41 @@ function GenerationBrief({
   const dirty = draft.trim() !== value.trim()
 
   return (
-    <details
-      className="rounded-lg border border-edge bg-surface"
+    <Disclosure
+      summary={`Brief for the hook writer${value.trim() === '' ? '' : ' - saved'}`}
+      tone="now"
+      className="border-t"
       open={open}
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
-      <summary className="flex min-h-tap cursor-pointer items-center px-3 text-sm font-semibold text-text">
-        Brief for the hook writer{value.trim() === '' ? '' : ' - saved'}
-      </summary>
-
-      <div className="border-t border-edge px-3 py-2">
-        <p className="mb-2 text-xs text-state-later">
-          Paste the whole thing - product, audience, voice, structure, formats, hook banks,
-          angles. It goes to the hook writer as-is and outranks the short fields above. It is
-          never shown as a hook.
-        </p>
-        <textarea
-          value={draft}
-          onChange={(event) => {
-            setDraft(event.target.value)
-            setSaved(false)
-          }}
-          aria-label="Brief for the hook writer"
-          placeholder="# Campaign brief&#10;&#10;## PRODUCT&#10;...&#10;&#10;## VOICE&#10;..."
-          className="h-64 w-full resize-y rounded-md border border-edge bg-surface-raised p-2 font-mono text-xs text-text placeholder:text-state-later"
-        />
-        <button
-          type="button"
-          onClick={() => {
-            setBusy(true)
-            void onSave(draft.trim() === '' ? null : draft)
-              .then(() => setSaved(true))
-              .finally(() => setBusy(false))
-          }}
-          disabled={busy || !dirty}
-          className="mt-1.5 min-h-tap w-full rounded-md border border-edge px-3 text-sm font-semibold text-text active:bg-surface-raised disabled:text-state-later"
-        >
-          {busy ? 'Saving...' : saved && !dirty ? 'Saved' : 'Save the brief'}
-        </button>
-      </div>
-    </details>
+      <p className="meta mb-3 text-state-later">
+        Paste the whole thing - product, audience, voice, structure, formats, hook banks, angles. It
+        goes to the hook writer as-is and outranks the short fields above. It is never shown as a
+        hook.
+      </p>
+      <textarea
+        value={draft}
+        onChange={(event) => {
+          setDraft(event.target.value)
+          setSaved(false)
+        }}
+        aria-label="Brief for the hook writer"
+        placeholder="# Campaign brief&#10;&#10;## PRODUCT&#10;...&#10;&#10;## VOICE&#10;..."
+        className={`${INPUT_CLASS} h-64 w-full resize-y py-3 font-mono text-xs`}
+      />
+      <Button
+        onClick={() => {
+          setBusy(true)
+          void onSave(draft.trim() === '' ? null : draft)
+            .then(() => setSaved(true))
+            .finally(() => setBusy(false))
+        }}
+        disabled={busy || !dirty}
+        className="mt-2 w-full"
+      >
+        {busy ? 'Saving...' : saved && !dirty ? 'Saved' : 'Save the brief'}
+      </Button>
+    </Disclosure>
   )
 }
 
@@ -441,58 +424,45 @@ function HooksEditor({ campaignId }: { campaignId: string }) {
   }
 
   return (
-    <details className="rounded-lg border border-edge bg-surface">
-      <summary className="flex min-h-tap cursor-pointer items-center px-3 text-sm font-semibold text-text">
-        Hooks &amp; ideas - {hooks.length}
-      </summary>
+    <Disclosure summary={`Hooks & ideas - ${hooks.length}`} tone="now" className="border-t">
+      {hooks.length > 0 ? (
+        <ul className="flex flex-col divide-y divide-rule border-y border-rule">
+          {hooks.map((hook) => (
+            <li key={hook.id} className="flex items-start gap-2 py-2.5">
+              <span
+                className={`min-w-0 flex-1 whitespace-pre-wrap text-base ${
+                  hook.used_at === null ? 'text-text' : 'text-state-later line-through'
+                }`}
+              >
+                {hook.body}
+                {hook.source === 'generated' ? (
+                  <span className="ml-2 label text-state-later">generated</span>
+                ) : null}
+              </span>
+              <button
+                type="button"
+                onClick={() => void remove(hook.id)}
+                aria-label={`Delete hook: ${hook.body.slice(0, 40)}`}
+                className="press -my-1 flex size-9 shrink-0 items-center justify-center rounded-full text-state-later active:bg-surface"
+              >
+                <CloseIcon className="h-4 w-4" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
 
-      <div className="border-t border-edge px-3 py-2">
-        {hooks.length > 0 ? (
-          <ul className="flex flex-col gap-1">
-            {hooks.map((hook) => (
-              <li key={hook.id} className="flex items-start gap-2">
-                <span
-                  className={`min-w-0 flex-1 whitespace-pre-wrap text-sm ${
-                    hook.used_at === null ? 'text-text' : 'text-state-later line-through'
-                  }`}
-                >
-                  {hook.body}
-                  {hook.source === 'generated' ? (
-                    <span className="ml-2 label text-state-later">
-                      generated
-                    </span>
-                  ) : null}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => void remove(hook.id)}
-                  aria-label={`Delete hook: ${hook.body.slice(0, 40)}`}
-                  className="shrink-0 rounded px-1.5 text-state-later active:bg-surface-raised"
-                >
-                  ×
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-
-        <textarea
-          value={body}
-          onChange={(event) => setBody(event.target.value)}
-          aria-label="Hooks and ideas"
-          placeholder="Dump hooks, video ideas, formats, concepts. Blank line between each. Generate Hooks builds from these."
-          className="mt-2 h-24 w-full resize-y rounded-md border border-edge bg-surface-raised p-2 text-sm text-text placeholder:text-state-later"
-        />
-        <button
-          type="button"
-          onClick={() => void add()}
-          disabled={busy || body.trim() === ''}
-          className="mt-1.5 min-h-tap w-full rounded-md border border-edge px-3 text-sm font-semibold text-text active:bg-surface-raised disabled:text-state-later"
-        >
-          Save to this brief
-        </button>
-      </div>
-    </details>
+      <textarea
+        value={body}
+        onChange={(event) => setBody(event.target.value)}
+        aria-label="Hooks and ideas"
+        placeholder="Dump hooks, video ideas, formats, concepts. Blank line between each. Generate Hooks builds from these."
+        className={`${INPUT_CLASS} mt-3 h-28 w-full resize-y py-3 text-base`}
+      />
+      <Button onClick={() => void add()} disabled={busy || body.trim() === ''} className="mt-2 w-full">
+        Save to this brief
+      </Button>
+    </Disclosure>
   )
 }
 
@@ -529,16 +499,13 @@ function CrossPostPay({
       onClick={() => void onToggle(!on)}
       aria-pressed={on}
       aria-label="Each platform pays separately"
-      className={[
-        'flex min-h-tap w-full items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left',
-        on ? 'border-state-posted/40 bg-state-posted/5' : 'border-edge bg-surface',
-      ].join(' ')}
+      className="press flex min-h-tap w-full items-center justify-between gap-4 border-b border-rule pb-3 text-left"
     >
       <span className="min-w-0">
-        <span className={`block text-sm font-semibold ${on ? 'text-state-posted' : 'text-text'}`}>
+        <span className={`block text-base font-semibold ${on ? 'text-state-posted' : 'text-text'}`}>
           Each platform pays separately
         </span>
-        <span className="block text-xs text-state-later">
+        <span className="meta block text-state-later">
           {on
             ? perVideo === null
               ? `One video is paid ${paying} time${paying === 1 ? '' : 's'}, once per platform`
@@ -548,12 +515,21 @@ function CrossPostPay({
             : 'One video earns once, however many platforms it goes to'}
         </span>
       </span>
-      <span
-        className={`shrink-0 label ${
-          on ? 'text-state-posted' : 'text-state-later'
-        }`}
-      >
-        {on ? 'On' : 'Off'}
+      {/* A switch, drawn: the knob travels on the settle spring. */}
+      <span className="flex shrink-0 items-center gap-2">
+        <span className={`label ${on ? 'text-state-posted' : 'text-state-later'}`}>{on ? 'On' : 'Off'}</span>
+        <span
+          aria-hidden
+          className={`relative h-7 w-12 rounded-full border transition-colors duration-300 ${
+            on ? 'border-state-posted/70 bg-state-posted/20' : 'border-edge bg-surface'
+          }`}
+        >
+          <span
+            className={`absolute top-1/2 size-5 -translate-y-1/2 rounded-full transition-[left,background-color] duration-[var(--dur-settle)] [transition-timing-function:var(--ease-settle)] ${
+              on ? 'left-[1.45rem] bg-state-posted' : 'left-0.5 bg-state-later'
+            }`}
+          />
+        </span>
       </span>
     </button>
   )
@@ -600,16 +576,11 @@ function CampaignTitle({
           }}
           aria-label="Campaign name"
           autoFocus
-          className="min-h-tap min-w-0 flex-1 rounded-md border border-state-now bg-surface-raised px-2 text-xl font-semibold text-text"
+          className={`${INPUT_CLASS} min-w-0 flex-1 text-xl font-semibold`}
         />
-        <button
-          type="button"
-          onClick={() => void save()}
-          disabled={busy || draft.trim() === ''}
-          className="shrink-0 rounded-md border border-state-now px-2 py-1 text-xs font-semibold text-state-now active:bg-surface disabled:opacity-60"
-        >
+        <Button variant="now" size="small" onClick={() => void save()} disabled={busy || draft.trim() === ''}>
           Save
-        </button>
+        </Button>
       </div>
     )
   }
@@ -625,7 +596,7 @@ function CampaignTitle({
           setDraft(name)
           setEditing(true)
         }}
-        className="max-w-full break-words rounded-md text-left active:bg-surface-raised"
+        className="press max-w-full break-words rounded-md text-left active:bg-surface"
       >
         {name}
       </button>
@@ -653,59 +624,35 @@ function DeleteCampaign({ name, onDelete }: { name: string; onDelete: () => Prom
         onClick={() => setConfirming(true)}
         aria-label="Delete this campaign"
         title="Delete this campaign"
-        className="rounded-md border border-edge p-1.5 text-state-later active:bg-surface-raised"
+        className="press flex size-10 items-center justify-center rounded-full border border-edge text-state-later active:bg-surface"
       >
-        <TrashIcon />
+        <TrashIcon className="h-4 w-4" />
       </button>
     )
   }
 
   return (
-    <div className="flex flex-col gap-1.5 rounded-lg border border-state-blocked/40 bg-state-blocked/5 p-3">
-      <p className="text-sm text-text">
+    <div className="settle-in flex flex-col gap-2 border-l-2 border-state-blocked pl-3">
+      <p className="text-base text-text">
         Delete {name}? It stops being owed, stops being counted, and leaves every screen.
       </p>
       <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={() => setConfirming(false)}
-          className="min-h-tap flex-1 rounded-md border border-edge px-3 text-sm font-semibold text-state-later active:bg-surface-raised"
-        >
+        <Button onClick={() => setConfirming(false)} className="flex-1">
           Keep it
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
+          variant="blocked"
           disabled={busy}
           onClick={() => {
             setBusy(true)
             void onDelete().finally(() => setBusy(false))
           }}
-          className="min-h-tap flex-1 rounded-md border border-state-blocked px-3 text-sm font-semibold text-state-blocked active:bg-surface disabled:opacity-60"
+          className="flex-1"
         >
           Delete it
-        </button>
+        </Button>
       </div>
     </div>
-  )
-}
-
-function TrashIcon() {
-  return (
-    <svg
-      aria-hidden
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="h-4 w-4"
-    >
-      <path d="M4 7h16" />
-      <path d="M10 11v6M14 11v6" />
-      <path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12" />
-      <path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
-    </svg>
   )
 }
 
@@ -813,19 +760,14 @@ function InlineEdit({
             aria-label={label}
             inputMode="decimal"
             autoFocus
-            className="min-h-tap w-20 rounded-md border border-state-now bg-surface-raised px-2 text-sm text-text"
+            className={`${INPUT_CLASS} w-24 border-state-now/80 text-base`}
           />
-          <button
-            type="button"
-            onClick={() => void save()}
-            disabled={busy}
-            className="rounded-md border border-state-now px-2 py-1 text-xs font-semibold text-state-now active:bg-surface disabled:opacity-60"
-          >
+          <Button variant="now" size="small" onClick={() => void save()} disabled={busy}>
             Save
-          </button>
+          </Button>
         </span>
         {error ? (
-          <span role="alert" className="text-xs text-state-blocked">
+          <span role="alert" className="meta text-state-blocked">
             {error}
           </span>
         ) : null}
@@ -845,12 +787,10 @@ function InlineEdit({
         setDraft(initial)
         setEditing(true)
       }}
-      className="rounded-md border border-edge bg-surface-raised px-2 py-1 text-left hover:border-state-now active:bg-surface"
+      className="press rounded-xl border border-edge px-3 py-2 text-left hover:border-edge-lit active:bg-surface"
     >
-      <span className="block label text-state-later">
-        {label}
-      </span>
-      <span className="block text-sm font-semibold tabular-nums text-text">{display}</span>
+      <span className="block label text-state-later">{label}</span>
+      <span className="numeric mt-1 block text-lg font-semibold leading-none text-text">{display}</span>
     </button>
   )
 }

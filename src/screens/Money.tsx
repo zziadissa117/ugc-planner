@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
+import { ChevronRightIcon } from '../components/icons'
+import { ScreenHeader, SectionLabel } from '../components/ui'
 import type { Campaign, CampaignAccount } from '../data'
 import { canPostFrom } from '../data'
 import { useData } from '../data/useData'
@@ -60,49 +62,56 @@ export function Money() {
   const couldBe = totalEarnings(blocked, accounts)
   const heldBack = couldBe.monthCents > 0
 
+  // Each campaign's month as a share of the best-paying one, for the thin
+  // bar under it. Neutral, never a state colour: it says how big, not how
+  // good or bad.
+  const months = campaigns.map((campaign) => monthlyPayCents(campaign, accounts) ?? 0)
+  const biggest = Math.max(1, ...months)
+
   return (
-    <section className="mx-auto flex max-w-3xl flex-col gap-4">
-      <header>
-        <h1 className="text-xl font-semibold text-text">Money</h1>
-        <p className="text-sm text-state-later">
-          What you earn from campaigns with a ready account.
-        </p>
-      </header>
+    <section className="mx-auto flex max-w-3xl flex-col gap-7">
+      <ScreenHeader title="Money" meta="What you earn from campaigns with a ready account." />
 
-      <div className="flex flex-col gap-2">
-        <div className="grid grid-cols-3 gap-2">
-          <Figure label="Per day" cents={totals.dayCents} big />
-          <Figure label="Per week" cents={totals.weekCents} />
-          <Figure label="Per month" cents={totals.monthCents} />
+      {/* One hero - the day, which is the unit he works in - and the week
+          and month beside each other under it. What each period would come
+          to once onboarding is done sits under its own figure: the finished
+          number rather than the gap - "if i make 100, could make +100, then
+          put could make 200". */}
+      <div className="flex flex-col border-y border-rule">
+        <div className="py-5">
+          <Figure label="Per day" cents={totals.dayCents} size="hero" />
+          {heldBack ? <CouldMake cents={totals.dayCents + couldBe.dayCents} /> : null}
         </div>
-
-        {/* Outside the cards, lined up under them: what each period would come
-            to once onboarding is done. The full figure rather than the gap -
-            "if i make 100, could make +100, then put could make 200" - because
-            the number he wants to look at is the finished one. */}
-        {heldBack ? (
-          <div className="grid grid-cols-3 gap-2">
-            <CouldMake cents={totals.dayCents + couldBe.dayCents} />
-            <CouldMake cents={totals.weekCents + couldBe.weekCents} />
-            <CouldMake cents={totals.monthCents + couldBe.monthCents} />
+        <div className="grid grid-cols-2 divide-x divide-rule border-t border-rule">
+          <div className="py-4 pr-4">
+            <Figure label="Per week" cents={totals.weekCents} size="md" />
+            {heldBack ? <CouldMake cents={totals.weekCents + couldBe.weekCents} /> : null}
           </div>
-        ) : null}
+          <div className="py-4 pl-4">
+            <Figure label="Per month" cents={totals.monthCents} size="md" />
+            {heldBack ? <CouldMake cents={totals.monthCents + couldBe.monthCents} /> : null}
+          </div>
+        </div>
       </div>
 
-      <ul className="flex flex-col gap-1.5">
-        {byBestPay(campaigns, accounts).map((campaign) => (
-          <li key={campaign.id}>
-            <CampaignLine
-              campaign={campaign}
-              counting={campaignIsLive(campaign, accounts)}
-              accounts={accounts}
-            />
-          </li>
-        ))}
-      </ul>
+      <div className="flex flex-col gap-2">
+        <SectionLabel>By campaign</SectionLabel>
+        <ul className="flex flex-col divide-y divide-rule">
+          {byBestPay(campaigns, accounts).map((campaign) => (
+            <li key={campaign.id}>
+              <CampaignLine
+                campaign={campaign}
+                counting={campaignIsLive(campaign, accounts)}
+                accounts={accounts}
+                share={(monthlyPayCents(campaign, accounts) ?? 0) / biggest}
+              />
+            </li>
+          ))}
+        </ul>
+      </div>
 
       {unrated.length > 0 ? (
-        <p className="text-sm text-state-later">
+        <p className="meta text-state-later">
           {unrated.length === 1 ? 'One campaign has' : `${unrated.length} campaigns have`} no rate
           saved, so {unrated.length === 1 ? 'it is' : 'they are'} not counted above - unknown, not
           zero. Add it on the brief.
@@ -112,36 +121,20 @@ export function Money() {
   )
 }
 
-function Figure({ label, cents, big }: { label: string; cents: number; big?: boolean }) {
+function Figure({ label, cents, size }: { label: string; cents: number; size: 'hero' | 'md' }) {
+  // Fluid rather than fixed, so the figure he came to read is never sliced
+  // off at the edge of a narrow phone, and still reads large on a laptop.
+  // Held to one line, so "~$1438.50 CAD" never strands its "CAD".
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-edge bg-gradient-to-b from-surface-raised to-surface p-2 text-center sm:p-3">
-      <span aria-hidden className="absolute inset-x-0 top-0 h-px bg-edge-lit/70" />
-      <p className="label whitespace-nowrap text-state-later">
-        {label}
-      </p>
-      {/* Fluid rather than fixed: at `text-3xl` in a third of a 375px screen,
-          "$35.00" ran past the card's edge and the last digit was sliced off -
-          the one number on this screen he actually came to read. It scales
-          with the viewport now, so it stays whole on a phone and still reads
-          large on a laptop. */}
+    <div className="min-w-0">
+      <p className="label whitespace-nowrap text-state-later">{label}</p>
       <p
-        className="numeric mt-1 font-semibold text-text"
-        style={{
-          fontSize: big
-            ? 'clamp(1.25rem, 6.2vw, 1.875rem)'
-            : 'clamp(1rem, 4.6vw, 1.25rem)',
-        }}
+        className="numeric mt-2 whitespace-nowrap font-semibold leading-none text-text"
+        style={{ fontSize: size === 'hero' ? 'clamp(3rem, 16vw, 4.25rem)' : 'clamp(1.375rem, 6.4vw, 1.875rem)' }}
       >
         {formatCents(cents)}
       </p>
-      {/* Also fluid, and held to one line: at a fixed size "~$1438.50 CAD"
-          wrapped and left "CAD" stranded on a line of its own. */}
-      <p
-        className="numeric mt-0.5 whitespace-nowrap text-state-later"
-        style={{ fontSize: 'clamp(0.75rem, 3vw, 0.9375rem)' }}
-      >
-        ~{formatCents(toCadCents(cents))} CAD
-      </p>
+      <p className="numeric meta mt-2 whitespace-nowrap text-state-later">~{formatCents(toCadCents(cents))} CAD</p>
     </div>
   )
 }
@@ -149,11 +142,9 @@ function Figure({ label, cents, big }: { label: string; cents: number; big?: boo
 /** What this period comes to with every campaign running. */
 function CouldMake({ cents }: { cents: number }) {
   return (
-    <p className="text-center leading-tight">
-      <span className="block label text-state-later">
-        Could make
-      </span>
-      <span className="numeric block text-sm font-semibold text-text">{formatCents(cents)}</span>
+    <p className="mt-3 flex items-baseline gap-2 leading-tight">
+      <span className="label text-state-later">Could make</span>
+      <span className="numeric text-base font-semibold text-text-dim">{formatCents(cents)}</span>
     </p>
   )
 }
@@ -182,10 +173,13 @@ function CampaignLine({
   campaign,
   counting,
   accounts,
+  share,
 }: {
   campaign: Campaign
   counting: boolean
   accounts: readonly CampaignAccount[]
+  /** This campaign's month against the best-paying one, 0 to 1. */
+  share: number
 }) {
   const earnings = campaignEarnings(campaign, accounts)
   const monthly = monthlyPayCents(campaign, accounts)
@@ -195,43 +189,51 @@ function CampaignLine({
   return (
     <Link
       to={`/campaigns/${campaign.id}`}
-      className="flex min-h-tap flex-col justify-center gap-0.5 rounded-lg border border-edge bg-surface px-3 py-2 active:bg-surface-raised"
+      className="press flex min-h-tap items-center gap-3 py-3.5 active:bg-surface"
     >
-      <span className="flex items-center justify-between gap-3">
-        <span
-          className={`min-w-0 flex-1 truncate text-sm ${counting ? 'text-text' : 'text-state-later'}`}
-        >
-          {campaign.name}
-        </span>
-        <span
-          className={`shrink-0 whitespace-nowrap text-right text-sm font-semibold tabular-nums ${
-            counting ? 'text-text' : 'text-state-later line-through'
-          }`}
-        >
-          {earnings === null ? '-' : `${mine ? '' : '~'}${formatCents(earnings.monthCents)}/mo`}
-        </span>
-      </span>
-
-      {/* The workings on their own line. Beside the name and the total they
-          ran past the edge of the card once the text was made bigger. */}
-      <span className="text-xs tabular-nums text-state-later">
-        {campaign.pay_per_video_cents === null
-          ? mine
-            ? 'your figure'
-            : 'no rate saved'
-          : `${formatCents(campaign.pay_per_video_cents)} x ${campaign.daily_post_quota}/day${
-              platforms > 1 ? ` x ${platforms}` : ''
+      <span className="flex min-w-0 flex-1 flex-col gap-1">
+        <span className="flex items-baseline justify-between gap-3">
+          <span className={`min-w-0 flex-1 truncate text-base font-semibold ${counting ? 'text-text' : 'text-state-later'}`}>
+            {campaign.name}
+          </span>
+          <span
+            className={`numeric shrink-0 whitespace-nowrap text-right text-base font-semibold ${
+              counting ? 'text-text' : 'text-state-later line-through'
             }`}
-      </span>
-
-      {/* One line on the campaign holding it up, saying what finishing
-          onboarding is worth. Grey, not amber: nothing here is wrong or
-          overdue, it is simply not switched on yet. */}
-      {!counting && monthly !== null ? (
-        <span className="text-xs text-state-later">
-          +{formatCents(monthly)}/mo once an account is ready · {blockerLabel(campaign, accounts)}
+          >
+            {earnings === null ? '-' : `${mine ? '' : '~'}${formatCents(earnings.monthCents)}/mo`}
+          </span>
         </span>
-      ) : null}
+
+        {/* The workings on their own line. Beside the name and the total they
+            ran past the edge of the row once the text was made bigger. */}
+        <span className="numeric meta text-state-later">
+          {campaign.pay_per_video_cents === null
+            ? mine
+              ? 'your figure'
+              : 'no rate saved'
+            : `${formatCents(campaign.pay_per_video_cents)} x ${campaign.daily_post_quota}/day${
+                platforms > 1 ? ` x ${platforms}` : ''
+              }`}
+        </span>
+
+        <span aria-hidden className="mt-1 h-px w-full bg-rule">
+          <span
+            className={`block h-px ${counting ? 'bg-text-dim' : 'bg-state-later/50'}`}
+            style={{ width: `${Math.round(Math.max(0, Math.min(1, share)) * 100)}%` }}
+          />
+        </span>
+
+        {/* One line on the campaign holding it up, saying what finishing
+            onboarding is worth. Grey, not amber: nothing here is wrong or
+            overdue, it is simply not switched on yet. */}
+        {!counting && monthly !== null ? (
+          <span className="meta text-state-later">
+            +{formatCents(monthly)}/mo once an account is ready · {blockerLabel(campaign, accounts)}
+          </span>
+        ) : null}
+      </span>
+      <ChevronRightIcon className="h-5 w-5 shrink-0 text-state-later" />
     </Link>
   )
 }

@@ -3,6 +3,7 @@ import { useState } from 'react'
 import type { CampaignField } from '../data'
 import { MONEY_FIELDS, centsToDollarsInput, parseDollarsToCents } from '../data/campaignFields'
 import { fieldLabel } from './fieldLabel'
+import { INPUT_CLASS, buttonClass } from './styles'
 
 /** One field, with its provenance visible and a way to fix it.
  *
@@ -102,11 +103,8 @@ export function EditableField({
 
   if (editing) {
     return (
-      <div className="rounded-lg border border-state-now bg-surface p-3">
-        <label
-          htmlFor={`edit-${field.field_key}`}
-          className="text-xs font-semibold uppercase tracking-wide text-state-later"
-        >
+      <div className="settle-in my-2 rounded-xl border border-state-now/70 p-3">
+        <label htmlFor={`edit-${field.field_key}`} className="label text-state-later">
           {displayLabel}
           {isMoney ? ' (dollars)' : ''}
         </label>
@@ -120,7 +118,7 @@ export function EditableField({
               onChange={(event) => setDraft(event.target.value)}
               rows={6}
               autoFocus
-              className="w-full resize-y rounded-lg border border-edge bg-surface-raised p-3 text-sm text-text"
+              className={`${INPUT_CLASS} w-full resize-y py-3 text-base`}
             />
           ) : (
             <input
@@ -131,14 +129,14 @@ export function EditableField({
               autoComplete={mask ? 'new-password' : 'off'}
               inputMode={isMoney ? 'decimal' : 'text'}
               autoFocus
-              className="min-h-tap w-full rounded-lg border border-edge bg-surface-raised px-3 text-text"
+              className={`${INPUT_CLASS} w-full`}
             />
           )}
           {mask ? (
             <button
               type="button"
               onClick={() => setRevealed((current) => !current)}
-              className="min-h-tap shrink-0 rounded-lg border border-edge px-3 text-sm font-semibold text-state-later active:bg-surface-raised"
+              className={buttonClass('quiet')}
             >
               {revealed ? 'Hide' : 'Show'}
             </button>
@@ -146,12 +144,7 @@ export function EditableField({
         </div>
         {error ? <p className="mt-2 text-sm text-state-blocked">{error}</p> : null}
         <div className="mt-3 flex gap-2">
-          <button
-            type="button"
-            onClick={() => void save()}
-            disabled={busy}
-            className="min-h-tap flex-1 rounded-lg border border-state-now bg-surface-raised px-4 font-semibold text-state-now active:bg-surface disabled:opacity-60"
-          >
+          <button type="button" onClick={() => void save()} disabled={busy} className={`${buttonClass('now')} flex-1`}>
             Save
           </button>
           <button
@@ -161,7 +154,7 @@ export function EditableField({
               setRevealed(false)
             }}
             disabled={busy}
-            className="min-h-tap flex-1 rounded-lg border border-edge bg-surface px-4 font-semibold text-state-later active:bg-surface-raised"
+            className={`${buttonClass('ghost')} flex-1`}
           >
             Cancel
           </button>
@@ -217,11 +210,11 @@ export function EditableField({
   }
 
   return (
-    <div className="flex items-start justify-between gap-3 py-1">
+    <div className="flex items-start justify-between gap-3 py-3">
       <div className="min-w-0 flex-1">
-        <p className="text-sm text-state-later">{displayLabel}</p>
+        <p className="label text-state-later">{displayLabel}</p>
         <p
-          className={`${mask ? 'font-mono' : ''} ${unreviewed ? 'text-state-waiting' : absent ? 'text-state-later' : 'text-text'}`}
+          className={`mt-1 text-base leading-relaxed ${mask ? 'font-mono' : ''} ${unreviewed ? 'text-state-waiting' : absent ? 'text-state-later' : 'text-text'}`}
         >
           {absent ? 'not saved yet' : shown}
           {mask && !absent ? (
@@ -235,10 +228,10 @@ export function EditableField({
           ) : null}
         </p>
         {unreviewed && field.source_quote ? (
-          <p className="mt-1 text-xs text-state-later">"{field.source_quote}"</p>
+          <p className="meta mt-1.5 border-l border-state-waiting/50 pl-2 text-state-later">"{field.source_quote}"</p>
         ) : null}
         {!unreviewed && !absent ? (
-          <p className="text-xs font-semibold uppercase tracking-wide text-state-later">
+          <p className="label mt-1.5 text-state-later/80">
             {field.source === 'documented' ? 'documented' : 'you entered this'}
           </p>
         ) : null}
@@ -251,16 +244,12 @@ export function EditableField({
             type="button"
             onClick={() => void confirm()}
             disabled={busy}
-            className="min-h-tap rounded-lg border border-state-waiting/50 px-3 text-sm font-semibold text-state-waiting active:bg-surface-raised disabled:opacity-60"
+            className={buttonClass('waiting', 'small')}
           >
             Confirm
           </button>
         ) : null}
-        <button
-          type="button"
-          onClick={startEditing}
-          className="min-h-tap rounded-lg border border-edge px-3 text-sm font-semibold text-state-later active:bg-surface-raised"
-        >
+        <button type="button" onClick={startEditing} className={buttonClass('ghost', 'small')}>
           Edit
         </button>
       </div>

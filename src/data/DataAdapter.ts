@@ -249,6 +249,11 @@ export interface DataAdapter {
    *  of what happened. */
   removeVideoPost(videoId: string, accountId: string): Promise<void>
   listVideoPosts(videoId: string): Promise<VideoPost[]>
+  /** Every video_post, in one read. The Post and home screens need all of
+   *  them to work out today, and fetching them one video at a time made every
+   *  tap cost one query per video ever made - a list that grows by a row a
+   *  day, forever. */
+  listAllVideoPosts(): Promise<VideoPost[]>
   setViewCount(videoPostId: string, viewCount: number): Promise<VideoPost>
 
   // --- History. Readable and appendable, never editable ------------------

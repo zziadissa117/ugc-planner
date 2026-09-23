@@ -10,8 +10,20 @@
 // a box records where a deliverable went and locks in its rate; if there is
 // no video behind it yet, one is created. See src/data/posting.ts.
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
+
+import {
+  CheckIcon,
+  ListIcon,
+  MutedIcon,
+  NetworkIcon,
+  PlatformGlyph,
+  PlusIcon,
+  SoundIcon,
+} from '../components/icons'
+import { ScreenHeader } from '../components/ui'
+import { SPRINGS, useSpring } from '../motion'
 
 import type { Campaign, CampaignAccount, Video, VideoPost } from '../data'
 import { localToday } from '../data'
@@ -64,12 +76,12 @@ export function Posting() {
   const today = localToday()
 
   const reload = useCallback(async () => {
-    const [campaigns, accounts, videos] = await Promise.all([
+    const [campaigns, accounts, videos, posts] = await Promise.all([
       data.listCampaigns(),
       data.listCampaignAccounts(),
       data.listVideos(),
+      data.listAllVideoPosts(),
     ])
-    const posts = (await Promise.all(videos.map((video) => data.listVideoPosts(video.id)))).flat()
     setLoaded({ campaigns, accounts, videos, posts })
   }, [data])
 
@@ -130,13 +142,7 @@ export function Posting() {
         if (post) await unmarkPosted(data, account, post)
         else await markPosted(data, board, account, slot, loaded.videos, today)
 
-        const [videos, campaigns, accounts] = await Promise.all([
-          data.listVideos(),
-          data.listCampaigns(),
-          data.listCampaignAccounts(),
-        ])
-        const posts = (await Promise.all(videos.map((v) => data.listVideoPosts(v.id)))).flat()
-        setLoaded({ campaigns, accounts, videos, posts })
+        await reload()
       } finally {
         setBusy(null)
       }
@@ -162,13 +168,14 @@ export function Posting() {
       aria-label={view === 'list' ? 'Switch to the neural view' : 'Switch to the list view'}
       aria-pressed={view === 'network'}
       className={[
-        'flex min-h-tap min-w-tap items-center justify-center border border-edge text-state-later active:bg-surface-raised',
-        // Round and glassy over the canvas, square in the page header - the
-        // same control, dressed for where it is sitting.
-        view === 'network' ? 'rounded-full bg-surface/80 backdrop-blur-md' : 'rounded-lg bg-surface',
+        'press flex size-12 items-center justify-center rounded-full border border-edge text-state-later active:bg-surface',
+        // Glassy over the canvas, plain on the page - the same control,
+        // dressed for where it is sitting.
+        view === 'network' ? 'bg-ink/70 backdrop-blur-md' : '',
       ].join(' ')}
     >
-      <NetworkIcon />
+      {/* The icon is where the button takes you, not where you are. */}
+      {view === 'list' ? <NetworkIcon className="h-[22px] w-[22px]" /> : <ListIcon className="h-5 w-5" />}
     </button>
   )
 
@@ -180,7 +187,7 @@ export function Posting() {
   if (view === 'network' && boards.length > 0) {
     return (
       <div
-        className="relative -mx-3 -mb-3 -mt-4"
+        className="relative -mx-4 -mb-6 -mt-5"
         style={{ height: 'calc(100dvh - 3.5rem - env(safe-area-inset-bottom))' }}
       >
         <NeuralView boards={boards} busy={busy} onPost={postFromNetwork} />
@@ -189,8 +196,8 @@ export function Posting() {
             it, so nothing eats into the graph's room. */}
         <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-3 p-3">
           <div className="pointer-events-auto">{toggleButton}</div>
-          <div className="pointer-events-auto">
-            <MadeToday cents={earned} />
+          <div className="pointer-events-auto rounded-2xl bg-ink/70 px-3 py-2 backdrop-blur-md">
+            <MadeToday cents={earned} compact />
           </div>
         </div>
       </div>
@@ -198,62 +205,36 @@ export function Posting() {
   }
 
   return (
-    <section className="mx-auto flex max-w-3xl flex-col gap-4">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div className="flex items-center gap-2">
-          {/* The one way into the network view - a small button rather than
-              its own tab, because it is a second way to look at the same
-              boxes, not a sixth place in the app. */}
-          {toggleButton}
-          <div>
-            <h1 className="text-xl font-semibold text-text">Post</h1>
-            <p className="text-sm text-state-later">
-              {view === 'list'
-                ? 'Tick each platform as it goes up. Clears tomorrow.'
-                : 'Tap a link to post. Tap a campaign for its brief.'}
-            </p>
-          </div>
-        </div>
-        <MadeToday cents={earned} />
-      </header>
+    <section className="mx-auto flex max-w-3xl flex-col gap-7">
+      {/* The one way into the network view - a small button rather than its
+          own tab, because it is a second way to look at the same boxes, not
+          a sixth place in the app. */}
+      <ScreenHeader
+        title="Post"
+        meta="Tick each platform as it goes up. Clears tomorrow."
+        aside={toggleButton}
+      />
+
+      <MadeToday cents={earned} />
 
       {boards.length === 0 ? (
-        <p className="text-sm text-state-later">
-          No campaigns yet. Add one on <Link to="/campaigns" className="text-state-now">BRIEFS</Link>.
+        <p className="text-base text-state-later">
+          No campaigns yet. Add one on <Link to="/campaigns" className="text-state-now underline underline-offset-4">BRIEFS</Link>.
         </p>
       ) : (
-        boards.map((board) => (
-          <CampaignBoard
-            key={board.campaign.id}
-            board={board}
-            busy={busy}
-            onToggle={(account, slot, post) => void toggle(board, account, slot, post)}
-          />
-        ))
+        <div className="flex flex-col gap-9">
+          {boards.map((board, index) => (
+            <div key={board.campaign.id} className="settle-in" style={{ '--i': index } as CSSProperties}>
+              <CampaignBoard
+                board={board}
+                busy={busy}
+                onToggle={(account, slot, post) => void toggle(board, account, slot, post)}
+              />
+            </div>
+          ))}
+        </div>
       )}
     </section>
-  )
-}
-
-/** A small constellation - a core with three orbiting points, thin lines
- *  only. Distinct from every other icon in the nav, and nothing else in the
- *  app uses this shape, so it reads as its own thing rather than a stray
- *  tab, and reads as "network" before he ever opens it. */
-function NetworkIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className="h-[18px] w-[18px]" aria-hidden>
-      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="0.75" opacity="0.35" />
-      <path
-        d="M12 12L6.2 8.6M12 12L18.4 9.4M12 12L11 18.6"
-        stroke="currentColor"
-        strokeWidth="1"
-        strokeLinecap="round"
-      />
-      <circle cx="12" cy="12" r="1.7" fill="currentColor" />
-      <circle cx="6.2" cy="8.6" r="1.3" fill="currentColor" opacity="0.85" />
-      <circle cx="18.4" cy="9.4" r="1.3" fill="currentColor" opacity="0.85" />
-      <circle cx="11" cy="18.6" r="1.3" fill="currentColor" opacity="0.85" />
-    </svg>
   )
 }
 
@@ -271,80 +252,71 @@ function NetworkIcon() {
  *  every wrong number it ever showed came from counting something - but "what
  *  did I make today" is a question about today, and it is answered from rate
  *  snapshots on deliverables that actually went out. */
-function MadeToday({ cents }: { cents: number }) {
-  const [shown, setShown] = useState(cents)
+function MadeToday({ cents, compact = false }: { cents: number; compact?: boolean }) {
   const [muted, setMutedState] = useState(() => isMuted())
-  const [flashing, setFlashing] = useState(false)
+  // The figure rides a spring toward the new total - the same physics as
+  // every other movement in the app, run live because it has to be read at
+  // every step. Taking a post back down is not an event worth animating, so
+  // the figure is never shown above the real total: a drop lands at once.
+  const rolling = useSpring(cents, SPRINGS.settle)
+  const shown = Math.min(cents, Math.round(rolling))
+  // Each rise re-keys the figure so it lands with the pop spring - once per
+  // earning, never on a loop.
+  const [previous, setPrevious] = useState(cents)
+  const [rises, setRises] = useState(0)
+  if (cents !== previous) {
+    if (cents > previous) setRises((count) => count + 1)
+    setPrevious(cents)
+  }
 
-  useEffect(() => {
-    if (cents === shown) return
+  const soundToggle = (
+    <button
+      type="button"
+      onClick={() => {
+        const next = !muted
+        setMuted(next)
+        setMutedState(next)
+      }}
+      aria-label={muted ? 'Turn the sound on' : 'Turn the sound off'}
+      aria-pressed={muted}
+      className="press -m-2 flex size-10 items-center justify-center rounded-full text-state-later active:bg-surface"
+    >
+      {muted ? <MutedIcon className="h-5 w-5" /> : <SoundIcon className="h-5 w-5" />}
+    </button>
+  )
 
-    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
-    if (reduced || cents < shown) {
-      setShown(cents)
-      return
-    }
+  // Green because it is money banked - the same "done" green the boxes use,
+  // for the same reason. Grey at zero: nothing has happened yet.
+  const tone = shown > 0 ? 'text-state-posted' : 'text-state-later'
 
-    // Counts up rather than jumping, because watching it climb is the whole
-    // point. 500ms: long enough to read as movement, short enough that a
-    // second tick never queues up behind it.
-    setFlashing(true)
-    const from = shown
-    const started = performance.now()
-    let frame = 0
-
-    const step = (at: number) => {
-      const through = Math.min(1, (at - started) / 500)
-      // Ease out, so it lands rather than stopping dead.
-      const eased = 1 - (1 - through) ** 3
-      setShown(Math.round(from + (cents - from) * eased))
-      if (through < 1) frame = requestAnimationFrame(step)
-      else setFlashing(false)
-    }
-    frame = requestAnimationFrame(step)
-    return () => {
-      cancelAnimationFrame(frame)
-      setFlashing(false)
-    }
-  }, [cents, shown])
+  if (compact) {
+    return (
+      <div className="text-right">
+        <p className="label text-state-later">Made today</p>
+        <p key={rises} aria-label="Made today" className={`numeric pop-in text-2xl font-semibold leading-none ${tone}`}>
+          {formatCents(shown)}
+        </p>
+      </div>
+    )
+  }
 
   return (
-    <div className="text-right">
-      <div className="flex items-center justify-end gap-2">
-        <p className="label text-state-later">
-          Made today
-        </p>
-        <button
-          type="button"
-          onClick={() => {
-            const next = !muted
-            setMuted(next)
-            setMutedState(next)
-          }}
-          aria-label={muted ? 'Turn the sound on' : 'Turn the sound off'}
-          aria-pressed={muted}
-          className="rounded px-1 label text-state-later active:bg-surface-raised"
+    <div className="flex items-end justify-between gap-4 border-y border-rule py-4">
+      <div className="min-w-0">
+        <p className="label text-state-later">Made today</p>
+        <p
+          key={rises}
+          aria-label="Made today"
+          className={`numeric pop-in mt-2 origin-left font-semibold leading-none ${tone}`}
+          style={{ fontSize: 'clamp(2.5rem, 13vw, 3.5rem)' }}
         >
-          {muted ? 'muted' : 'sound'}
-        </button>
-      </div>
-      <p
-        aria-label="Made today"
-        className={[
-          'numeric text-3xl font-semibold leading-none transition-transform duration-200',
-          // Green because it is money banked - the same "done" green the boxes
-          // use, for the same reason. Grey at zero: nothing has happened yet.
-          shown > 0 ? 'text-state-posted' : 'text-state-later',
-          flashing ? 'scale-105' : 'scale-100',
-        ].join(' ')}
-      >
-        {formatCents(shown)}
-      </p>
-      {shown > 0 ? (
-        <p className="numeric mt-0.5 meta text-state-later">
-          ~{formatCents(toCadCents(shown))} CAD
+          {formatCents(shown)}
         </p>
-      ) : null}
+        {shown > 0 ? (
+          <p className="numeric meta mt-2 text-state-later">~{formatCents(toCadCents(shown))} CAD</p>
+        ) : null}
+      </div>
+      {soundToggle}
     </div>
   )
 }
@@ -655,14 +627,14 @@ function CampaignBoard({
 }) {
   const { campaign, rows, slots, quota, doneToday } = board
   const rate = campaign.pay_per_video_cents
+  const filled = doneToday >= quota && quota > 0
 
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-edge bg-gradient-to-b from-surface-raised to-surface p-3">
-      <span aria-hidden className="absolute inset-x-0 top-0 h-px bg-edge-lit/70" />
+    <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <h2 className="display min-w-0 break-words text-3xl text-text">{campaign.name}</h2>
-        <p className="numeric text-xs text-state-later">
-          <span className={doneToday >= quota && quota > 0 ? 'text-state-posted' : 'text-text'}>
+        <p className="numeric meta text-state-later">
+          <span className={filled ? 'text-state-posted' : 'text-text'}>
             {doneToday} of {quota} today
           </span>
           {rate === null ? null : <span> · {formatCents(rate)} each</span>}
@@ -670,20 +642,21 @@ function CampaignBoard({
       </div>
 
       {rows.length === 0 ? (
-        <p className="mt-2 text-sm text-state-blocked">
+        <p className="border-y border-rule py-3 text-base text-state-blocked">
           No platforms saved. Add them on this campaign's brief.
         </p>
       ) : (
-        <ul className="mt-2 flex flex-col gap-1.5">
+        <ul className="flex flex-col divide-y divide-rule border-y border-rule">
           {rows.map((row) => (
-            <li key={row.account.id} className="flex items-center gap-3">
+            <li key={row.account.id} className="flex items-center gap-3 py-3">
+              <PlatformGlyph platform={row.account.platform} className="h-5 w-5 shrink-0 text-state-later" />
               {/* The handle wraps under the platform on a narrow phone
                   rather than being truncated mid-word to "@michael.fina..." -
                   the tick boxes to the right need their width, and this is
                   the row he checks to know which account he is ticking. */}
-              <span className="flex min-w-0 flex-1 flex-col text-sm text-text sm:flex-row sm:items-baseline sm:gap-2">
-                <span className="truncate">{row.account.platform}</span>
-                <span className="truncate text-state-later">
+              <span className="flex min-w-0 flex-1 flex-col sm:flex-row sm:items-baseline sm:gap-2">
+                <span className="truncate text-base font-semibold text-text">{row.account.platform}</span>
+                <span className="meta break-all text-state-later">
                   {row.account.handle ?? 'no handle saved'}
                 </span>
               </span>
@@ -702,18 +675,26 @@ function CampaignBoard({
                       aria-label={`${row.account.platform} post ${cell.slot + 1} of ${slots}`}
                       onClick={() => onToggle(row.account, cell.slot, cell.post)}
                       className={[
-                        'flex h-10 w-10 items-center justify-center rounded-lg border text-base font-semibold',
-                        'transition-transform duration-100 active:scale-95 active:bg-surface-raised disabled:opacity-50',
+                        'press relative flex size-11 items-center justify-center rounded-xl border',
+                        'transition-colors duration-200 disabled:opacity-60',
                         done
-                          // Lit, because green here is the whole point of the
-                          // screen: the day's work, proved, from across a room.
-                          ? 'lit border-state-posted bg-state-posted/15 text-state-posted'
+                          ? // Lit, because green here is the whole point of the
+                            // screen: the day's work, proved, from across a room.
+                            'lit border-state-posted bg-state-posted/15 text-state-posted'
                           : extra
-                            ? 'border-dashed border-edge text-state-later'
-                            : 'border-edge bg-ink/40 text-state-later',
+                            ? 'border-dashed border-edge-lit text-state-later active:bg-surface'
+                            : 'border-edge-lit text-state-later active:bg-surface',
                       ].join(' ')}
                     >
-                      {busy === key ? '·' : done ? '✓' : ''}
+                      {busy === key ? (
+                        <span aria-hidden className="size-1 rounded-full bg-state-later" />
+                      ) : done ? (
+                        // Keyed on the post, so the tick pops and draws itself
+                        // on once, when it lands - not on every re-render.
+                        <span key={cell.post?.id} className="pop-in draw-check flex">
+                          <CheckIcon className="h-6 w-6" strokeWidth={2.25} />
+                        </span>
+                      ) : null}
                     </button>
                   )
                 })}
@@ -725,9 +706,9 @@ function CampaignBoard({
                   disabled={busy !== null}
                   aria-label={`${row.account.platform} extra post`}
                   onClick={() => onToggle(row.account, slots, null)}
-                  className="flex h-10 w-10 items-center justify-center rounded-lg border border-dashed border-edge text-base text-state-later transition-transform duration-100 active:scale-95 active:bg-surface-raised disabled:opacity-50"
+                  className="press flex size-11 items-center justify-center rounded-xl border border-dashed border-edge text-state-later active:bg-surface disabled:opacity-50"
                 >
-                  +
+                  <PlusIcon className="h-5 w-5" />
                 </button>
               </div>
             </li>

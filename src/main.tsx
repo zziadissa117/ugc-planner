@@ -6,6 +6,7 @@ import { registerSW } from 'virtual:pwa-register'
 import { App } from './App'
 import { DataProvider } from './data/DataProvider'
 import './index.css'
+import { installSprings } from './motion'
 import { Campaign } from './screens/Campaign'
 import { Campaigns } from './screens/Campaigns'
 import { Money } from './screens/Money'
@@ -64,6 +65,9 @@ const router = createBrowserRouter([
     ],
   },
 ])
+
+// Before the first paint, so the very first screen arrives on the spring.
+installSprings()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

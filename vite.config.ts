@@ -28,15 +28,24 @@ export default defineConfig({
       manifest: {
         name: 'UGC production planner',
         short_name: 'UGC',
-        description:
-          'Says what to make tonight, and in what order, so there is nothing to decide.',
+        // It used to say "Says what to make tonight, and in what order" - the
+        // planner he had removed. What is left is a target and a scoreboard.
+        description: 'A target and a scoreboard for UGC campaigns: film, post, get paid.',
         start_url: '/',
         scope: '/',
         display: 'standalone',
         orientation: 'portrait',
-        background_color: '#07090c',
-        theme_color: '#07090c',
+        background_color: '#05070b',
+        theme_color: '#05070b',
         icons: [
+          { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          {
+            src: '/icon-maskable-512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable',
+          },
           {
             src: '/icon.svg',
             sizes: 'any',

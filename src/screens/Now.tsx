@@ -358,8 +358,12 @@ function Header({
     <header className="flex flex-col gap-4">
       <div className="flex items-start justify-between gap-4">
         {/* shrink-0, so the clock keeps its own width rather than collapsing
-            under a nowrap time that then spills over the score. */}
-        <div className="shrink-0">
+            under a nowrap time that then spills over the score - and w-min,
+            so the column is only as wide as the clock itself. Without it the
+            caption set the width: "TUE, SEP 22 · 1 DAY RUNNING" on one line
+            pushed "1 of 1" off the right edge of a 375px screen. The caption
+            wraps under the clock instead. */}
+        <div className="w-min shrink-0">
           {/* The time is the way into the work clock - he asked for it there
               rather than as another button on a screen he wants bare. */}
           <button

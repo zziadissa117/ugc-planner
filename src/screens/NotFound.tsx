@@ -1,13 +1,15 @@
 import { Link } from 'react-router-dom'
 
+import { BackIcon } from '../components/icons'
+import { ScreenHeader } from '../components/ui'
+import { buttonClass } from '../components/styles'
+
 export function NotFound() {
   return (
-    <section className="mx-auto max-w-screen-sm">
-      <h1 className="text-2xl font-semibold text-text">No such screen</h1>
-      <Link
-        to="/"
-        className="mt-6 flex min-h-tap items-center rounded-lg border border-edge bg-surface px-4 text-base font-semibold text-text active:bg-surface-raised"
-      >
+    <section className="mx-auto flex max-w-screen-sm flex-col gap-6">
+      <ScreenHeader title="No such screen" />
+      <Link to="/" className={`${buttonClass('quiet')} self-start`}>
+        <BackIcon className="h-4 w-4" />
         Back to NOW
       </Link>
     </section>

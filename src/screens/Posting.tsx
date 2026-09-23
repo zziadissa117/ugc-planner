@@ -643,20 +643,22 @@ function CampaignBoard({
       ) : (
         <ul className="flex flex-col divide-y divide-rule border-y border-rule">
           {rows.map((row) => (
-            <li key={row.account.id} className="flex items-center gap-3 py-3">
-              <PlatformGlyph platform={row.account.platform} className="h-5 w-5 shrink-0 text-state-later" />
-              {/* The handle wraps under the platform on a narrow phone
-                  rather than being truncated mid-word to "@michael.fina..." -
-                  the tick boxes to the right need their width, and this is
-                  the row he checks to know which account he is ticking. */}
-              <span className="flex min-w-0 flex-1 flex-col sm:flex-row sm:items-baseline sm:gap-2">
-                <span className="truncate text-base font-semibold text-text">{row.account.platform}</span>
-                <span className="meta break-all text-state-later">
-                  {row.account.handle ?? 'no handle saved'}
+            // Wraps: when the boxes would squeeze the name - four owed a day
+            // is five boxes, and "@michael.financier" came out as
+            // "@micha / el.finan / cier" - they drop to their own line,
+            // right-aligned under it, and the account reads whole.
+            <li key={row.account.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 py-3">
+              <span className="flex min-w-0 flex-1 basis-[10.5rem] items-center gap-3">
+                <PlatformGlyph platform={row.account.platform} className="h-5 w-5 shrink-0 text-state-later" />
+                <span className="flex min-w-0 flex-1 flex-col sm:flex-row sm:items-baseline sm:gap-2">
+                  <span className="text-base font-semibold text-text">{row.account.platform}</span>
+                  <span className="meta text-state-later [overflow-wrap:anywhere]">
+                    {row.account.handle ?? 'no handle saved'}
+                  </span>
                 </span>
               </span>
 
-              <div className="flex shrink-0 gap-1.5">
+              <div className="ml-auto flex shrink-0 gap-1.5">
                 {row.cells.map((cell) => {
                   const key = `${row.account.id}:${cell.slot}`
                   const done = cell.post !== null

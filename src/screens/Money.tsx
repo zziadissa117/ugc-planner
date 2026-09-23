@@ -1,4 +1,3 @@
-import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { ChevronRightIcon } from '../components/icons'
@@ -6,6 +5,7 @@ import { ScreenHeader, SectionLabel } from '../components/ui'
 import type { Campaign, CampaignAccount } from '../data'
 import { canPostFrom } from '../data'
 import { useData } from '../data/useData'
+import { useLoaded } from '../data/useLoaded'
 import {
   byBestPay,
   campaignEarnings,
@@ -34,23 +34,16 @@ import {
  *  he is on now PLUS what is held back - the finished number, not the gap. */
 export function Money() {
   const data = useData()
-  const [campaigns, setCampaigns] = useState<Campaign[] | null>(null)
-  const [accounts, setAccounts] = useState<CampaignAccount[]>([])
-
-  const load = useCallback(async () => {
-    const [rows, theirAccounts] = await Promise.all([
+  const [loaded] = useLoaded(async () => {
+    const [campaigns, accounts] = await Promise.all([
       data.listCampaigns(),
       data.listCampaignAccounts(),
     ])
-    setCampaigns(rows)
-    setAccounts(theirAccounts)
+    return { campaigns, accounts }
   }, [data])
 
-  useEffect(() => {
-    void load()
-  }, [load])
-
-  if (campaigns === null) return null
+  if (loaded === null) return null
+  const { campaigns, accounts } = loaded
 
   const live = campaigns.filter((campaign) => campaignIsLive(campaign, accounts))
   const totals = totalEarnings(live, accounts)

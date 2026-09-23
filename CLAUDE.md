@@ -110,6 +110,28 @@ grey = later, amber = past the window you set or an unconfirmed parsed field,
 red = blocked with the reason in plain words. No decorative colour, no badges
 for anything that is not a state.
 
+## Look and motion
+
+He chose the **instrument** language for every screen: the Post screen's
+network view carried everywhere. A pitch-black ground, hairline rules and
+spacing instead of boxed cards, big tabular numbers as each screen's headline,
+a small dot for a row's state. A bordered card is used only where the whole
+block is one tap (FILM, POST, a tick box) or a control needs a visible edge to
+be found (the rate on the brief page). He turned down frosted, layered cards.
+
+- Build from `src/components/ui.tsx` (section labels, buttons, disclosures,
+  action tiles, state dots) and `styles.ts` (button and input classes, the
+  `Tone` type). Do not re-type long class strings per screen.
+- Motion is three springs in `src/motion.ts`, installed as CSS `linear()`
+  easings (`.press`, `.pop-in`, `.settle-in`, `.draw-check`) and `useSpring`
+  for numbers that roll. No animation library. Nothing loops except a running
+  timer, and everything is off under reduced motion. No celebration bursts.
+- Icons are hand-drawn inline SVG in `src/components/icons.tsx`, one stroke
+  weight, `currentColor`. No icon font, no package. Platform glyphs never go
+  inside a fixed-width slot that holds a name - that is how "Instagram" became
+  "Insta...".
+- No sounds beyond the Post till and the warm-up chime.
+
 ## The model
 
 **A video is one deliverable, posted to every account.** Inflow's contract says

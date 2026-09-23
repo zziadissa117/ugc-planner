@@ -38,6 +38,7 @@ import {
 } from '../data/campaignFields'
 import { GENERATION_BRIEF_KEY } from '../hooks/generateHooks'
 import { useData } from '../data/useData'
+import { useLoaded } from '../data/useLoaded'
 import { dailyEarningsCents, formatCents, payingPlatforms } from '../money'
 
 interface Loaded {
@@ -275,7 +276,11 @@ export function Campaign() {
           ) : null}
 
           {rest.length > 0 ? (
-            <Disclosure summary={`Everything else from the documents - ${rest.length}`} className="border-t">
+            <Disclosure
+              summary={`Everything else from the documents - ${rest.length}`}
+              tone="later"
+              className="border-t"
+            >
               <div className="flex flex-col divide-y divide-rule text-sm">
                 {rest.map((field) => (
                   <EditableField
@@ -331,7 +336,7 @@ function GenerationBrief({
   return (
     <Disclosure
       summary={`Brief for the hook writer${value.trim() === '' ? '' : ' - saved'}`}
-      tone="now"
+     
       className="border-t"
       open={open}
       onToggle={(event) => setOpen(event.currentTarget.open)}
@@ -375,17 +380,10 @@ function GenerationBrief({
  *  ideas can be pasted in at once. */
 function HooksEditor({ campaignId }: { campaignId: string }) {
   const data = useData()
-  const [hooks, setHooks] = useState<CampaignHook[]>([])
+  const [loaded, reload] = useLoaded(() => data.listCampaignHooks(campaignId), [campaignId, data])
+  const hooks: CampaignHook[] = loaded ?? []
   const [body, setBody] = useState('')
   const [busy, setBusy] = useState(false)
-
-  const reload = useCallback(async () => {
-    setHooks(await data.listCampaignHooks(campaignId))
-  }, [campaignId, data])
-
-  useEffect(() => {
-    void reload()
-  }, [reload])
 
   async function add() {
     // Split on blank lines rather than every newline: a rough idea is often
@@ -424,7 +422,7 @@ function HooksEditor({ campaignId }: { campaignId: string }) {
   }
 
   return (
-    <Disclosure summary={`Hooks & ideas - ${hooks.length}`} tone="now" className="border-t">
+    <Disclosure summary={`Hooks & ideas - ${hooks.length}`} className="border-t">
       {hooks.length > 0 ? (
         <ul className="flex flex-col divide-y divide-rule border-y border-rule">
           {hooks.map((hook) => (

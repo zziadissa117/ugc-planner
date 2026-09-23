@@ -14,6 +14,8 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 
+import { useLoaded } from '../data/useLoaded'
+
 import type { AccountStatus, CampaignAccount, DataAdapter } from '../data'
 import { KNOWN_PLATFORMS } from './platforms'
 import { INPUT_CLASS, buttonClass } from './styles'
@@ -36,19 +38,12 @@ export function AccountsEditor({
   campaignId: string
   onChanged?: () => void
 }) {
-  const [accounts, setAccounts] = useState<CampaignAccount[]>([])
+  const [loaded, reload] = useLoaded(() => data.listCampaignAccounts(campaignId), [campaignId, data])
+  const accounts = useMemo(() => loaded ?? [], [loaded])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [custom, setCustom] = useState('')
   const [adding, setAdding] = useState(false)
-
-  const reload = useCallback(async () => {
-    setAccounts(await data.listCampaignAccounts(campaignId))
-  }, [campaignId, data])
-
-  useEffect(() => {
-    void reload()
-  }, [reload])
 
   const refresh = useCallback(async () => {
     await reload()

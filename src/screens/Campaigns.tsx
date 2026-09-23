@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type CSSProperties } from 'react'
+import { useCallback, useState, type CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
 
 import { ChevronRightIcon, PlatformGlyph, PlusIcon } from '../components/icons'
@@ -7,6 +7,7 @@ import { INPUT_CLASS, buttonClass } from '../components/styles'
 import type { Campaign, CampaignAccount } from '../data'
 import { centsToDollarsInput, parseDollarsToCents } from '../data/campaignFields'
 import { useData } from '../data/useData'
+import { useLoaded } from '../data/useLoaded'
 import {
   byBestPay,
   formatCents,
@@ -23,28 +24,22 @@ import {
  *  corrects, so it has to be a control rather than part of the link. */
 export function Campaigns() {
   const data = useData()
-  const [campaigns, setCampaigns] = useState<Campaign[] | null>(null)
-  const [accounts, setAccounts] = useState<CampaignAccount[]>([])
-
-  const load = useCallback(async () => {
-    const [rows, theirAccounts] = await Promise.all([
+  const [loaded, reload] = useLoaded(async () => {
+    const [campaigns, accounts] = await Promise.all([
       data.listCampaigns(),
       data.listCampaignAccounts(),
     ])
-    setCampaigns(rows)
-    setAccounts(theirAccounts)
+    return { campaigns, accounts }
   }, [data])
-
-  useEffect(() => {
-    void load()
-  }, [load])
+  const campaigns = loaded?.campaigns ?? null
+  const accounts = loaded?.accounts ?? []
 
   const saveMonthly = useCallback(
     async (campaignId: string, cents: number | null) => {
       await data.updateCampaign(campaignId, { monthly_pay_override_cents: cents })
-      await load()
+      await reload()
     },
-    [data, load],
+    [data, reload],
   )
 
   return (

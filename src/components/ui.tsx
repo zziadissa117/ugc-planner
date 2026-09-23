@@ -137,14 +137,16 @@ export function ActionTile({
  *  works with no JavaScript state and the find-in-page still reaches inside. */
 export function Disclosure({
   summary,
-  tone = 'later',
+  tone = 'text',
   trailing,
   children,
   className = '',
   ...details
 }: {
   summary: ReactNode
-  tone?: Tone
+  /** A state, or plain text for a section that is not one - white is "do
+   *  this now", and a folded section is not asking for anything. */
+  tone?: Tone | 'text'
   trailing?: ReactNode
   children: ReactNode
   className?: string
@@ -152,7 +154,9 @@ export function Disclosure({
   return (
     <details className={`group/disclosure border-b border-rule ${className}`} {...details}>
       <summary className="flex min-h-tap cursor-pointer list-none items-center gap-3 [&::-webkit-details-marker]:hidden">
-        <span className={`min-w-0 flex-1 text-base font-semibold ${TONE_TEXT[tone]}`}>{summary}</span>
+        <span className={`min-w-0 flex-1 text-base font-semibold ${tone === 'text' ? 'text-text' : TONE_TEXT[tone]}`}>
+          {summary}
+        </span>
         {trailing ? <span className="meta shrink-0 text-state-later">{trailing}</span> : null}
         <ChevronDownIcon className="h-4 w-4 shrink-0 text-state-later transition-transform duration-300 [transition-timing-function:var(--ease-settle)] group-open/disclosure:rotate-180" />
       </summary>

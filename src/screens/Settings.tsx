@@ -99,7 +99,7 @@ export function Settings() {
 
       <TodoList campaigns={campaigns} />
 
-      <Disclosure summary="Backup" tone="now" trailing="Export / import" className="border-t">
+      <Disclosure summary="Backup" trailing="Export / import" className="border-t">
         <div className="flex flex-col gap-3 pt-1">
           <div className="grid grid-cols-2 gap-3">
             <Button onClick={() => void handleExport()}>

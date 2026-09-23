@@ -16,7 +16,7 @@
 // sitting produced. A number held anywhere else can disagree with the log, and
 // the log is the thing that has to be true.
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useMemo, useState, type ReactNode } from 'react'
 
 import type {
   Campaign,
@@ -31,6 +31,7 @@ import { Button, SectionLabel } from '../components/ui'
 import { type Tone } from '../components/styles'
 import { stripMarker, talkingPointsFromBrief } from '../data/briefSections'
 import { useData } from '../data/useData'
+import { useLoaded } from '../data/useLoaded'
 import {
   GENERATION_BRIEF_KEY,
   buildContext,
@@ -79,6 +80,17 @@ const SAY_THIS_FIELD = 'talking_points'
  *  six would have silently clipped every list that did what it was told. */
 const MAX_SAY_THIS_LINES = 8
 
+/** The console's rows before its first read lands - a few milliseconds of
+ *  local IndexedDB, so it is empty rather than a loading state. */
+const EMPTY = {
+  fields: [] as CampaignField[],
+  rules: [] as CampaignRule[],
+  angles: [] as CampaignAngle[],
+  hooks: [] as CampaignHook[],
+  events: [] as PhaseEvent[],
+  lastFamily: null as string | null,
+}
+
 export function Console({
   campaign,
   goal,
@@ -92,11 +104,19 @@ export function Console({
 }) {
   const data = useData()
 
-  const [fields, setFields] = useState<CampaignField[]>([])
-  const [rules, setRules] = useState<CampaignRule[]>([])
-  const [angles, setAngles] = useState<CampaignAngle[]>([])
-  const [hooks, setHooks] = useState<CampaignHook[]>([])
-  const [events, setEvents] = useState<PhaseEvent[]>([])
+  const [loaded, reload] = useLoaded(async () => {
+    const [fields, rules, angles, hooks, events] = await Promise.all([
+      data.listCampaignFields(campaign.id),
+      data.listCampaignRules(campaign.id),
+      data.listCampaignAngles(campaign.id),
+      data.listCampaignHooks(campaign.id),
+      data.listPhaseEvents(),
+    ])
+    const lastFamily = await lastFamilyUsed(data, campaign.id, angles)
+    return { fields, rules, angles, hooks, events, lastFamily }
+  }, [campaign.id, data])
+  const { fields, rules, angles, hooks, events, lastFamily } = loaded ?? EMPTY
+
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
@@ -105,27 +125,6 @@ export function Console({
    *  ("Kept angle_id null throughout", "Spread hooks across Format A x3"),
    *  and a paragraph of that under every batch is noise he cannot act on. */
   const [note, setNote] = useState<string | null>(null)
-  const [lastFamily, setLastFamily] = useState<string | null>(null)
-
-  const reload = useCallback(async () => {
-    const [nextFields, nextRules, nextAngles, nextHooks, nextEvents] = await Promise.all([
-      data.listCampaignFields(campaign.id),
-      data.listCampaignRules(campaign.id),
-      data.listCampaignAngles(campaign.id),
-      data.listCampaignHooks(campaign.id),
-      data.listPhaseEvents(),
-    ])
-    setFields(nextFields)
-    setRules(nextRules)
-    setAngles(nextAngles)
-    setHooks(nextHooks)
-    setEvents(nextEvents)
-    setLastFamily(await lastFamilyUsed(data, campaign.id, nextAngles))
-  }, [campaign.id, data])
-
-  useEffect(() => {
-    void reload()
-  }, [reload])
 
   const byKey = useMemo(() => new Map(fields.map((f) => [f.field_key, f.field_value])), [fields])
   const anglesById = useMemo(() => new Map(angles.map((a) => [a.id, a])), [angles])
@@ -236,75 +235,86 @@ export function Console({
     <div className="flex flex-col gap-7">
       <SayThis lines={sayThis} />
 
-      <Scoreboard done={done} goal={goal} campaignName={campaign.name} />
+      {/* On a laptop - which is where he reads this, across the room - the
+          console uses the width: the count, the button and the hooks on the
+          left, what the campaign is and what he can and cannot say on the
+          right, one size larger. Everything at once, no scrolling between
+          takes. On a phone it is one column, in the same order. */}
+      <div className="grid gap-7 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:gap-x-14">
+        <div className="flex flex-col gap-7">
+          <Scoreboard done={done} goal={goal} campaignName={campaign.name} />
 
-      <Button variant="now" size="big" onClick={() => void advance()} disabled={busy} className="!min-h-[5rem] !text-xl">
-        Filmed one
-      </Button>
+          <Button variant="now" size="big" onClick={() => void advance()} disabled={busy} className="!min-h-[5rem] !text-xl">
+            Filmed one
+          </Button>
 
-      {error ? <p className="text-base text-state-blocked">{error}</p> : null}
+          {error ? <p className="text-base text-state-blocked">{error}</p> : null}
 
-      <Section
-        title="Hooks"
-        trailing={
-          lastFamily !== null && leaningFamily(angles, lastFamily) !== null
-            ? `last ${lastFamily} · lean ${leaningFamily(angles, lastFamily)}`
-            : undefined
-        }
-      >
-        <Hooks hooks={hooks} anglesById={anglesById} onToggle={toggleHook} />
+          <Section
+            title="Hooks"
+            trailing={
+              lastFamily !== null && leaningFamily(angles, lastFamily) !== null
+                ? `last ${lastFamily} · lean ${leaningFamily(angles, lastFamily)}`
+                : undefined
+            }
+          >
+            <Hooks hooks={hooks} anglesById={anglesById} onToggle={toggleHook} />
 
-        {hookGenerationAvailable() ? (
-          <div className="mt-4 flex flex-col gap-2">
-            <Button onClick={() => void generate()} disabled={generating} className="w-full">
-              <SparkIcon className="h-5 w-5" />
-              {generating ? 'Writing hooks...' : 'Write me some hooks'}
-            </Button>
-            {generating ? (
-              // One request, no progress to report - so it says "working"
-              // without pretending to know how far along it is.
-              <div aria-hidden className="h-px overflow-hidden bg-rule">
-                <div className="indeterminate-bar h-full w-1/4 bg-state-now" />
+            {hookGenerationAvailable() ? (
+              <div className="mt-4 flex flex-col gap-2">
+                <Button onClick={() => void generate()} disabled={generating} className="w-full">
+                  <SparkIcon className="h-5 w-5" />
+                  {generating ? 'Writing hooks...' : 'Write me some hooks'}
+                </Button>
+                {generating ? (
+                  // One request, no progress to report - so it says "working"
+                  // without pretending to know how far along it is.
+                  <div aria-hidden className="h-px overflow-hidden bg-rule">
+                    <div className="indeterminate-bar h-full w-1/4 bg-state-now" />
+                  </div>
+                ) : null}
               </div>
             ) : null}
+
+            {note === null ? null : <p className="meta mt-2 text-state-later">{note}</p>}
+          </Section>
+        </div>
+
+        <div className="flex flex-col gap-7 lg:[&_p]:text-lg lg:[&_li]:text-lg">
+          <Section title="The campaign, quickly">
+            {SUMMARY_KEYS.every((key) => !byKey.get(key)) ? (
+              <p className="text-base text-state-later">
+                Nothing saved yet. Nothing is written here on your behalf.
+              </p>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {SUMMARY_KEYS.map((key) => (
+                  <Prose key={key} value={byKey.get(key) ?? null} missing={null} />
+                ))}
+              </div>
+            )}
+          </Section>
+
+          <div className="grid gap-7 sm:grid-cols-2 lg:grid-cols-1">
+            <Section title="You can say" tone="posted">
+              <CanSay byKey={byKey} />
+            </Section>
+
+            <Section title="Never do" tone="blocked">
+              {rules.length === 0 ? (
+                <p className="text-base text-state-later">No rules saved for this campaign yet.</p>
+              ) : (
+                <ul className="flex flex-col gap-2.5">
+                  {rules.map((rule) => (
+                    <li key={rule.id} className="border-l border-state-blocked/70 pl-3 text-base leading-snug text-text">
+                      {rule.body}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Section>
           </div>
-        ) : null}
-
-        {note === null ? null : <p className="meta mt-2 text-state-later">{note}</p>}
-      </Section>
-
-      <Section title="The campaign, quickly">
-        {SUMMARY_KEYS.every((key) => !byKey.get(key)) ? (
-          <p className="text-base text-state-later">
-            Nothing saved yet. Nothing is written here on your behalf.
-          </p>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {SUMMARY_KEYS.map((key) => (
-              <Prose key={key} value={byKey.get(key) ?? null} missing={null} />
-            ))}
-          </div>
-        )}
-      </Section>
-
-      <div className="grid gap-7 sm:grid-cols-2">
-        <Section title="You can say" tone="posted">
-          <CanSay byKey={byKey} />
-        </Section>
-
-        <Section title="Never do" tone="blocked">
-          {rules.length === 0 ? (
-            <p className="text-base text-state-later">No rules saved for this campaign yet.</p>
-          ) : (
-            <ul className="flex flex-col gap-2.5">
-              {rules.map((rule) => (
-                <li key={rule.id} className="border-l border-state-blocked/70 pl-3 text-base leading-snug text-text">
-                  {rule.body}
-                </li>
-              ))}
-            </ul>
-          )}
-        </Section>
+        </div>
       </div>
 
       <Button variant="quiet" onClick={onFinish}>

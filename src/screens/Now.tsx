@@ -62,6 +62,7 @@ import {
 } from '../data/workClock'
 import { ensureTodaysQuota, summariseToday } from '../data/today'
 import { useData } from '../data/useData'
+import { useLoaded } from '../data/useLoaded'
 import { formatCents } from '../money'
 import { Console } from './Console'
 
@@ -86,18 +87,37 @@ type Stage =
   | { kind: 'warmup_timer'; account: CampaignAccount; campaign: Campaign | null }
   | { kind: 'work' }
 
+/** The rows before the first read lands. Nothing renders until it does. */
+const NOTHING_YET = {
+  campaigns: [] as Campaign[],
+  videos: [] as Video[],
+  warmupEvents: [] as WarmupEvent[],
+  accounts: [] as CampaignAccount[],
+  posts: [] as VideoPost[],
+}
+
 export function Now() {
   const data = useData()
   const timers = useWarmupTimers()
   const location = useLocation()
   const navigate = useNavigate()
 
-  const [campaigns, setCampaigns] = useState<Campaign[]>([])
-  const [videos, setVideos] = useState<Video[]>([])
-  const [posts, setPosts] = useState<VideoPost[]>([])
-  const [warmupEvents, setWarmupEvents] = useState<WarmupEvent[]>([])
-  const [accounts, setAccounts] = useState<CampaignAccount[]>([])
-  const [loaded, setLoaded] = useState(false)
+  // Today's obligation is raised as rows before anything is counted, so the
+  // "X of Y" line is never briefly wrong. Harmless on a reload: it only adds
+  // rows that are missing.
+  const [snapshot, reload] = useLoaded(async () => {
+    await ensureTodaysQuota(data)
+    const [campaigns, videos, warmupEvents, accounts, posts] = await Promise.all([
+      data.listCampaigns(),
+      data.listVideos(),
+      data.listWarmupEvents(),
+      data.listCampaignAccounts(),
+      data.listAllVideoPosts(),
+    ])
+    return { campaigns, videos, warmupEvents, accounts, posts }
+  }, [data])
+  const loaded = snapshot !== null
+  const { campaigns, videos, warmupEvents, accounts, posts } = snapshot ?? NOTHING_YET
   const [editBusy, setEditBusy] = useState(false)
   const [stage, setStage] = useState<Stage>({ kind: 'home' })
   /** Read from storage on mount, so leaving the page - or reloading, or
@@ -108,38 +128,6 @@ export function Now() {
     writeWorkDay(next)
     setWorkDay(next)
   }, [])
-
-  const reload = useCallback(async () => {
-    const [nextCampaigns, nextVideos, nextWarmupEvents, nextAccounts, nextPosts] =
-      await Promise.all([
-        data.listCampaigns(),
-        data.listVideos(),
-        data.listWarmupEvents(),
-        data.listCampaignAccounts(),
-        data.listAllVideoPosts(),
-      ])
-
-    setCampaigns(nextCampaigns)
-    setVideos(nextVideos)
-    setPosts(nextPosts)
-    setWarmupEvents(nextWarmupEvents)
-    setAccounts(nextAccounts)
-  }, [data])
-
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      // Raise today's obligation as rows before anything is counted, so the
-      // "X of Y" line is not briefly wrong.
-      await ensureTodaysQuota(data)
-      if (cancelled) return
-      await reload()
-      if (!cancelled) setLoaded(true)
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [data, reload])
 
   const summary = useMemo(
     () => summariseToday(campaigns, accounts, videos, posts),
@@ -240,7 +228,11 @@ export function Now() {
   return (
     // Keyed on the stage, so each step of the flow arrives on the settle
     // spring instead of snapping in.
-    <section key={stage.kind} className="settle-in mx-auto flex max-w-3xl flex-col gap-6">
+    <section
+      key={stage.kind}
+      // The console gets a laptop's width; every other step stays a column.
+      className={`settle-in mx-auto flex w-full flex-col gap-6 ${stage.kind === 'console' ? 'max-w-6xl' : 'max-w-3xl'}`}
+    >
       {stage.kind === 'home' ? (
         <>
           <Header
@@ -363,7 +355,7 @@ function Header({
             caption set the width: "TUE, SEP 22 · 1 DAY RUNNING" on one line
             pushed "1 of 1" off the right edge of a 375px screen. The caption
             wraps under the clock instead. */}
-        <div className="w-min shrink-0">
+        <div className="w-min shrink-0 sm:w-auto">
           {/* The time is the way into the work clock - he asked for it there
               rather than as another button on a screen he wants bare. */}
           <button

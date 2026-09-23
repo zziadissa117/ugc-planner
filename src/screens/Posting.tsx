@@ -37,6 +37,7 @@ import {
 } from '../data/posting'
 import { ensureTodaysQuota } from '../data/today'
 import { useData } from '../data/useData'
+import { useLoaded } from '../data/useLoaded'
 import { byBestPay, formatCents, toCadCents } from '../money'
 import { isMuted, playCashRegister, primeCashRegister, setMuted } from '../sound'
 import { CORE_ID, layoutNetwork, type NetworkEdgeDef, type NetworkNodeDef } from './neuralLayout'
@@ -61,7 +62,6 @@ function readView(): 'list' | 'network' {
 
 export function Posting() {
   const data = useData()
-  const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [view, setView] = useState<'list' | 'network'>(readView)
 
@@ -75,31 +75,26 @@ export function Posting() {
   }, [])
   const today = localToday()
 
-  const reload = useCallback(async () => {
+  // Today's rows are raised before the first read, so the board has the
+  // day's obligation behind it rather than filling in as he taps. Running
+  // it again on a reload is harmless - it only ever adds rows that are
+  // missing, and after the first pass none are.
+  const [loaded, reload] = useLoaded<Loaded>(async () => {
+    await ensureTodaysQuota(data)
     const [campaigns, accounts, videos, posts] = await Promise.all([
       data.listCampaigns(),
       data.listCampaignAccounts(),
       data.listVideos(),
       data.listAllVideoPosts(),
     ])
-    setLoaded({ campaigns, accounts, videos, posts })
+    return { campaigns, accounts, videos, posts }
   }, [data])
 
+  // Fetched and decoded when the screen opens, not on the first tap, so the
+  // till is ready before he can reach a box.
   useEffect(() => {
-    let cancelled = false
-    // Fetched and decoded when the screen opens, not on the first tap, so the
-    // till is ready before he can reach a box.
     primeCashRegister()
-    void (async () => {
-      // Raise today's rows first so the board has the day's obligation behind
-      // it rather than filling in as he taps.
-      await ensureTodaysQuota(data)
-      if (!cancelled) await reload()
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [data, reload])
+  }, [])
 
   // The same call the home screen makes, so the two can never disagree about
   // what today owes - see boardsForToday.

@@ -252,12 +252,12 @@ function SubmitReminder({ campaign, onDone }: { campaign: string | null; onDone:
   return (
     <div
       role="alert"
-      className="pop-in fixed inset-x-4 z-30 mx-auto flex max-w-md items-center justify-between gap-4 rounded-2xl border border-state-waiting/60 bg-ink px-4 py-3"
+      className="pop-in fixed inset-x-4 z-30 mx-auto flex max-w-md items-center justify-between gap-4 rounded-2xl border-2 border-state-waiting bg-ink px-4 py-4"
       style={{ bottom: 'calc(4.5rem + env(safe-area-inset-bottom))' }}
     >
       <span className="flex flex-col">
-        <span className="text-base font-bold uppercase tracking-wide text-state-waiting">Did you submit your post?</span>
-        <span className="meta text-state-later">{campaign} pays only if it is in within 2 hours.</span>
+        <span className="text-xl font-bold uppercase tracking-wide text-state-waiting">Did you submit your post?</span>
+        <span className="text-sm text-text-dim">{campaign} pays only if it is in within 2 hours.</span>
       </span>
       <button
         type="button"

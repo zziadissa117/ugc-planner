@@ -64,6 +64,7 @@ export function Posting() {
   const data = useData()
   const [busy, setBusy] = useState<string | null>(null)
   const [view, setView] = useState<'list' | 'network'>(readView)
+  const [reminder, setReminder] = useState<string | null>(null)
 
   const changeView = useCallback((next: 'list' | 'network') => {
     setView(next)
@@ -131,7 +132,10 @@ export function Posting() {
       // screen that answers some taps and not others reads as broken rather
       // than as principled. Taking a post back down stays quiet - a till over
       // an undo would be the app celebrating the wrong thing.
-      if (post === null) playCashRegister()
+      if (post === null) {
+        playCashRegister()
+        if (needsSubmitReminder(board.campaign)) setReminder(board.campaign.name)
+      }
 
       try {
         if (post) await unmarkPosted(data, account, post)
@@ -195,6 +199,7 @@ export function Posting() {
             <MadeToday cents={earned} compact />
           </div>
         </div>
+        <SubmitReminder campaign={reminder} onDone={() => setReminder(null)} />
       </div>
     )
   }
@@ -229,7 +234,39 @@ export function Posting() {
           ))}
         </div>
       )}
+      <SubmitReminder campaign={reminder} onDone={() => setReminder(null)} />
     </section>
+  )
+}
+
+/** Pump.Fun only pays a post that is submitted within two hours of it going
+ *  up, and ticking the box here does not submit anything - so the tick is
+ *  followed by a reminder. Matched on the campaign's name because the rule
+ *  is his knowledge of that one brand, not something the data records. */
+function needsSubmitReminder(campaign: Campaign): boolean {
+  return campaign.name.toLowerCase().replace(/[^a-z0-9]/g, '').includes('pumpfun')
+}
+
+function SubmitReminder({ campaign, onDone }: { campaign: string | null; onDone: () => void }) {
+  if (campaign === null) return null
+  return (
+    <div
+      role="alert"
+      className="pop-in fixed inset-x-4 z-30 mx-auto flex max-w-md items-center justify-between gap-4 rounded-2xl border border-state-waiting/60 bg-ink px-4 py-3"
+      style={{ bottom: 'calc(4.5rem + env(safe-area-inset-bottom))' }}
+    >
+      <span className="flex flex-col">
+        <span className="text-base font-bold uppercase tracking-wide text-state-waiting">Did you submit your post?</span>
+        <span className="meta text-state-later">{campaign} pays only if it is in within 2 hours.</span>
+      </span>
+      <button
+        type="button"
+        onClick={onDone}
+        className="press min-h-tap shrink-0 rounded-xl border border-edge px-4 text-base font-semibold text-text active:bg-surface"
+      >
+        Done
+      </button>
+    </div>
   )
 }
 

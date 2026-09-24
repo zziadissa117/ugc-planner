@@ -109,6 +109,26 @@ describe('the posting grid', () => {
     expect(await boxes('TikTok')).toHaveLength(1)
   })
 
+  it('reminds him to submit after ticking a Pump.Fun post, and only then', async () => {
+    const user = userEvent.setup()
+    const { campaign } = await setUp()
+    renderScreen()
+
+    await user.click((await boxes('TikTok'))[0])
+    await waitFor(async () => {
+      expect((await boxes('TikTok'))[0]).toHaveAttribute('aria-pressed', 'true')
+    })
+    expect(screen.queryByRole('alert')).toBeNull()
+
+    await adapter.updateCampaign(campaign.id, { name: 'Pump.Fun' })
+    await user.click((await boxes('TikTok'))[0])
+    await user.click((await boxes('TikTok'))[0])
+    expect(await screen.findByRole('alert')).toHaveTextContent('Did you submit your post?')
+
+    await user.click(screen.getByRole('button', { name: 'Done' }))
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
   it('ticks each platform independently, and none of them disappear', async () => {
     const user = userEvent.setup()
     const { campaign } = await setUp()

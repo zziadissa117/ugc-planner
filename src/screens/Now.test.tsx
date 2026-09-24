@@ -10,7 +10,6 @@ import { IDBFactory } from 'fake-indexeddb'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it } from 'vitest'
 
-import { WARMUP_SESSIONS_REQUIRED } from '../data'
 import { DataContext } from '../data/context'
 import type { DataAdapter } from '../data/DataAdapter'
 import { LocalDatabase } from '../data/local/db'
@@ -195,7 +194,7 @@ describe('the warm-up list, in order of priority', () => {
       .getAllByRole('listitem')
       .map((row) => {
         const text = (row.textContent ?? '').replace('✓', '')
-        return ['Facebook', 'Instagram', 'TikTok', 'X'].find((p) => text.startsWith(p)) ?? '?'
+        return ['Facebook', 'Instagram', 'TikTok', 'X'].find((p) => text.includes(p)) ?? '?'
       })
   }
 
@@ -579,7 +578,6 @@ describe('warming up an account', () => {
     // Never warmed, so neglected - but still a shorter sitting than an
     // account being built.
     expect(screen.getAllByText('Never warmed')).toHaveLength(2)
-    expect(screen.getAllByText('5 min')).toHaveLength(2)
     // Nothing done yet, so there is no done group at all.
     expect(screen.queryByText('Warmed today')).toBeNull()
   })
@@ -592,9 +590,6 @@ describe('warming up an account', () => {
     renderScreen()
     expect(await screen.findByText(/Keep them warm/)).toBeInTheDocument()
     expect(screen.getByText(/@brandnew/)).toBeInTheDocument()
-    // Amber progress rather than a date, and the longer sitting.
-    expect(screen.getByText(`0 of ${WARMUP_SESSIONS_REQUIRED}`)).toBeInTheDocument()
-    expect(screen.getByText('15 min')).toBeInTheDocument()
 
     // In the same red group as the two never-warmed Inflow accounts. Inflow
     // ($35) pays more than this campaign ($10), so it is listed first.
@@ -667,8 +662,6 @@ describe('warming up an account', () => {
       const events = await adapter.listWarmupEvents()
       expect(events.filter((e) => e.account_id === account.id)).toHaveLength(1)
     })
-    // Back on the home screen, with the row now showing its progress.
-    expect(await screen.findByText(`1 of ${WARMUP_SESSIONS_REQUIRED}`)).toBeInTheDocument()
   })
 
   it('gives a ready account five minutes by default, and logs it as five', async () => {
@@ -785,8 +778,6 @@ describe('warming up an account', () => {
     // Still listed - every account is - but as maintenance rather than as
     // something holding a campaign back.
     expect(await screen.findByText(/@brandnew/)).toBeInTheDocument()
-    expect(screen.queryByText(`2 of ${WARMUP_SESSIONS_REQUIRED}`)).toBeNull()
-    expect(screen.getAllByText('5 min').length).toBeGreaterThan(0)
   })
 
   it('never demotes an account he marked ready himself', async () => {

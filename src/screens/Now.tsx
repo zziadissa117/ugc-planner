@@ -36,14 +36,12 @@ import type {
   WarmupEvent,
 } from '../data'
 import {
-  WARMUP_SESSIONS_REQUIRED,
   compareWarmupPriority,
   daysSince,
   lastWarmupAt,
   localToday,
   needsWarmup,
   warmsUp,
-  warmupCompletions,
   warmupMinutesFor,
   warmupLimitDays,
   warmupTier,
@@ -736,8 +734,6 @@ function WarmupList({
   let order = 0
 
   const row = (account: CampaignAccount, group: Group) => {
-    const warming = needsWarmup(account)
-    const sessions = warmupCompletions(account.id, warmupEvents)
     const last = lastOf(account)
     const tone = toneOf[group]
 
@@ -766,45 +762,24 @@ function WarmupList({
           onClick={() => onPick(account)}
           className="press block w-full py-4 text-left active:bg-surface"
         >
-          <span className="flex items-center justify-between gap-3">
+          <span className="flex items-start justify-between gap-3">
             <span className="flex min-w-0 items-center gap-3">
               <StateDot tone={tone} />
-              <span className="text-lg font-semibold leading-tight text-text">{account.platform}</span>
-              <PlatformGlyph platform={account.platform} className="h-4 w-4 shrink-0 text-state-later" />
+              <span className="min-w-0 truncate text-2xl font-bold leading-tight text-text">
+                {nameById.get(account.campaign_id) ?? 'unknown campaign'}
+              </span>
             </span>
-            <span className={`flex shrink-0 items-center gap-1.5 ${TONE_TEXT[tone]}`}>
+            <span className={`flex shrink-0 items-center gap-1.5 pt-1 ${TONE_TEXT[tone]}`}>
               {group === 'done' ? <CheckIcon className="h-4 w-4" strokeWidth={2} /> : null}
               <span className={`text-sm font-semibold ${TONE_TEXT[tone]}`}>{reason}</span>
             </span>
           </span>
 
-          <span className="mt-1 block break-all pl-5 text-base text-text-dim">
-            {account.handle ?? 'no handle saved'}
-          </span>
-
-          <span className="mt-2 flex items-center justify-between gap-3 pl-5">
-            <span className="meta min-w-0 truncate text-state-later">
-              {nameById.get(account.campaign_id) ?? 'unknown campaign'}
-            </span>
-            <span className="meta flex shrink-0 items-center gap-2 text-state-later">
-              {warming ? (
-                <>
-                  {/* Sessions as pips, so "1 of 2" is seen rather than read. */}
-                  <span aria-hidden className="flex gap-1">
-                    {Array.from({ length: WARMUP_SESSIONS_REQUIRED }, (_, index) => (
-                      <span
-                        key={index}
-                        className={`h-1 w-5 rounded-full ${index < sessions ? 'bg-state-posted' : 'bg-edge-lit'}`}
-                      />
-                    ))}
-                  </span>
-                  <span className="numeric">
-                    {sessions} of {WARMUP_SESSIONS_REQUIRED}
-                  </span>
-                  <span aria-hidden>·</span>
-                </>
-              ) : null}
-              <span>{warmupMinutesFor(account)} min</span>
+          <span className="mt-1.5 flex items-center gap-2 pl-5">
+            <PlatformGlyph platform={account.platform} className="h-5 w-5 shrink-0 text-text-dim" />
+            <span className="shrink-0 text-lg font-semibold text-text-dim">{account.platform}</span>
+            <span className="min-w-0 break-all text-lg text-text-dim">
+              {account.handle ?? 'no handle saved'}
             </span>
           </span>
         </button>

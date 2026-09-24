@@ -241,10 +241,10 @@ export function Posting() {
 
 /** Pump.Fun only pays a post that is submitted within two hours of it going
  *  up, and ticking the box here does not submit anything - so the tick is
- *  followed by a reminder. Matched on the campaign's name because the rule
+ *  followed by a reminder. Matched loosely ("pump" in the name or company) because the rule
  *  is his knowledge of that one brand, not something the data records. */
 function needsSubmitReminder(campaign: Campaign): boolean {
-  return campaign.name.toLowerCase().replace(/[^a-z0-9]/g, '').includes('pumpfun')
+  return `${campaign.name} ${campaign.company ?? ''}`.toLowerCase().includes('pump')
 }
 
 function SubmitReminder({ campaign, onDone }: { campaign: string | null; onDone: () => void }) {

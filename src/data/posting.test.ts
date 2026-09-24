@@ -391,6 +391,20 @@ describe("today's takings", () => {
     expect(earnedOn(videos, posts)).toBe(3500)
   })
 
+  it('pays once per platform ticked when the campaign pays per platform', async () => {
+    const { campaign, accounts } = await setUp(1, ['Instagram', 'TikTok', 'YouTube'])
+    await adapter.updateCampaign(campaign.id, { pays_per_platform: true })
+    for (const account of accounts) {
+      const { board, videos } = await state(campaign)
+      await markPosted(adapter, board, account, 0, videos)
+    }
+
+    const { videos, posts } = await state(campaign)
+    const campaigns = await adapter.listCampaigns()
+    expect(earnedOn(videos, posts, undefined, campaigns)).toBe(3500 * 3)
+    expect(earnedOn(videos, posts)).toBe(3500)
+  })
+
   it('adds up across slots and campaigns', async () => {
     const first = await setUp(2, ['Instagram'])
     for (let slot = 0; slot < 2; slot++) {

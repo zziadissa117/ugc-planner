@@ -252,11 +252,28 @@ export function earnedOn(
   videos: readonly Video[],
   posts: readonly VideoPost[],
   date: string = localToday(),
+  campaigns: readonly Campaign[] = [],
 ): number {
   const rateById = new Map(videos.map((video) => [video.id, video.rate_snapshot_cents]))
+  const campaignById = new Map(videos.map((video) => [video.id, video.campaign_id]))
+  const perPlatform = new Set(campaigns.filter((c) => c.pays_per_platform).map((c) => c.id))
+
+  // A campaign he switched to "pays per platform" earns the rate once for each
+  // platform a video went out on, so those are counted as distinct
+  // destinations. Every other campaign keeps the one-payment-per-deliverable
+  // rule below.
+  const destinations = new Map<string, Set<string>>()
+  for (const post of posts) {
+    if (localToday(new Date(post.posted_at)) !== date) continue
+    const set = destinations.get(post.video_id) ?? new Set<string>()
+    set.add(post.account_id ?? post.platform)
+    destinations.set(post.video_id, set)
+  }
+
   let cents = 0
   for (const videoId of deliverablesPostedOn(posts, date)) {
-    cents += rateById.get(videoId) ?? 0
+    const times = perPlatform.has(campaignById.get(videoId) ?? '') ? (destinations.get(videoId)?.size ?? 1) : 1
+    cents += (rateById.get(videoId) ?? 0) * times
   }
   return cents
 }

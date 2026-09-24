@@ -391,6 +391,21 @@ describe("today's takings", () => {
     expect(earnedOn(videos, posts)).toBe(3500)
   })
 
+  it('splits the rate across the platforms on a normal campaign', async () => {
+    const { campaign, accounts } = await setUp(1, ['Instagram', 'TikTok'])
+    const { board, videos } = await state(campaign)
+    await markPosted(adapter, board, accounts[0], 0, videos)
+
+    let loaded = await state(campaign)
+    const campaigns = await adapter.listCampaigns()
+    const accountList = await adapter.listCampaignAccounts(campaign.id)
+    expect(earnedOn(loaded.videos, loaded.posts, undefined, campaigns, accountList)).toBe(1750)
+
+    await markPosted(adapter, loaded.board, accounts[1], 0, loaded.videos)
+    loaded = await state(campaign)
+    expect(earnedOn(loaded.videos, loaded.posts, undefined, campaigns, accountList)).toBe(3500)
+  })
+
   it('pays once per platform ticked when the campaign pays per platform', async () => {
     const { campaign, accounts } = await setUp(1, ['Instagram', 'TikTok', 'YouTube'])
     await adapter.updateCampaign(campaign.id, { pays_per_platform: true })

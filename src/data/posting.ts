@@ -253,15 +253,13 @@ export function earnedOn(
   posts: readonly VideoPost[],
   date: string = localToday(),
   campaigns: readonly Campaign[] = [],
+  accounts: readonly CampaignAccount[] = [],
 ): number {
   const rateById = new Map(videos.map((video) => [video.id, video.rate_snapshot_cents]))
   const campaignById = new Map(videos.map((video) => [video.id, video.campaign_id]))
   const perPlatform = new Set(campaigns.filter((c) => c.pays_per_platform).map((c) => c.id))
+  const known = new Set(campaigns.map((c) => c.id))
 
-  // A campaign he switched to "pays per platform" earns the rate once for each
-  // platform a video went out on, so those are counted as distinct
-  // destinations. Every other campaign keeps the one-payment-per-deliverable
-  // rule below.
   const destinations = new Map<string, Set<string>>()
   for (const post of posts) {
     if (localToday(new Date(post.posted_at)) !== date) continue
@@ -272,8 +270,26 @@ export function earnedOn(
 
   let cents = 0
   for (const videoId of deliverablesPostedOn(posts, date)) {
-    const times = perPlatform.has(campaignById.get(videoId) ?? '') ? (destinations.get(videoId)?.size ?? 1) : 1
-    cents += (rateById.get(videoId) ?? 0) * times
+    const rate = rateById.get(videoId) ?? 0
+    const campaignId = campaignById.get(videoId) ?? ''
+    const ticked = destinations.get(videoId)?.size ?? 1
+
+    if (perPlatform.has(campaignId)) {
+      // Every platform pays the full rate on its own.
+      cents += rate * ticked
+    } else if (known.has(campaignId)) {
+      // The rate is for the deliverable on all of the campaign's postable
+      // accounts, so each platform ticked earns its share of it. Rounded on
+      // the whole so a rate that does not divide evenly still adds up to
+      // exactly the rate once every platform is ticked.
+      const postable = accounts.filter(
+        (a) => a.campaign_id === campaignId && a.is_active && canPostFrom(a),
+      ).length
+      const total = Math.max(1, postable)
+      cents += Math.round((rate * Math.min(ticked, total)) / total)
+    } else {
+      cents += rate
+    }
   }
   return cents
 }

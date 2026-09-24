@@ -113,7 +113,7 @@ export function Posting() {
     [loaded, today],
   )
 
-  const earned = loaded === null ? 0 : earnedOn(loaded.videos, loaded.posts, today, loaded.campaigns)
+  const earned = loaded === null ? 0 : earnedOn(loaded.videos, loaded.posts, today, loaded.campaigns, loaded.accounts)
 
   const toggle = useCallback(
     async (board: PostingBoard, account: CampaignAccount, slot: number, post: VideoPost | null) => {

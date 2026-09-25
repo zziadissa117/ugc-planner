@@ -691,6 +691,7 @@ function CampaignBoard({
                   <span className="text-base font-semibold text-text">{row.account.platform}</span>
                   <span className="meta text-state-later [overflow-wrap:anywhere]">
                     {row.account.handle ?? 'no handle saved'}
+                    {row.account.bonus_only ? ' · bonus only, not owed' : ''}
                   </span>
                 </span>
               </span>
@@ -699,7 +700,9 @@ function CampaignBoard({
                 {row.cells.map((cell) => {
                   const key = `${row.account.id}:${cell.slot}`
                   const done = cell.post !== null
-                  const extra = cell.slot >= quota
+                  // Dashed, like a box beyond the quota: a bonus-only account
+                  // is never owed, so none of its boxes is either.
+                  const extra = cell.slot >= quota || row.account.bonus_only
                   return (
                     <button
                       key={cell.slot}

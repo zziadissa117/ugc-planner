@@ -391,6 +391,50 @@ describe("today's takings", () => {
     expect(earnedOn(videos, posts)).toBe(3500)
   })
 
+  it('pays nothing for a bonus-only account and splits the rate across the rest', async () => {
+    // Polsia: a retainer for YouTube and Instagram, only a bonus for Facebook.
+    const { campaign, accounts } = await setUp(1, ['YouTube', 'Instagram', 'Facebook'])
+    const on = (platform: string) => accounts.find((a) => a.platform === platform)!
+    await adapter.updateCampaignAccount(on('Facebook').id, { bonus_only: true })
+    const campaigns = await adapter.listCampaigns()
+
+    let loaded = await state(campaign)
+    await markPosted(adapter, loaded.board, on('Facebook'), 0, loaded.videos)
+    loaded = await state(campaign)
+    expect(earnedOn(loaded.videos, loaded.posts, undefined, campaigns, loaded.accounts)).toBe(0)
+    // Ticked, but not part of what the day owes.
+    expect(loaded.board.doneToday).toBe(0)
+
+    await markPosted(adapter, loaded.board, on('YouTube'), 0, loaded.videos)
+    loaded = await state(campaign)
+    expect(earnedOn(loaded.videos, loaded.posts, undefined, campaigns, loaded.accounts)).toBe(1750)
+    expect(loaded.board.doneToday).toBe(1)
+
+    await markPosted(adapter, loaded.board, on('Instagram'), 0, loaded.videos)
+    loaded = await state(campaign)
+    expect(earnedOn(loaded.videos, loaded.posts, undefined, campaigns, loaded.accounts)).toBe(3500)
+  })
+
+  it('leaves a bonus-only account out of a per-platform campaign too', async () => {
+    const { campaign, accounts } = await setUp(1, ['YouTube', 'Facebook'])
+    await adapter.updateCampaign(campaign.id, { pays_per_platform: true })
+    await adapter.updateCampaignAccount(accounts.find((a) => a.platform === 'Facebook')!.id, { bonus_only: true })
+    const campaigns = await adapter.listCampaigns()
+    for (const account of accounts) {
+      const { board, videos } = await state(campaign)
+      await markPosted(adapter, board, account, 0, videos)
+    }
+    const loaded = await state(campaign)
+    expect(earnedOn(loaded.videos, loaded.posts, undefined, campaigns, loaded.accounts)).toBe(3500)
+  })
+
+  it('never sends a network-view tap to a bonus-only account', async () => {
+    const { campaign, accounts } = await setUp(1, ['Facebook', 'Instagram'])
+    await adapter.updateCampaignAccount(accounts.find((a) => a.platform === 'Facebook')!.id, { bonus_only: true })
+    const { board } = await state(campaign)
+    expect(nextUnfilledCell(board)?.account.platform).toBe('Instagram')
+  })
+
   it('splits the rate across the platforms on a normal campaign', async () => {
     const { campaign, accounts } = await setUp(1, ['Instagram', 'TikTok'])
     const { board, videos } = await state(campaign)

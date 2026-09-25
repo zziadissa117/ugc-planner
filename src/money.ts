@@ -58,7 +58,7 @@ export function payingPlatforms(
   accounts: readonly CampaignAccount[] = [],
 ): number {
   if (!campaign.pays_per_platform) return 1
-  return Math.max(1, postableAccounts(campaign, accounts).length)
+  return Math.max(1, postableAccounts(campaign, accounts).filter((account) => !account.bonus_only).length)
 }
 
 /** What one day of this campaign pays at its rate, or null when it has no rate

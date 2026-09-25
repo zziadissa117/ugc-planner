@@ -22,7 +22,8 @@ select version, name from supabase_migrations.schema_migrations order by version
 ```
 
 As of 2026-09-17 the live project (`uykuoibqdxmpbbrsmyad`) has run 0001, 0003
-through 0006, 0008, 0009 and 0010.
+through 0006, 0008, 0009 and 0010. 0012 was applied on 2026-09-25 through
+Supabase's tooling, recorded as `bonus_only_accounts`.
 
 0010 is recorded there under the name `monthly_pay_override` rather than
 `0010_monthly_pay_override`, because it was applied through Supabase's own

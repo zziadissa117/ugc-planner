@@ -347,6 +347,19 @@ function AccountRow({
             {STATUS_LABELS[status]}
           </button>
         ))}
+        {/* Paid only through view-milestone bonuses: its ticks on the Post
+            screen earn nothing and are never owed. */}
+        <button
+          type="button"
+          onClick={() => void onPatch(account.id, { bonus_only: !account.bonus_only })}
+          aria-pressed={account.bonus_only}
+          className={[
+            'press ml-2 rounded-full px-2.5 py-1 label',
+            account.bonus_only ? 'bg-surface-raised text-state-now' : 'text-state-later active:bg-surface',
+          ].join(' ')}
+        >
+          Bonus only
+        </button>
         <button
           type="button"
           onClick={() => void onPatch(account.id, { is_active: false })}

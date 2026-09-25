@@ -24,7 +24,6 @@
 
 import type { DataAdapter } from './DataAdapter'
 import { localToday } from './index'
-import { deliverablesPostedOn } from './today'
 import type { Campaign, CampaignAccount, Video, VideoPost } from './schema'
 import { canPostFrom } from './warmup'
 
@@ -180,7 +179,12 @@ export function buildBoard(
 
   // Counted rather than taken from the length of the slot list: that list is
   // now the day's obligation, most of which has not gone out yet.
-  const postedVideoIds = new Set(todays.map((p) => p.video_id))
+  // A post on a bonus-only account is an extra, not part of what is owed, so
+  // it never counts a deliverable as done.
+  const bonusOnly = new Set(mine.filter((a) => a.bonus_only).map((a) => a.id))
+  const postedVideoIds = new Set(
+    todays.filter((p) => p.account_id === null || !bonusOnly.has(p.account_id)).map((p) => p.video_id),
+  )
   const doneToday = videoIdBySlot.filter((id) => postedVideoIds.has(id)).length
 
   return {
@@ -259,34 +263,37 @@ export function earnedOn(
   const campaignById = new Map(videos.map((video) => [video.id, video.campaign_id]))
   const perPlatform = new Set(campaigns.filter((c) => c.pays_per_platform).map((c) => c.id))
   const known = new Set(campaigns.map((c) => c.id))
+  // Accounts paid only through bonuses earn nothing per post, so a tick on one
+  // is left out entirely - see campaign_accounts.bonus_only.
+  const bonusOnly = new Set(accounts.filter((a) => a.bonus_only).map((a) => a.id))
 
   const destinations = new Map<string, Set<string>>()
   for (const post of posts) {
     if (localToday(new Date(post.posted_at)) !== date) continue
+    if (post.account_id !== null && bonusOnly.has(post.account_id)) continue
     const set = destinations.get(post.video_id) ?? new Set<string>()
     set.add(post.account_id ?? post.platform)
     destinations.set(post.video_id, set)
   }
 
   let cents = 0
-  for (const videoId of deliverablesPostedOn(posts, date)) {
+  for (const [videoId, ticked] of destinations) {
     const rate = rateById.get(videoId) ?? 0
     const campaignId = campaignById.get(videoId) ?? ''
-    const ticked = destinations.get(videoId)?.size ?? 1
 
     if (perPlatform.has(campaignId)) {
       // Every platform pays the full rate on its own.
-      cents += rate * ticked
+      cents += rate * ticked.size
     } else if (known.has(campaignId)) {
-      // The rate is for the deliverable on all of the campaign's postable
-      // accounts, so each platform ticked earns its share of it. Rounded on
-      // the whole so a rate that does not divide evenly still adds up to
-      // exactly the rate once every platform is ticked.
-      const postable = accounts.filter(
-        (a) => a.campaign_id === campaignId && a.is_active && canPostFrom(a),
+      // The rate is for the deliverable on all of the campaign's paying
+      // accounts, so each one ticked earns its share of it. Rounded on the
+      // whole so a rate that does not divide evenly still adds up to exactly
+      // the rate once every paying platform is ticked.
+      const paying = accounts.filter(
+        (a) => a.campaign_id === campaignId && a.is_active && !a.bonus_only && canPostFrom(a),
       ).length
-      const total = Math.max(1, postable)
-      cents += Math.round((rate * Math.min(ticked, total)) / total)
+      const total = Math.max(1, paying)
+      cents += Math.round((rate * Math.min(ticked.size, total)) / total)
     } else {
       cents += rate
     }
@@ -302,7 +309,7 @@ export function earnedOn(
 export function nextUnfilledCell(
   board: PostingBoard,
 ): { account: CampaignAccount; slot: number } | null {
-  const row = board.rows[0]
+  const row = board.rows.find((r) => !r.account.bonus_only) ?? board.rows[0]
   if (!row) return null
   const open = row.cells.find((cell) => cell.post === null)
   return open ? { account: row.account, slot: open.slot } : { account: row.account, slot: board.slots }

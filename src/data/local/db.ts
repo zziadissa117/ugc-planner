@@ -189,6 +189,22 @@ export class LocalDatabase extends Dexie {
           console.error('v5 upgrade could not fill pays_per_platform; continuing.', error)
         }
       })
+
+    // v6 does the same for `bonus_only` on accounts saved before it existed.
+    this.version(6)
+      .stores({})
+      .upgrade(async (tx) => {
+        try {
+          await tx
+            .table('campaign_accounts')
+            .toCollection()
+            .modify((row: { bonus_only?: boolean }) => {
+              if (typeof row.bonus_only !== 'boolean') row.bonus_only = false
+            })
+        } catch (error) {
+          console.error('v6 upgrade could not fill bonus_only; continuing.', error)
+        }
+      })
   }
 }
 

@@ -152,6 +152,11 @@ create table campaign_accounts (
   posts_per_day integer not null default 0 check (posts_per_day >= 0),
   status        account_status not null default 'new',
   is_active     boolean not null default true,
+  -- An account the campaign pays only through view-milestone bonuses, never
+  -- per post: ticking it earns nothing and it is not owed. Polsia pays a
+  -- retainer for YouTube and Instagram and only a bonus for Facebook. Set by
+  -- him, never inferred.
+  bonus_only    boolean not null default false,
   sort_order    integer not null default 0,
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now(),

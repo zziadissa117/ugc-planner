@@ -886,6 +886,7 @@ export class LocalAdapter implements DataAdapter {
       // one to post brand content from.
       status: account.status ?? 'new',
       is_active: account.is_active ?? true,
+      bonus_only: account.bonus_only ?? false,
       sort_order: account.sort_order ?? 0,
       created_at: account.created_at ?? timestamp,
       updated_at: account.updated_at ?? timestamp,
@@ -1373,6 +1374,14 @@ export class LocalAdapter implements DataAdapter {
       if (typeof incoming.pays_per_platform !== 'boolean') {
         const existing = (await this.db.campaigns.get(incoming.id)) as Campaign | undefined
         row = { ...incoming, pays_per_platform: existing?.pays_per_platform ?? false }
+      }
+    }
+    if (table === 'campaign_accounts') {
+      // Same for bonus_only on accounts, from a server that predates it.
+      const incoming = row as Partial<CampaignAccount> & { id: string }
+      if (typeof incoming.bonus_only !== 'boolean') {
+        const existing = (await this.db.campaign_accounts.get(incoming.id)) as CampaignAccount | undefined
+        row = { ...incoming, bonus_only: existing?.bonus_only ?? false }
       }
     }
     assertRow(table, row as never)

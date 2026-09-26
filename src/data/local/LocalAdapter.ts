@@ -206,6 +206,7 @@ export class LocalAdapter implements DataAdapter {
       cycle_size: campaign.cycle_size,
       monthly_pay_override_cents: campaign.monthly_pay_override_cents ?? null,
       pays_per_platform: campaign.pays_per_platform ?? false,
+      needs_submission: campaign.needs_submission ?? false,
       opening_post_count: campaign.opening_post_count ?? 0,
       brief_is_incomplete: campaign.brief_is_incomplete ?? false,
       created_at: campaign.created_at ?? timestamp,
@@ -1374,6 +1375,10 @@ export class LocalAdapter implements DataAdapter {
       if (typeof incoming.pays_per_platform !== 'boolean') {
         const existing = (await this.db.campaigns.get(incoming.id)) as Campaign | undefined
         row = { ...incoming, pays_per_platform: existing?.pays_per_platform ?? false }
+      }
+      if (typeof (row as Partial<Campaign>).needs_submission !== 'boolean') {
+        const existing = (await this.db.campaigns.get(incoming.id)) as Campaign | undefined
+        row = { ...(row as object), needs_submission: existing?.needs_submission ?? false }
       }
     }
     if (table === 'campaign_accounts') {

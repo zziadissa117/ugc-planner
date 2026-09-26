@@ -109,10 +109,10 @@ describe('the posting grid', () => {
     expect(await boxes('TikTok')).toHaveLength(1)
   })
 
-  it('reminds him to submit after ticking a Pump.Fun post', async () => {
+  it('reminds him to submit after ticking a post on a campaign that needs it', async () => {
     const user = userEvent.setup()
     const { campaign } = await setUp()
-    await adapter.updateCampaign(campaign.id, { name: 'Pump.Fun' })
+    await adapter.updateCampaign(campaign.id, { needs_submission: true })
     renderScreen()
 
     await user.click((await boxes('TikTok'))[0])
@@ -122,7 +122,7 @@ describe('the posting grid', () => {
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
-  it('does not remind him on any other campaign', async () => {
+  it('does not remind him when the campaign does not need it', async () => {
     const user = userEvent.setup()
     await setUp()
     renderScreen()

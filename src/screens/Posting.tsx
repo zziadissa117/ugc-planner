@@ -134,7 +134,7 @@ export function Posting() {
       // an undo would be the app celebrating the wrong thing.
       if (post === null) {
         playCashRegister()
-        if (needsSubmitReminder(board.campaign)) setReminder(board.campaign.name)
+        if (board.campaign.needs_submission) setReminder(board.campaign.name)
       }
 
       try {
@@ -239,14 +239,8 @@ export function Posting() {
   )
 }
 
-/** Pump.Fun only pays a post that is submitted within two hours of it going
- *  up, and ticking the box here does not submit anything - so the tick is
- *  followed by a reminder. Matched loosely ("pump" in the name or company) because the rule
- *  is his knowledge of that one brand, not something the data records. */
-function needsSubmitReminder(campaign: Campaign): boolean {
-  return `${campaign.name} ${campaign.company ?? ''}`.toLowerCase().includes('pump')
-}
-
+/** Ticking a box submits nothing to the brand, so a campaign set to need
+ *  submission follows each tick with this, until he taps Done. */
 function SubmitReminder({ campaign, onDone }: { campaign: string | null; onDone: () => void }) {
   if (campaign === null) return null
   return (
@@ -257,7 +251,7 @@ function SubmitReminder({ campaign, onDone }: { campaign: string | null; onDone:
     >
       <span className="flex flex-col">
         <span className="text-xl font-bold uppercase tracking-wide text-state-waiting">Did you submit your post?</span>
-        <span className="text-sm text-text-dim">{campaign} pays only if it is in within 2 hours.</span>
+        <span className="text-sm text-text-dim">{campaign} needs every video submitted.</span>
       </span>
       <button
         type="button"

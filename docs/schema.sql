@@ -116,6 +116,11 @@ create table campaigns (
   -- deliverable, and a video is still posted once to each account.
   pays_per_platform boolean not null default false,
 
+  -- Every posted video has to be submitted to the brand as well - Pump.Fun
+  -- pays nothing for a post not submitted within two hours. When set, ticking
+  -- a post asks him whether he submitted it. Set by him, never inferred.
+  needs_submission boolean not null default false,
+
   -- Posts made before this app existed. User-entered, never fabricated.
   opening_post_count  integer not null default 0 check (opening_post_count >= 0),
 

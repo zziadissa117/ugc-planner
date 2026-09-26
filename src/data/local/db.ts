@@ -205,6 +205,22 @@ export class LocalDatabase extends Dexie {
           console.error('v6 upgrade could not fill bonus_only; continuing.', error)
         }
       })
+
+    // v7 does the same for `needs_submission` on campaigns.
+    this.version(7)
+      .stores({})
+      .upgrade(async (tx) => {
+        try {
+          await tx
+            .table('campaigns')
+            .toCollection()
+            .modify((row: { needs_submission?: boolean }) => {
+              if (typeof row.needs_submission !== 'boolean') row.needs_submission = false
+            })
+        } catch (error) {
+          console.error('v7 upgrade could not fill needs_submission; continuing.', error)
+        }
+      })
   }
 }
 

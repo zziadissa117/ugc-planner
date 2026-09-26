@@ -37,6 +37,7 @@ function campaign(overrides: Partial<Campaign> = {}): Campaign {
     cycle_size: null,
     monthly_pay_override_cents: null,
     pays_per_platform: false,
+    needs_submission: false,
     opening_post_count: 0,
     brief_is_incomplete: false,
     created_at: '2026-09-01T00:00:00.000Z',

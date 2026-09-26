@@ -98,3 +98,28 @@ describe('accounts saved before bonus_only existed', () => {
     expect(after?.bonus_only).toBe(true)
   })
 })
+
+describe('campaigns saved before needs_submission existed', () => {
+  it('get false filled in by the v7 upgrade, and can be switched on', async () => {
+    const { campaignId } = await seedOldAccount()
+    const db = new LocalDatabase(name)
+    await db.open()
+    expect((await db.campaigns.get(campaignId))?.needs_submission).toBe(false)
+    const adapter = new LocalAdapter(db, USER)
+    await adapter.updateCampaign(campaignId, { needs_submission: true })
+    expect((await adapter.getCampaign(campaignId))?.needs_submission).toBe(true)
+  })
+
+  it('keep the local setting when the server sends a row without the column', async () => {
+    const { campaignId } = await seedOldAccount()
+    const db = new LocalDatabase(name)
+    await db.open()
+    const adapter = new LocalAdapter(db, USER)
+    const updated = await adapter.updateCampaign(campaignId, { needs_submission: true })
+    const { needs_submission: _omitted, ...fromServer } = { ...updated, name: 'Polsia (renamed)' }
+    await adapter.applyRemoteRow('campaigns', fromServer)
+    const after = await adapter.getCampaign(campaignId)
+    expect(after?.name).toBe('Polsia (renamed)')
+    expect(after?.needs_submission).toBe(true)
+  })
+})

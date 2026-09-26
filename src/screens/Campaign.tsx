@@ -224,6 +224,17 @@ export function Campaign() {
         onToggle={(on) => saveColumn({ pays_per_platform: on })}
       />
 
+      <SwitchRow
+        on={campaign.needs_submission}
+        label="Videos need to be submitted"
+        detail={
+          campaign.needs_submission
+            ? 'Ticking a post asks whether you submitted it'
+            : 'Ticking a post is all this campaign needs'
+        }
+        onToggle={(on) => saveColumn({ needs_submission: on })}
+      />
+
       {campaign.brief_is_incomplete ? (
         <p className="border-l-2 border-state-waiting pl-3 text-base text-state-waiting">
           This brief looks incomplete. Some rules may be missing.
@@ -492,28 +503,46 @@ function CrossPostPay({
   const perVideo = campaign.pay_per_video_cents
 
   return (
+    <SwitchRow
+      on={on}
+      label="Each platform pays separately"
+      detail={
+        on
+          ? perVideo === null
+            ? `One video is paid ${paying} time${paying === 1 ? '' : 's'}, once per platform`
+            : `${formatCents(perVideo)} per platform, so one video earns ${formatCents(perVideo * paying)} across ${paying}`
+          : 'One video earns once, however many platforms it goes to'
+      }
+      onToggle={onToggle}
+    />
+  )
+}
+
+/** A campaign setting he turns on and off: the label, a line saying what it
+ *  does, and a drawn switch whose knob travels on the settle spring. */
+function SwitchRow({
+  on,
+  label,
+  detail,
+  onToggle,
+}: {
+  on: boolean
+  label: string
+  detail: string
+  onToggle: (on: boolean) => Promise<void>
+}) {
+  return (
     <button
       type="button"
       onClick={() => void onToggle(!on)}
       aria-pressed={on}
-      aria-label="Each platform pays separately"
+      aria-label={label}
       className="press flex min-h-tap w-full items-center justify-between gap-4 border-b border-rule pb-3 text-left"
     >
       <span className="min-w-0">
-        <span className={`block text-base font-semibold ${on ? 'text-state-posted' : 'text-text'}`}>
-          Each platform pays separately
-        </span>
-        <span className="meta block text-state-later">
-          {on
-            ? perVideo === null
-              ? `One video is paid ${paying} time${paying === 1 ? '' : 's'}, once per platform`
-              : `${formatCents(perVideo)} per platform, so one video earns ${formatCents(
-                  perVideo * paying,
-                )} across ${paying}`
-            : 'One video earns once, however many platforms it goes to'}
-        </span>
+        <span className={`block text-base font-semibold ${on ? 'text-state-posted' : 'text-text'}`}>{label}</span>
+        <span className="meta block text-state-later">{detail}</span>
       </span>
-      {/* A switch, drawn: the knob travels on the settle spring. */}
       <span className="flex shrink-0 items-center gap-2">
         <span className={`label ${on ? 'text-state-posted' : 'text-state-later'}`}>{on ? 'On' : 'Off'}</span>
         <span

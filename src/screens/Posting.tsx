@@ -11,6 +11,7 @@
 // no video behind it yet, one is created. See src/data/posting.ts.
 
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 
 import {
@@ -243,7 +244,11 @@ export function Posting() {
  *  submission follows each tick with this, until he taps Done. */
 function SubmitReminder({ campaign, onDone }: { campaign: string | null; onDone: () => void }) {
   if (campaign === null) return null
-  return (
+  // Rendered into <body>, not in place: the page is inside an element with an
+  // entrance animation, and an animated transform on an ancestor pins a
+  // `fixed` element to that ancestor instead of the screen - so the reminder
+  // sat at the bottom of the page, out of sight unless he had scrolled there.
+  return createPortal(
     <div
       role="alert"
       className="pop-in fixed inset-x-4 z-30 mx-auto flex max-w-md items-center justify-between gap-4 rounded-2xl border-2 border-state-waiting bg-ink px-4 py-4"
@@ -260,7 +265,8 @@ function SubmitReminder({ campaign, onDone }: { campaign: string | null; onDone:
       >
         Done
       </button>
-    </div>
+    </div>,
+    document.body,
   )
 }
 

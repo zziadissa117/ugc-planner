@@ -134,6 +134,40 @@ describe('the posting grid', () => {
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
+  it('lets him put the campaigns in his own order, and go back to best pay', async () => {
+    const user = userEvent.setup()
+    await setUp()
+    const cheap = await adapter.createCampaign({
+      name: 'Cheap',
+      company: null,
+      default_setup: 'face',
+      daily_post_quota: 1,
+      pay_per_video_cents: 1000,
+      cycle_size: null,
+    })
+    const account = await adapter.addCampaignAccount({ campaign_id: cheap.id, platform: 'TikTok', handle: '@cheap' })
+    await adapter.updateCampaignAccount(account.id, { status: 'ready' })
+    renderScreen()
+
+    const order = async () =>
+      (await screen.findAllByRole('heading', { level: 2 })).map((h) => h.textContent)
+    expect(await order()).toEqual(['Inflow', 'Cheap'])
+
+    await user.click(screen.getByRole('button', { name: 'Arrange' }))
+    await user.click(await screen.findByRole('button', { name: 'Move Cheap up' }))
+    await waitFor(async () => {
+      expect((await adapter.getCampaign(cheap.id))?.post_position).toBe(0)
+    })
+    await user.click(screen.getByRole('button', { name: 'Done' }))
+    await waitFor(async () => expect(await order()).toEqual(['Cheap', 'Inflow']))
+
+    await user.click(screen.getByRole('button', { name: 'Arrange' }))
+    await user.click(await screen.findByRole('button', { name: 'Go back to best pay first' }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Go back to best pay first' })).toBeNull())
+    await user.click(screen.getByRole('button', { name: 'Done' }))
+    await waitFor(async () => expect(await order()).toEqual(['Inflow', 'Cheap']))
+  })
+
   it('ticks each platform independently, and none of them disappear', async () => {
     const user = userEvent.setup()
     const { campaign } = await setUp()

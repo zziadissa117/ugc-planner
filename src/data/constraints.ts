@@ -180,6 +180,7 @@ export function assertCampaign(row: Campaign): void {
   })
   boolean(t, 'pays_per_platform', row.pays_per_platform)
   boolean(t, 'needs_submission', row.needs_submission)
+  integer(t, 'post_position', row.post_position, { min: 0, nullable: true })
   integer(t, 'opening_post_count', row.opening_post_count, { min: 0, nullable: false })
   boolean(t, 'brief_is_incomplete', row.brief_is_incomplete)
   timestamp(t, 'created_at', row.created_at, { nullable: false })

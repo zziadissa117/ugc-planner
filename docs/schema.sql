@@ -121,6 +121,11 @@ create table campaigns (
   -- a post asks him whether he submitted it. Set by him, never inferred.
   needs_submission boolean not null default false,
 
+  -- Where he put this campaign on the Post screen, 0 first. Null means he has
+  -- not placed it, and it follows the placed ones in best-pay order - which
+  -- is how every campaign starts, and what "sort by best pay" goes back to.
+  post_position integer default null check (post_position >= 0),
+
   -- Posts made before this app existed. User-entered, never fabricated.
   opening_post_count  integer not null default 0 check (opening_post_count >= 0),
 

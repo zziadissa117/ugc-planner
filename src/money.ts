@@ -129,6 +129,27 @@ export function byBestPay<T extends Campaign>(
   })
 }
 
+/** Campaigns in the order the Post screen shows them: the ones he has placed
+ *  himself first, by the position he gave them, then every campaign he has
+ *  not placed in best-pay order - so a new campaign lands at the end rather
+ *  than shoving his arrangement around. With nothing placed this is exactly
+ *  byBestPay. */
+export function inPostOrder<T extends Campaign>(
+  campaigns: readonly T[],
+  accounts: readonly CampaignAccount[] = [],
+): T[] {
+  const ranked = byBestPay(campaigns, accounts)
+  const placed = ranked
+    .filter((c) => c.post_position != null)
+    .sort((a, b) => (a.post_position as number) - (b.post_position as number))
+  return [...placed, ...ranked.filter((c) => c.post_position == null)]
+}
+
+/** True once he has arranged the Post screen himself. */
+export function hasOwnPostOrder(campaigns: readonly Campaign[]): boolean {
+  return campaigns.some((c) => c.post_position != null)
+}
+
 export function campaignEarnings(
   campaign: Campaign,
   accounts: readonly CampaignAccount[] = [],

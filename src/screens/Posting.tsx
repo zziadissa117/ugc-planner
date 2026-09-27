@@ -16,6 +16,7 @@ import { Link } from 'react-router-dom'
 
 import {
   CheckIcon,
+  ChevronDownIcon,
   ListIcon,
   MutedIcon,
   NetworkIcon,
@@ -39,7 +40,7 @@ import {
 import { ensureTodaysQuota } from '../data/today'
 import { useData } from '../data/useData'
 import { useLoaded } from '../data/useLoaded'
-import { byBestPay, formatCents, toCadCents } from '../money'
+import { formatCents, hasOwnPostOrder, inPostOrder, toCadCents } from '../money'
 import { isMuted, playCashRegister, primeCashRegister, setMuted } from '../sound'
 import { CORE_ID, layoutNetwork, type NetworkEdgeDef, type NetworkNodeDef } from './neuralLayout'
 import { NeuralCanvas } from './NeuralCanvas'
@@ -66,6 +67,7 @@ export function Posting() {
   const [busy, setBusy] = useState<string | null>(null)
   const [view, setView] = useState<'list' | 'network'>(readView)
   const [reminder, setReminder] = useState<string | null>(null)
+  const [arranging, setArranging] = useState(false)
 
   const changeView = useCallback((next: 'list' | 'network') => {
     setView(next)
@@ -103,9 +105,10 @@ export function Posting() {
   const boards = useMemo(
     () =>
       loaded
-        ? // Best-paying campaign first. boardsForToday keeps the order it is given.
+        ? // His own order where he has set one, best pay otherwise.
+          // boardsForToday keeps the order it is given.
           boardsForToday(
-            byBestPay(loaded.campaigns, loaded.accounts),
+            inPostOrder(loaded.campaigns, loaded.accounts),
             loaded.accounts,
             loaded.videos,
             loaded.posts,
@@ -205,6 +208,37 @@ export function Posting() {
     )
   }
 
+  if (arranging) {
+    return (
+      <ArrangeCampaigns
+        campaigns={boards.map((board) => board.campaign)}
+        ownOrder={hasOwnPostOrder(loaded.campaigns)}
+        onMove={async (ids) => {
+          // Every position rewritten from the list as it now stands, so the
+          // numbers stay 0, 1, 2... however many moves came before.
+          await Promise.all(
+            ids.map((id, position) => {
+              const campaign = loaded.campaigns.find((c) => c.id === id)
+              return campaign && campaign.post_position !== position
+                ? data.updateCampaign(id, { post_position: position })
+                : null
+            }),
+          )
+          await reload()
+        }}
+        onBestPay={async () => {
+          await Promise.all(
+            loaded.campaigns
+              .filter((c) => c.post_position != null)
+              .map((c) => data.updateCampaign(c.id, { post_position: null })),
+          )
+          await reload()
+        }}
+        onDone={() => setArranging(false)}
+      />
+    )
+  }
+
   return (
     <section className="mx-auto flex max-w-3xl flex-col gap-7">
       {/* The one way into the network view - a small button rather than its
@@ -213,7 +247,20 @@ export function Posting() {
       <ScreenHeader
         title="Post"
         meta="Tick each platform as it goes up. Clears tomorrow."
-        aside={toggleButton}
+        aside={
+          <div className="flex items-center gap-2">
+            {boards.length > 1 ? (
+              <button
+                type="button"
+                onClick={() => setArranging(true)}
+                className="press min-h-tap rounded-full border border-edge px-4 text-sm font-semibold text-state-later active:bg-surface"
+              >
+                Arrange
+              </button>
+            ) : null}
+            {toggleButton}
+          </div>
+        }
       />
 
       <MadeToday cents={earned} />
@@ -236,6 +283,96 @@ export function Posting() {
         </div>
       )}
       <SubmitReminder campaign={reminder} onDone={() => setReminder(null)} />
+    </section>
+  )
+}
+
+/** Puts the campaigns in the order he wants them on the Post screen: one
+ *  up and one down arrow per campaign, and a way back to best pay first. Its
+ *  own screen, not arrows beside the tick boxes, so nothing on the posting
+ *  grid can move under his thumb. */
+function ArrangeCampaigns({
+  campaigns,
+  ownOrder,
+  onMove,
+  onBestPay,
+  onDone,
+}: {
+  campaigns: readonly Campaign[]
+  ownOrder: boolean
+  onMove: (ids: string[]) => Promise<void>
+  onBestPay: () => Promise<void>
+  onDone: () => void
+}) {
+  const [saving, setSaving] = useState(false)
+  const run = async (work: () => Promise<void>) => {
+    setSaving(true)
+    try {
+      await work()
+    } finally {
+      setSaving(false)
+    }
+  }
+  const move = (index: number, by: -1 | 1) => {
+    const ids = campaigns.map((c) => c.id)
+    ;[ids[index], ids[index + by]] = [ids[index + by], ids[index]]
+    void run(() => onMove(ids))
+  }
+  const arrow = 'press flex size-12 items-center justify-center rounded-xl border border-edge text-text active:bg-surface disabled:opacity-30'
+
+  return (
+    <section className="mx-auto flex max-w-3xl flex-col gap-7">
+      <ScreenHeader
+        title="Arrange"
+        meta={ownOrder ? 'Your order.' : 'Best pay first. Move one to use your own order.'}
+        aside={
+          <button
+            type="button"
+            onClick={onDone}
+            className="press min-h-tap rounded-full border border-edge-lit px-5 text-base font-semibold text-text active:bg-surface"
+          >
+            Done
+          </button>
+        }
+      />
+
+      <ol className="flex flex-col divide-y divide-rule border-y border-rule">
+        {campaigns.map((campaign, index) => (
+          <li key={campaign.id} className="flex items-center gap-3 py-3">
+            <span className="numeric w-6 shrink-0 text-base text-state-later">{index + 1}</span>
+            <span className="display min-w-0 flex-1 truncate text-2xl text-text">{campaign.name}</span>
+            <button
+              type="button"
+              disabled={saving || index === 0}
+              onClick={() => move(index, -1)}
+              aria-label={`Move ${campaign.name} up`}
+              className={arrow}
+            >
+              <ChevronDownIcon className="h-5 w-5 rotate-180" />
+            </button>
+            <button
+              type="button"
+              disabled={saving || index === campaigns.length - 1}
+              onClick={() => move(index, 1)}
+              aria-label={`Move ${campaign.name} down`}
+              className={arrow}
+            >
+              <ChevronDownIcon className="h-5 w-5" />
+            </button>
+          </li>
+        ))}
+      </ol>
+
+      {ownOrder ? (
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => void run(onBestPay)}
+          className="press self-start text-base font-semibold text-state-later underline underline-offset-4 disabled:opacity-50"
+        >
+          Go back to best pay first
+        </button>
+      ) : null}
     </section>
   )
 }

@@ -16,6 +16,8 @@ import {
   campaignsWithoutRate,
   dailyEarningsCents,
   formatCents,
+  hasOwnPostOrder,
+  inPostOrder,
   hasMonthlyOverride,
   monthlyPayCents,
   payingPlatforms,
@@ -38,6 +40,7 @@ function campaign(overrides: Partial<Campaign> = {}): Campaign {
     monthly_pay_override_cents: null,
     pays_per_platform: false,
     needs_submission: false,
+    post_position: null,
     opening_post_count: 0,
     brief_is_incomplete: false,
     created_at: '2026-09-01T00:00:00.000Z',
@@ -379,5 +382,27 @@ describe('byBestPay', () => {
     const copy = [...list]
     expect(byBestPay(list).map((c) => c.name)).toEqual(['Alpha', 'Zed'])
     expect(list).toEqual(copy)
+  })
+})
+
+describe('the order campaigns sit in on the Post screen', () => {
+  const pays = (id: string, cents: number, post_position: number | null = null) =>
+    campaign({ id, name: id, pay_per_video_cents: cents, post_position })
+
+  it('is best pay first until he arranges it himself', () => {
+    const list = [pays('low', 1000), pays('high', 5000), pays('mid', 3000)]
+    expect(inPostOrder(list).map((c) => c.id)).toEqual(['high', 'mid', 'low'])
+    expect(hasOwnPostOrder(list)).toBe(false)
+  })
+
+  it('follows his positions, whatever each campaign pays', () => {
+    const list = [pays('low', 1000, 0), pays('high', 5000, 2), pays('mid', 3000, 1)]
+    expect(inPostOrder(list).map((c) => c.id)).toEqual(['low', 'mid', 'high'])
+    expect(hasOwnPostOrder(list)).toBe(true)
+  })
+
+  it('puts a campaign he has not placed yet after the ones he has', () => {
+    const list = [pays('placed', 1000, 0), pays('new-rich', 9000), pays('new-poor', 500)]
+    expect(inPostOrder(list).map((c) => c.id)).toEqual(['placed', 'new-rich', 'new-poor'])
   })
 })

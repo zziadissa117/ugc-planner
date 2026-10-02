@@ -39,7 +39,7 @@ number of platforms multiply both the day's obligation and the day's earnings.
 `daily_post_quota` is now the single source of both and is never dropped. It
 was never applied anywhere, so deleting the file left nothing behind.
 
-0015 (`ai_keys`, bring-your-own AI key; applied 2026-10-02 apart from the `delete_ai_key` function, which is pending) is a **server-only** table: it is not
+0015 (`ai_keys`, bring-your-own AI key; applied 2026-10-02) is a **server-only** table: it is not
 in `schema.sql` on purpose, because everything in `schema.sql` becomes a
 synced, exported, locally mirrored table. A fresh project needs `schema.sql`
 and 0015. The project is shared with the cutter app, so `list_migrations` also

@@ -4,6 +4,7 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { BriefsIcon, MoneyIcon, NowIcon, PostIcon, SetupIcon } from './components/icons'
 import { ensureSeeded } from './data/seed'
 import { useData } from './data/useData'
+import { useCutterBridge } from './sync/cutterBridge'
 import { WarmupTimersProvider } from './warmupTimers'
 
 /** Five tabs, and nothing behind any of them that has to be planned first.
@@ -53,6 +54,8 @@ export function App() {
       cancelled = true
     }
   }, [data])
+
+  useCutterBridge(data, ready)
 
   return (
     <div className="flex min-h-dvh flex-col text-text">

@@ -240,6 +240,7 @@ export class LocalAdapter implements DataAdapter {
       pays_per_platform: campaign.pays_per_platform ?? false,
       needs_submission: campaign.needs_submission ?? false,
       post_position: campaign.post_position ?? null,
+      cutter_campaign_id: campaign.cutter_campaign_id ?? null,
       payout_schedule: campaign.payout_schedule ?? 'none',
       payout_date: campaign.payout_date ?? null,
       opening_post_count: campaign.opening_post_count ?? 0,
@@ -1634,6 +1635,10 @@ export class LocalAdapter implements DataAdapter {
       if (typeof (row as Partial<Campaign>).needs_submission !== 'boolean') {
         const existing = (await this.db.campaigns.get(incoming.id)) as Campaign | undefined
         row = { ...(row as object), needs_submission: existing?.needs_submission ?? false }
+      }
+      if ((row as Partial<Campaign>).cutter_campaign_id === undefined) {
+        const existing = (await this.db.campaigns.get(incoming.id)) as Campaign | undefined
+        row = { ...(row as object), cutter_campaign_id: existing?.cutter_campaign_id ?? null }
       }
       if ((row as Partial<Campaign>).post_position === undefined) {
         const existing = (await this.db.campaigns.get(incoming.id)) as Campaign | undefined

@@ -26,8 +26,13 @@ import type {
   CampaignAccount,
   CampaignField,
   CampaignHook,
+  CampaignPayout,
   CampaignRule,
+  PayoutSchedule,
 } from '../data'
+import { PAYOUT_SCHEDULE_VALUES } from '../data'
+import { deliverableCents, paysPerPlatform } from '../data/earnings'
+import { PAYOUT_SCHEDULE_LABELS, payoutStatus } from '../data/payouts'
 import {
   centsToDollarsInput,
   confirmFieldValue,
@@ -37,9 +42,11 @@ import {
   virtualField,
 } from '../data/campaignFields'
 import { GENERATION_BRIEF_KEY } from '../hooks/generateHooks'
+import { localToday } from '../data'
+import { formatDay } from '../data/payouts'
 import { useData } from '../data/useData'
 import { useLoaded } from '../data/useLoaded'
-import { dailyEarningsCents, formatCents, payingPlatforms } from '../money'
+import { dailyEarningsCents, formatCents, payingPlatforms, weeklyEarningsCents } from '../money'
 
 interface Loaded {
   campaign: CampaignRow
@@ -48,6 +55,7 @@ interface Loaded {
   /** Needed for the money on this page: where a campaign pays per platform,
    *  what a day is worth depends on how many he can post from. */
   accounts: CampaignAccount[]
+  payouts: CampaignPayout[]
 }
 
 /** The four that actually help him make the video. Everything else the parser
@@ -102,12 +110,13 @@ export function Campaign() {
     const campaign = await data.getCampaign(campaignId)
     if (!campaign) return null
 
-    const [fields, rules, accounts] = await Promise.all([
+    const [fields, rules, accounts, payouts] = await Promise.all([
       data.listCampaignFields(campaignId),
       data.listCampaignRules(campaignId),
       data.listCampaignAccounts(campaignId),
+      data.listCampaignPayouts(campaignId),
     ])
-    return { campaign, fields, rules, accounts }
+    return { campaign, fields, rules, accounts, payouts }
   }, [campaignId, data])
 
   useEffect(() => {
@@ -157,13 +166,14 @@ export function Campaign() {
   if (missing) return <p className="text-state-later">No such campaign.</p>
   if (!loaded) return null
 
-  const { campaign, fields, rules, accounts } = loaded
+  const { campaign, fields, rules, accounts, payouts } = loaded
   const byKey = new Map(fields.map((f) => [f.field_key, f]))
   const rest = fields
     .filter((f) => !RETIRED_KEYS.includes(f.field_key))
     .sort((a, b) => a.field_key.localeCompare(b.field_key))
 
   const perDay = dailyEarningsCents(campaign, accounts)
+  const perWeek = weeklyEarningsCents(campaign, accounts)
 
   return (
     <section className="mx-auto flex max-w-4xl flex-col gap-5">
@@ -206,15 +216,18 @@ export function Campaign() {
           }
         />
         <Count
-          label="posts/day"
-          value={campaign.daily_post_quota}
-          onSave={(next) => saveColumn({ daily_post_quota: next })}
+          label="posts/week"
+          value={campaign.posts_per_week}
+          onSave={(next) => saveColumn({ posts_per_week: next })}
         />
         <div className="ml-auto text-right">
-          <p className="label text-state-later">per day</p>
+          <p className="label text-state-later">per week</p>
           <p className="numeric mt-1 text-2xl font-semibold leading-none text-text">
-            {perDay === null ? 'no rate yet' : formatCents(perDay)}
+            {perWeek === null ? 'no rate yet' : formatCents(perWeek)}
           </p>
+          {perDay === null ? null : (
+            <p className="meta mt-1 text-state-later">about {formatCents(perDay)} a day</p>
+          )}
         </div>
       </div>
 
@@ -222,6 +235,20 @@ export function Campaign() {
         campaign={campaign}
         accounts={accounts}
         onToggle={(on) => saveColumn({ pays_per_platform: on })}
+      />
+
+      <PayoutSection
+        campaign={campaign}
+        payouts={payouts}
+        onSave={saveColumn}
+        onMarkPaid={async (dueDate) => {
+          await data.markPayoutPaid(campaign.id, dueDate)
+          await refresh()
+        }}
+        onMarkPending={async (dueDate) => {
+          await data.unmarkPayoutPaid(campaign.id, dueDate)
+          await refresh()
+        }}
       />
 
       <SwitchRow
@@ -501,19 +528,30 @@ function CrossPostPay({
   const on = campaign.pays_per_platform
   const paying = payingPlatforms(campaign, accounts)
   const perVideo = campaign.pay_per_video_cents
+  // He gave a platform a rate of its own: the campaign pays per platform
+  // whether or not this switch is on, and the switch cannot turn that off.
+  const ownRates = accounts.some(
+    (a) => a.campaign_id === campaign.id && a.is_active && a.pay_per_post_cents != null,
+  )
+  const separate = paysPerPlatform(campaign, accounts)
+  const total = deliverableCents(campaign, accounts)
+
+  const detail = ownRates
+    ? total === null
+      ? 'Some platforms have a rate of their own, so each is paid separately'
+      : `Platforms with a rate of their own pay it; one video earns ${formatCents(total)} across ${paying}`
+    : on
+      ? perVideo === null
+        ? `One video is paid ${paying} time${paying === 1 ? '' : 's'}, once per platform`
+        : `${formatCents(perVideo)} per platform, so one video earns ${formatCents(perVideo * paying)} across ${paying}`
+      : 'One video earns once, however many platforms it goes to'
 
   return (
     <SwitchRow
-      on={on}
+      on={separate}
       label="Each platform pays separately"
-      detail={
-        on
-          ? perVideo === null
-            ? `One video is paid ${paying} time${paying === 1 ? '' : 's'}, once per platform`
-            : `${formatCents(perVideo)} per platform, so one video earns ${formatCents(perVideo * paying)} across ${paying}`
-          : 'One video earns once, however many platforms it goes to'
-      }
-      onToggle={onToggle}
+      detail={detail}
+      onToggle={ownRates ? async () => undefined : onToggle}
     />
   )
 }
@@ -559,6 +597,109 @@ function SwitchRow({
         </span>
       </span>
     </button>
+  )
+}
+
+/** When the brand pays, and whether the latest payout has arrived.
+ *
+ *  One-off or recurring from a first date he picks. Whether a given payout has
+ *  been received is its own record per due date, so ticking this month's off
+ *  leaves next month's pending. Nothing is guessed: with no date saved the
+ *  section says so and shows no status. */
+function PayoutSection({
+  campaign,
+  payouts,
+  onSave,
+  onMarkPaid,
+  onMarkPending,
+}: {
+  campaign: CampaignRow
+  payouts: readonly CampaignPayout[]
+  onSave: (patch: Partial<CampaignRow>) => Promise<void>
+  onMarkPaid: (dueDate: string) => Promise<void>
+  onMarkPending: (dueDate: string) => Promise<void>
+}) {
+  const today = localToday()
+  const status = payoutStatus(campaign, payouts, today)
+  const latest = status?.latest ?? null
+
+  return (
+    <div className="flex flex-col gap-2 border-b border-rule pb-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <span className="label text-state-later">Payout</span>
+        <div role="group" aria-label="Payout schedule" className="flex flex-wrap items-center gap-1">
+          {PAYOUT_SCHEDULE_VALUES.map((schedule: PayoutSchedule) => (
+            <button
+              key={schedule}
+              type="button"
+              aria-pressed={campaign.payout_schedule === schedule}
+              onClick={() =>
+                void onSave({
+                  payout_schedule: schedule,
+                  // "None" forgets the date too, so a campaign with no
+                  // schedule is not left holding a date that means nothing.
+                  ...(schedule === 'none' ? { payout_date: null } : {}),
+                })
+              }
+              className={[
+                'press rounded-full px-2.5 py-1 label',
+                campaign.payout_schedule === schedule
+                  ? 'bg-surface-raised text-state-now'
+                  : 'text-state-later active:bg-surface',
+              ].join(' ')}
+            >
+              {PAYOUT_SCHEDULE_LABELS[schedule]}
+            </button>
+          ))}
+        </div>
+        {campaign.payout_schedule === 'none' ? null : (
+          <label className="flex items-center gap-1.5">
+            <span className="label text-state-later">
+              {campaign.payout_schedule === 'one_off' ? 'On' : 'First'}
+            </span>
+            <input
+              type="date"
+              aria-label="Payout date"
+              value={campaign.payout_date ?? ''}
+              onChange={(event) => void onSave({ payout_date: event.target.value || null })}
+              className={`${INPUT_CLASS} !min-h-9 w-40 py-1 text-sm`}
+            />
+          </label>
+        )}
+      </div>
+
+      {campaign.payout_schedule !== 'none' && campaign.payout_date === null ? (
+        <p className="meta text-state-later">Pick the date it pays - not saved yet.</p>
+      ) : null}
+
+      {status === null ? null : (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          {latest ? (
+            <>
+              <span
+                className={`text-base font-semibold ${
+                  latest.paid ? 'text-state-posted' : status.overdue ? 'text-state-waiting' : 'text-state-later'
+                }`}
+              >
+                {formatDay(latest.dueDate)} - {latest.paid ? 'paid' : 'pending'}
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  void (latest.paid ? onMarkPending(latest.dueDate) : onMarkPaid(latest.dueDate))
+                }
+                className={buttonClass('quiet', 'small')}
+              >
+                {latest.paid ? 'Mark pending' : 'Mark paid'}
+              </button>
+            </>
+          ) : null}
+          {status.next ? (
+            <span className="meta text-state-later">Next {formatDay(status.next)}</span>
+          ) : null}
+        </div>
+      )}
+    </div>
   )
 }
 

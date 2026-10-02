@@ -89,8 +89,9 @@ construction - `backfillOutbox` exists for exactly that.
 
 **Money is integer cents.** Never floats. Never a currency library.
 
-**History is append-only.** `phase_events` is inserted into and read from,
-never updated or deleted. Anything countable is counted from it at query time -
+**History is append-only.** `phase_events` and `earnings_events` are inserted
+into and read from, never updated or deleted. Un-ticking a post appends a
+reversal to `earnings_events`; it never edits or removes the original row. Anything countable is counted from it at query time -
 how many videos an evening produced, how many warm-up sessions an account has
 had - rather than kept as a number somewhere that can drift from the log that
 explains it.
@@ -139,9 +140,13 @@ one piece of content on TikTok and Instagram is *one* deliverable, and he
 confirmed the same for Vertus.
 
 **The quota lives on the campaign; platforms are destinations.**
-`campaigns.daily_post_quota` is the only source of how much a day owes, and
-`pay_per_video_cents x daily_post_quota` is the only source of what a day
-pays. Nothing derives either from the account list. This is not a detail: when
+`campaigns.posts_per_week` is the only source of how much a week owes and what
+it pays (week = deliverable value x posts per week; a day is a seventh, a
+month 30/7 of a week). `daily_post_quota` is what the Post grid owes on a day
+and is always `ceil(posts_per_week / 7)`, written together with it by the data
+layer. (It used to be the only source, per day; the weekly rate replaced it at
+his request, with existing campaigns migrated per-day x 7.) Nothing derives
+either from the account list. This is not a detail: when
 demand was read off the accounts, adding YouTube to a campaign owing one video
 a day silently changed both the obligation and the earnings, and the screens
 showed "$105/day" and "19 of 6 posted" as a result. Platforms say *where* a

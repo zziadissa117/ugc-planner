@@ -126,6 +126,30 @@ export const DOCUMENT_KIND_VALUES = [
   'other',
 ] as const satisfies readonly DocumentKind[]
 
+export type PayoutSchedule =
+  | 'none'
+  | 'one_off'
+  | 'weekly'
+  | 'biweekly'
+  | 'monthly'
+
+export const PAYOUT_SCHEDULE_VALUES = [
+  'none',
+  'one_off',
+  'weekly',
+  'biweekly',
+  'monthly',
+] as const satisfies readonly PayoutSchedule[]
+
+export type EarningsSource =
+  | 'checkoff'
+  | 'reversal'
+
+export const EARNINGS_SOURCE_VALUES = [
+  'checkoff',
+  'reversal',
+] as const satisfies readonly EarningsSource[]
+
 // --- Row types -----------------------------------------------------------
 
 /** Mirrors `campaigns`. */
@@ -144,6 +168,9 @@ export interface Campaign {
   pays_per_platform: boolean
   needs_submission: boolean
   post_position: number | null
+  posts_per_week: number
+  payout_schedule: PayoutSchedule
+  payout_date: string | null
   opening_post_count: number
   brief_is_incomplete: boolean
   created_at: string
@@ -152,8 +179,8 @@ export interface Campaign {
 
 /** `campaigns` as supplied by a caller: user_id comes from the session, and
  *  columns the database defaults are optional. */
-export type NewCampaign = Omit<Campaign, 'user_id' | 'id' | 'is_active' | 'approval_mode' | 'daily_post_quota' | 'monthly_pay_override_cents' | 'pays_per_platform' | 'needs_submission' | 'post_position' | 'opening_post_count' | 'brief_is_incomplete' | 'created_at' | 'updated_at'> &
-  Partial<Pick<Campaign, 'id' | 'is_active' | 'approval_mode' | 'daily_post_quota' | 'monthly_pay_override_cents' | 'pays_per_platform' | 'needs_submission' | 'post_position' | 'opening_post_count' | 'brief_is_incomplete' | 'created_at' | 'updated_at'>>
+export type NewCampaign = Omit<Campaign, 'user_id' | 'id' | 'is_active' | 'approval_mode' | 'daily_post_quota' | 'monthly_pay_override_cents' | 'pays_per_platform' | 'needs_submission' | 'post_position' | 'posts_per_week' | 'payout_schedule' | 'payout_date' | 'opening_post_count' | 'brief_is_incomplete' | 'created_at' | 'updated_at'> &
+  Partial<Pick<Campaign, 'id' | 'is_active' | 'approval_mode' | 'daily_post_quota' | 'monthly_pay_override_cents' | 'pays_per_platform' | 'needs_submission' | 'post_position' | 'posts_per_week' | 'payout_schedule' | 'payout_date' | 'opening_post_count' | 'brief_is_incomplete' | 'created_at' | 'updated_at'>>
 
 /** Mirrors `campaign_accounts`. */
 export interface CampaignAccount {
@@ -168,6 +195,7 @@ export interface CampaignAccount {
   status: AccountStatus
   is_active: boolean
   bonus_only: boolean
+  pay_per_post_cents: number | null
   sort_order: number
   created_at: string
   updated_at: string
@@ -175,8 +203,8 @@ export interface CampaignAccount {
 
 /** `campaign_accounts` as supplied by a caller: user_id comes from the session, and
  *  columns the database defaults are optional. */
-export type NewCampaignAccount = Omit<CampaignAccount, 'user_id' | 'id' | 'email' | 'password' | 'posts_per_day' | 'status' | 'is_active' | 'bonus_only' | 'sort_order' | 'created_at' | 'updated_at'> &
-  Partial<Pick<CampaignAccount, 'id' | 'email' | 'password' | 'posts_per_day' | 'status' | 'is_active' | 'bonus_only' | 'sort_order' | 'created_at' | 'updated_at'>>
+export type NewCampaignAccount = Omit<CampaignAccount, 'user_id' | 'id' | 'email' | 'password' | 'posts_per_day' | 'status' | 'is_active' | 'bonus_only' | 'pay_per_post_cents' | 'sort_order' | 'created_at' | 'updated_at'> &
+  Partial<Pick<CampaignAccount, 'id' | 'email' | 'password' | 'posts_per_day' | 'status' | 'is_active' | 'bonus_only' | 'pay_per_post_cents' | 'sort_order' | 'created_at' | 'updated_at'>>
 
 /** Mirrors `campaign_documents`. */
 export interface CampaignDocument {
@@ -398,6 +426,42 @@ export interface BonusClaim {
 export type NewBonusClaim = Omit<BonusClaim, 'user_id' | 'id' | 'probability' | 'updated_at'> &
   Partial<Pick<BonusClaim, 'id' | 'probability' | 'updated_at'>>
 
+/** Mirrors `earnings_events`. */
+export interface EarningsEvent {
+  id: string
+  user_id: string
+  campaign_id: string
+  video_id: string
+  account_id: string | null
+  platform: string
+  amount_cents: number
+  source: EarningsSource
+  earned_on: string
+  reverses_id: string | null
+  occurred_at: string
+}
+
+/** `earnings_events` as supplied by a caller: user_id comes from the session, and
+ *  columns the database defaults are optional. */
+export type NewEarningsEvent = Omit<EarningsEvent, 'user_id' | 'id' | 'account_id' | 'reverses_id' | 'occurred_at'> &
+  Partial<Pick<EarningsEvent, 'id' | 'account_id' | 'reverses_id' | 'occurred_at'>>
+
+/** Mirrors `campaign_payouts`. */
+export interface CampaignPayout {
+  id: string
+  user_id: string
+  campaign_id: string
+  due_date: string
+  paid_at: string
+  received_cents: number | null
+  updated_at: string
+}
+
+/** `campaign_payouts` as supplied by a caller: user_id comes from the session, and
+ *  columns the database defaults are optional. */
+export type NewCampaignPayout = Omit<CampaignPayout, 'user_id' | 'id' | 'paid_at' | 'received_cents' | 'updated_at'> &
+  Partial<Pick<CampaignPayout, 'id' | 'paid_at' | 'received_cents' | 'updated_at'>>
+
 /** Mirrors `time_estimates`. */
 export interface TimeEstimate {
   id: string
@@ -447,6 +511,8 @@ export const TABLE_NAMES = [
   'warmup_events',
   'bonus_tiers',
   'bonus_claims',
+  'earnings_events',
+  'campaign_payouts',
   'time_estimates',
   'user_settings',
 ] as const
@@ -469,6 +535,8 @@ export interface TableRowMap {
   warmup_events: WarmupEvent
   bonus_tiers: BonusTier
   bonus_claims: BonusClaim
+  earnings_events: EarningsEvent
+  campaign_payouts: CampaignPayout
   time_estimates: TimeEstimate
   user_settings: UserSettings
 }
@@ -515,6 +583,14 @@ export const SQL_TABLE_CONSTRAINTS: Readonly<Record<string, readonly string[]>> 
     "unique (video_id, bonus_tier_id)",
     "constraint received_needs_date check (received_cents is null or received_at is not null)",
   ],
+  earnings_events: [
+    "constraint checkoff_is_not_negative check (source <> 'checkoff' or amount_cents >= 0)",
+    "constraint reversal_is_not_positive check (source <> 'reversal' or amount_cents <= 0)",
+    "constraint reversal_names_its_checkoff check (source <> 'reversal' or reverses_id is not null)",
+  ],
+  campaign_payouts: [
+    "unique (campaign_id, due_date)",
+  ],
   time_estimates: [
     "unique (user_id, setup)",
   ],
@@ -529,10 +605,12 @@ export const SQL_COLUMN_CHECKS: Readonly<Record<string, Readonly<Record<string, 
     cycle_size: ["check (cycle_size > 0)"],
     monthly_pay_override_cents: ["check (monthly_pay_override_cents >= 0)"],
     post_position: ["check (post_position >= 0)"],
+    posts_per_week: ["check (posts_per_week >= 0)"],
     opening_post_count: ["check (opening_post_count >= 0)"],
   },
   campaign_accounts: {
     posts_per_day: ["check (posts_per_day >= 0)"],
+    pay_per_post_cents: ["check (pay_per_post_cents >= 0)"],
   },
   videos: {
     rate_snapshot_cents: ["check (rate_snapshot_cents >= 0)"],
@@ -556,6 +634,9 @@ export const SQL_COLUMN_CHECKS: Readonly<Record<string, Readonly<Record<string, 
   },
   bonus_claims: {
     probability: ["check (probability >= 0 and probability <= 1)"],
+    received_cents: ["check (received_cents >= 0)"],
+  },
+  campaign_payouts: {
     received_cents: ["check (received_cents >= 0)"],
   },
   time_estimates: {

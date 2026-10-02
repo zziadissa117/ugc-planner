@@ -17,6 +17,8 @@ import { beforeAll, afterAll, describe, expect, it } from 'vitest'
 // type generator reads and needs no node filesystem types.
 import SCHEMA from '../../docs/schema.sql?raw'
 import MIGRATION_0002 from '../../docs/migrations/0002_phase_events_client_id.sql?raw'
+import MIGRATION_0016 from '../../docs/migrations/0016_weekly_pay_payouts_earnings.sql?raw'
+import SCHEMA_BEFORE_0016 from '../../docs/migrations/fixtures/schema.before-0016.sql?raw'
 
 /** The pieces Supabase supplies that plain Postgres does not. */
 const SUPABASE_STUB = `
@@ -67,8 +69,10 @@ describe('docs/schema.sql', () => {
       'campaign_documents',
       'campaign_fields',
       'campaign_hooks',
+      'campaign_payouts',
       'campaign_rules',
       'campaigns',
+      'earnings_events',
       'phase_events',
       'time_estimates',
       'user_settings',
@@ -87,8 +91,10 @@ describe('docs/schema.sql', () => {
       'account_status',
       'approval_mode',
       'document_kind',
+      'earnings_source',
       'field_source',
       'hook_source',
+      'payout_schedule',
       'session_type',
       'setup_type',
       'video_kind',
@@ -102,10 +108,10 @@ describe('docs/schema.sql', () => {
        join pg_namespace n on n.oid = c.relnamespace
        where n.nspname = 'public' and c.relkind = 'r' and c.relrowsecurity`,
     )
-    expect(rls.rows).toHaveLength(16)
+    expect(rls.rows).toHaveLength(18)
   })
 
-  it.each(['phase_events', 'warmup_events'])(
+  it.each(['phase_events', 'warmup_events', 'earnings_events'])(
     'makes %s insert-and-select only, with no update or delete policy',
     async (table) => {
       const policies = await db.query<{ cmd: string }>(
@@ -329,6 +335,130 @@ describe('docs/migrations/0002_phase_events_client_id.sql', () => {
       await expect(old.exec(insert)).rejects.toThrow()
     } finally {
       await old.close()
+    }
+  }, 120_000)
+})
+
+
+describe('earnings_events', () => {
+  async function event(columns: Record<string, string>) {
+    const campaign = await insertCampaign()
+    const base: Record<string, string> = {
+      user_id: `'${USER}'`,
+      campaign_id: `'${campaign}'`,
+      video_id: `'${crypto.randomUUID()}'`,
+      platform: `'TikTok'`,
+      earned_on: `'2026-10-02'`,
+      ...columns,
+    }
+    return db.query(
+      `insert into earnings_events (${Object.keys(base).join(', ')})
+       values (${Object.values(base).join(', ')}) returning id`,
+    )
+  }
+
+  it('records money earned, and its reversal', async () => {
+    const checkoff = await event({ amount_cents: '3500', source: `'checkoff'` })
+    const id = (checkoff.rows[0] as { id: string }).id
+    await expect(
+      event({ amount_cents: '-3500', source: `'reversal'`, reverses_id: `'${id}'` }),
+    ).resolves.toBeDefined()
+  })
+
+  it('refuses a checkoff that takes money away', async () => {
+    await expect(event({ amount_cents: '-1', source: `'checkoff'` })).rejects.toThrow()
+  })
+
+  it('refuses a reversal that adds money', async () => {
+    const checkoff = await event({ amount_cents: '100', source: `'checkoff'` })
+    const id = (checkoff.rows[0] as { id: string }).id
+    await expect(
+      event({ amount_cents: '100', source: `'reversal'`, reverses_id: `'${id}'` }),
+    ).rejects.toThrow()
+  })
+
+  it('refuses a reversal that does not say what it undoes', async () => {
+    await expect(event({ amount_cents: '-100', source: `'reversal'` })).rejects.toThrow()
+  })
+})
+
+describe('campaign_payouts', () => {
+  it('holds one row per campaign and due date', async () => {
+    const campaign = await insertCampaign()
+    const insert = `insert into campaign_payouts (user_id, campaign_id, due_date)
+                    values ('${USER}', '${campaign}', '2026-10-15')`
+    await db.exec(insert)
+    await expect(db.exec(insert)).rejects.toThrow()
+  })
+
+  it('refuses a negative amount received', async () => {
+    const campaign = await insertCampaign()
+    await expect(
+      db.exec(`insert into campaign_payouts (user_id, campaign_id, due_date, received_cents)
+               values ('${USER}', '${campaign}', '2026-11-15', -1)`),
+    ).rejects.toThrow()
+  })
+})
+
+describe('docs/migrations/0016_weekly_pay_payouts_earnings.sql', () => {
+  it('migrates a database that ran everything before it: per day becomes per week x 7', async () => {
+    const old = new PGlite()
+    try {
+      await old.exec(SUPABASE_STUB)
+      await old.exec(`insert into auth.users (id) values ('${USER}')`)
+      await old.exec(SCHEMA_BEFORE_0016)
+      await old.exec(`insert into campaigns (user_id, name, daily_post_quota) values
+        ('${USER}', 'Daily two', 2), ('${USER}', 'Nothing owed', 0)`)
+
+      await old.exec(MIGRATION_0016)
+
+      const rows = await old.query<{ name: string; posts_per_week: number; payout_schedule: string }>(
+        `select name, posts_per_week, payout_schedule from campaigns order by name`,
+      )
+      expect(rows.rows).toEqual([
+        { name: 'Daily two', posts_per_week: 14, payout_schedule: 'none' },
+        { name: 'Nothing owed', posts_per_week: 0, payout_schedule: 'none' },
+      ])
+      const tables = await old.query<{ table_name: string }>(
+        `select table_name from information_schema.tables
+         where table_schema = 'public' and table_name in ('earnings_events', 'campaign_payouts')`,
+      )
+      expect(tables.rows).toHaveLength(2)
+    } finally {
+      await old.close()
+    }
+  }, 120_000)
+
+  it('can be run twice, and on a schema that already has it', async () => {
+    const again = new PGlite()
+    try {
+      await again.exec(SUPABASE_STUB)
+      await again.exec(`insert into auth.users (id) values ('${USER}')`)
+      await again.exec(SCHEMA)
+      await again.exec(MIGRATION_0016)
+      await again.exec(MIGRATION_0016)
+    } finally {
+      await again.close()
+    }
+  }, 120_000)
+
+  it('leaves the same columns as schema.sql', async () => {
+    const migrated = new PGlite()
+    const columns = (target: PGlite) =>
+      target.query<{ table_name: string; column_name: string; data_type: string; is_nullable: string }>(
+        `select table_name, column_name, data_type, is_nullable from information_schema.columns
+         where table_schema = 'public' order by table_name, column_name`,
+      )
+    try {
+      await migrated.exec(SUPABASE_STUB)
+      await migrated.exec(`insert into auth.users (id) values ('${USER}')`)
+      await migrated.exec(SCHEMA_BEFORE_0016)
+      await migrated.exec(MIGRATION_0016)
+      // If the migration and schema.sql ever describe different tables, a
+      // fresh project and an upgraded one would not be the same project.
+      expect((await columns(migrated)).rows).toEqual((await columns(db)).rows)
+    } finally {
+      await migrated.close()
     }
   }, 120_000)
 })

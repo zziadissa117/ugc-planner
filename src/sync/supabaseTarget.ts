@@ -25,6 +25,11 @@ const PERMANENT_CODES = new Set([
   '22P02', // bad input syntax
 ])
 
+/** History tables: inserted into, deduplicated by client_id, never updated. */
+function isAppendOnly(table: TableName): boolean {
+  return table === 'phase_events' || table === 'warmup_events' || table === 'earnings_events'
+}
+
 export class SupabaseSyncTarget implements SyncTarget {
   readonly name = 'Supabase'
 
@@ -50,12 +55,15 @@ export class SupabaseSyncTarget implements SyncTarget {
       return error ? this.classify(error) : { status: 'applied' }
     }
 
-    // phase_events and warmup_events are insert-only and their id is a server
+    // phase_events, warmup_events and earnings_events are insert-only and their id is a server
     // sequence, so the local id must not be sent - the server assigns its own.
-    if (write.table_name === 'phase_events' || write.table_name === 'warmup_events') {
+    if (isAppendOnly(write.table_name)) {
       // The local id is a client-side sequence and means nothing here, so the
       // server assigns its own. client_id is what makes this safe to retry.
-      const { id: _localId, ...event } = row
+      // earnings_events is the exception: its id is a client-minted uuid, the
+      // same on every device, so it is sent and is what makes the retry safe.
+      const { id: localId, ...rest } = row
+      const event = write.table_name === 'earnings_events' ? { id: localId, ...rest } : rest
       const { error } = await this.client.from(write.table_name).insert(event)
       if (!error) return { status: 'applied' }
 

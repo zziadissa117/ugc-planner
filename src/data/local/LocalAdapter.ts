@@ -22,6 +22,11 @@ import type {
 } from '../DataAdapter'
 import { ConstraintError, assertRow } from '../constraints'
 import { DEFAULT_SETUP_SWITCH_MINUTES, DEFAULT_TIME_ESTIMATES } from '../defaults'
+import {
+  EARNINGS_HISTORY_START,
+  liveCheckoffs,
+  tickAmountCents,
+} from '../earnings'
 import { nextPhase, previousPhase } from '../phases'
 import { statusAfterWarmup, warmupCompletions } from '../warmup'
 import type {
@@ -33,7 +38,9 @@ import type {
   CampaignDocument,
   CampaignField,
   CampaignHook,
+  CampaignPayout,
   CampaignRule,
+  EarningsEvent,
   NewBonusTier,
   NewCampaign,
   NewCampaignAccount,
@@ -96,6 +103,31 @@ export function localToday(date = new Date()): string {
   const d = String(date.getDate()).padStart(2, '0')
   return `${y}-${m}-${d}`
 }
+
+/** The two quota columns, kept in step.
+ *
+ *  `posts_per_week` is what the money side reads and what he edits;
+ *  `daily_post_quota` is what the Post grid owes on a day, and is always
+ *  ceil(posts_per_week / 7). A campaign written the old way - only a daily
+ *  quota - gets a weekly one of seven times that, so nothing that still
+ *  speaks per-day can leave the two disagreeing. Given both, they are taken as
+ *  they are: whoever passes both has already decided. */
+function quotaColumns(
+  given: { daily_post_quota?: number; posts_per_week?: number },
+  existing?: { daily_post_quota: number; posts_per_week: number },
+): { daily_post_quota: number; posts_per_week: number } {
+  const { daily_post_quota: daily, posts_per_week: weekly } = given
+  if (weekly !== undefined && daily !== undefined) return { daily_post_quota: daily, posts_per_week: weekly }
+  if (weekly !== undefined) return { daily_post_quota: Math.ceil(weekly / 7), posts_per_week: weekly }
+  if (daily !== undefined) return { daily_post_quota: daily, posts_per_week: daily * 7 }
+  return {
+    daily_post_quota: existing?.daily_post_quota ?? 0,
+    posts_per_week: existing?.posts_per_week ?? 0,
+  }
+}
+
+/** History tables: rows are inserted and never updated or deleted. */
+const APPEND_ONLY: ReadonlySet<TableName> = new Set<TableName>(['phase_events', 'warmup_events', 'earnings_events'])
 
 export class LocalAdapter implements DataAdapter {
   private readonly db: LocalDatabase
@@ -201,13 +233,15 @@ export class LocalAdapter implements DataAdapter {
       is_active: campaign.is_active ?? true,
       approval_mode: campaign.approval_mode ?? 'none',
       default_setup: campaign.default_setup,
-      daily_post_quota: campaign.daily_post_quota ?? 0,
+      ...quotaColumns(campaign),
       pay_per_video_cents: campaign.pay_per_video_cents,
       cycle_size: campaign.cycle_size,
       monthly_pay_override_cents: campaign.monthly_pay_override_cents ?? null,
       pays_per_platform: campaign.pays_per_platform ?? false,
       needs_submission: campaign.needs_submission ?? false,
       post_position: campaign.post_position ?? null,
+      payout_schedule: campaign.payout_schedule ?? 'none',
+      payout_date: campaign.payout_date ?? null,
       opening_post_count: campaign.opening_post_count ?? 0,
       brief_is_incomplete: campaign.brief_is_incomplete ?? false,
       created_at: campaign.created_at ?? timestamp,
@@ -228,7 +262,7 @@ export class LocalAdapter implements DataAdapter {
   ): Promise<Campaign> {
     return this.tx([this.db.campaigns, this.db.videos, this.db._outbox], async (tx) => {
       const existing = (await this.requireRow(tx, 'campaigns', id)) as Campaign
-      const row: Campaign = { ...existing, ...patch, updated_at: now() }
+      const row: Campaign = { ...existing, ...patch, ...quotaColumns(patch, existing), updated_at: now() }
       assertRow('campaigns', row)
       await tx.table('campaigns').put(row)
       this.enqueue(tx, 'campaigns', id, 'update', row)
@@ -740,18 +774,28 @@ export class LocalAdapter implements DataAdapter {
     }
     assertRow('video_posts', row)
 
-    await this.tx([this.db.video_posts,
-      this.db.videos,
-      this.db._outbox], async (tx) => {
+    await this.tx(
+      [
+        this.db.video_posts,
+        this.db.videos,
+        this.db.campaigns,
+        this.db.campaign_accounts,
+        this.db.earnings_events,
+        this.db._outbox,
+      ],
+      async (tx) => {
         await this.requireRow(tx, 'videos', row.video_id)
         await tx.table('video_posts').add(row)
         this.enqueue(tx, 'video_posts', row.id, 'insert', row)
-      })
+        // The money lands in the same transaction as the tick that earned it.
+        await this.recordCheckoff(tx, row)
+      },
+    )
     return row
   }
 
   async removeVideoPost(videoId: string, accountId: string): Promise<void> {
-    await this.tx([this.db.video_posts, this.db._outbox], async (tx) => {
+    await this.tx([this.db.video_posts, this.db.earnings_events, this.db._outbox], async (tx) => {
       const rows = (await tx
         .table('video_posts')
         .where('video_id')
@@ -764,6 +808,209 @@ export class LocalAdapter implements DataAdapter {
         // was going to remove rather than only naming an id.
         this.enqueue(tx, 'video_posts', row.id, 'delete', row)
       }
+      // Taken back as a new row, never by editing the old one.
+      await this.recordReversal(tx, videoId, accountId)
+    })
+  }
+
+  // --- Earnings history -----------------------------------------------------
+
+  async listEarningsEvents(filter?: {
+    since?: string
+    campaignId?: string
+  }): Promise<EarningsEvent[]> {
+    let rows = filter?.campaignId
+      ? await this.db.earnings_events.where('campaign_id').equals(filter.campaignId).toArray()
+      : await this.db.earnings_events.toArray()
+    if (filter?.since) rows = rows.filter((e) => e.earned_on >= (filter.since as string))
+    return rows.sort((a, b) => a.occurred_at.localeCompare(b.occurred_at) || a.id.localeCompare(b.id))
+  }
+
+  /** Appends what ticking this post paid, if it paid anything.
+   *
+   *  `ticked` is how many of the video's other paying posts came before this
+   *  one. Counted from the posts rather than from earlier events, because a
+   *  share that rounds to zero writes no event and must still count as a
+   *  platform already ticked. Left unset, it is every other post of the video:
+   *  right for a live tick, where this post is by definition the newest. */
+  private async recordCheckoff(
+    tx: Transaction,
+    post: VideoPost,
+    options?: { eventId?: string; ticked?: number },
+  ): Promise<boolean> {
+    if (post.account_id === null) return false
+    const earnedOn = localToday(new Date(post.posted_at))
+    if (earnedOn < EARNINGS_HISTORY_START) return false
+
+    const video = (await tx.table('videos').get(post.video_id)) as Video | undefined
+    if (!video) return false
+    const campaign = (await tx.table('campaigns').get(video.campaign_id)) as Campaign | undefined
+    if (!campaign) return false
+    const accounts = (await tx
+      .table('campaign_accounts')
+      .where('campaign_id')
+      .equals(campaign.id)
+      .toArray()) as CampaignAccount[]
+    const account = accounts.find((a) => a.id === post.account_id)
+    if (!account) return false
+
+    const events = (await tx
+      .table('earnings_events')
+      .where('video_id')
+      .equals(post.video_id)
+      .toArray()) as EarningsEvent[]
+    if (liveCheckoffs(events).some((e) => e.account_id === account.id)) return false
+
+    let ticked = options?.ticked
+    if (ticked === undefined) {
+      const others = (await tx.table('video_posts').where('video_id').equals(post.video_id).toArray()) as VideoPost[]
+      const byId = new Map(accounts.map((a) => [a.id, a]))
+      ticked = others.filter(
+        (o) => o.id !== post.id && o.account_id !== null && !byId.get(o.account_id)?.bonus_only,
+      ).length
+    }
+
+    const amount = tickAmountCents(campaign, accounts, account, ticked)
+    // No rate, or a bonus-only account, or a share that rounds to nothing:
+    // there is no money to record, and a zero row would only be noise.
+    if (amount === null || amount === 0) return false
+
+    const event: EarningsEvent = {
+      id: options?.eventId ?? newId(),
+      user_id: this.userId,
+      campaign_id: campaign.id,
+      video_id: post.video_id,
+      account_id: account.id,
+      platform: post.platform,
+      amount_cents: amount,
+      source: 'checkoff',
+      earned_on: earnedOn,
+      reverses_id: null,
+      occurred_at: now(),
+    }
+    assertRow('earnings_events', event)
+    await tx.table('earnings_events').add(event)
+    this.enqueue(tx, 'earnings_events', event.id, 'insert', event)
+    return true
+  }
+
+  /** Appends the opposite of every live checkoff this account has on the
+   *  video. Dated today, not on the day it undoes: a past day's total must
+   *  not move because of something done today. */
+  private async recordReversal(tx: Transaction, videoId: string, accountId: string): Promise<void> {
+    const events = (await tx
+      .table('earnings_events')
+      .where('video_id')
+      .equals(videoId)
+      .toArray()) as EarningsEvent[]
+
+    for (const original of liveCheckoffs(events).filter((e) => e.account_id === accountId)) {
+      const reversal: EarningsEvent = {
+        id: newId(),
+        user_id: this.userId,
+        campaign_id: original.campaign_id,
+        video_id: original.video_id,
+        account_id: original.account_id,
+        platform: original.platform,
+        amount_cents: -original.amount_cents,
+        source: 'reversal',
+        earned_on: localToday(),
+        reverses_id: original.id,
+        occurred_at: now(),
+      }
+      assertRow('earnings_events', reversal)
+      await tx.table('earnings_events').add(reversal)
+      this.enqueue(tx, 'earnings_events', reversal.id, 'insert', reversal)
+    }
+  }
+
+  async backfillEarningsHistory(): Promise<number> {
+    return this.tx(
+      [
+        this.db.video_posts,
+        this.db.videos,
+        this.db.campaigns,
+        this.db.campaign_accounts,
+        this.db.earnings_events,
+        this.db._outbox,
+      ],
+      async (tx) => {
+        const posts = (await tx.table('video_posts').toArray()) as VideoPost[]
+        const accounts = (await tx.table('campaign_accounts').toArray()) as CampaignAccount[]
+        const bonusOnly = new Set(accounts.filter((a) => a.bonus_only).map((a) => a.id))
+
+        // Oldest first, so each tick of a shared-rate deliverable sees the
+        // ones before it.
+        const ordered = posts
+          .filter((p) => localToday(new Date(p.posted_at)) >= EARNINGS_HISTORY_START)
+          .sort((a, b) => a.posted_at.localeCompare(b.posted_at) || a.id.localeCompare(b.id))
+
+        let written = 0
+        const seen = new Map<string, number>()
+        for (const post of ordered) {
+          const ticked = seen.get(post.video_id) ?? 0
+          if (post.account_id !== null && !bonusOnly.has(post.account_id)) {
+            seen.set(post.video_id, ticked + 1)
+          }
+          // The post's own id, so a second device that backfills the same post
+          // writes the same row rather than a second payment for it.
+          if (await tx.table('earnings_events').get(post.id)) continue
+          if (await this.recordCheckoff(tx, post, { eventId: post.id, ticked })) written++
+        }
+        return written
+      },
+    )
+  }
+
+  // --- Payouts ---------------------------------------------------------------
+
+  async listCampaignPayouts(campaignId?: string): Promise<CampaignPayout[]> {
+    const rows = campaignId
+      ? await this.db.campaign_payouts.where('campaign_id').equals(campaignId).toArray()
+      : await this.db.campaign_payouts.toArray()
+    return rows.sort((a, b) => b.due_date.localeCompare(a.due_date))
+  }
+
+  async markPayoutPaid(
+    campaignId: string,
+    dueDate: string,
+    receivedCents: number | null = null,
+  ): Promise<CampaignPayout> {
+    return this.tx([this.db.campaign_payouts, this.db.campaigns, this.db._outbox], async (tx) => {
+      await this.requireRow(tx, 'campaigns', campaignId)
+      const existing = (await tx
+        .table('campaign_payouts')
+        .where('[campaign_id+due_date]')
+        .equals([campaignId, dueDate])
+        .first()) as CampaignPayout | undefined
+
+      const timestamp = now()
+      const row: CampaignPayout = {
+        id: existing?.id ?? newId(),
+        user_id: this.userId,
+        campaign_id: campaignId,
+        due_date: dueDate,
+        paid_at: existing?.paid_at ?? timestamp,
+        received_cents: receivedCents,
+        updated_at: timestamp,
+      }
+      assertRow('campaign_payouts', row)
+      await tx.table('campaign_payouts').put(row)
+      this.enqueue(tx, 'campaign_payouts', row.id, existing ? 'update' : 'insert', row)
+      return row
+    })
+  }
+
+  async unmarkPayoutPaid(campaignId: string, dueDate: string): Promise<void> {
+    await this.tx([this.db.campaign_payouts, this.db._outbox], async (tx) => {
+      const existing = (await tx
+        .table('campaign_payouts')
+        .where('[campaign_id+due_date]')
+        .equals([campaignId, dueDate])
+        .first()) as CampaignPayout | undefined
+      if (!existing) return
+      await tx.table('campaign_payouts').delete(existing.id)
+      this.enqueue(tx, 'campaign_payouts', existing.id, 'delete', existing)
     })
   }
 
@@ -889,6 +1136,7 @@ export class LocalAdapter implements DataAdapter {
       status: account.status ?? 'new',
       is_active: account.is_active ?? true,
       bonus_only: account.bonus_only ?? false,
+      pay_per_post_cents: account.pay_per_post_cents ?? null,
       sort_order: account.sort_order ?? 0,
       created_at: account.created_at ?? timestamp,
       updated_at: account.updated_at ?? timestamp,
@@ -1258,6 +1506,8 @@ export class LocalAdapter implements DataAdapter {
       phase_events,
       work_sessions,
       warmup_events,
+      earnings_events,
+      campaign_payouts,
       bonus_tiers,
       bonus_claims,
       time_estimates,
@@ -1275,6 +1525,8 @@ export class LocalAdapter implements DataAdapter {
       this.db.phase_events.toArray(),
       this.db.work_sessions.toArray(),
       this.db.warmup_events.toArray(),
+      this.db.earnings_events.toArray(),
+      this.db.campaign_payouts.toArray(),
       this.db.bonus_tiers.toArray(),
       this.db.bonus_claims.toArray(),
       this.db.time_estimates.toArray(),
@@ -1296,6 +1548,8 @@ export class LocalAdapter implements DataAdapter {
       phase_events,
       work_sessions,
       warmup_events,
+      earnings_events,
+      campaign_payouts,
       bonus_tiers,
       bonus_claims,
       time_estimates,
@@ -1385,6 +1639,28 @@ export class LocalAdapter implements DataAdapter {
         const existing = (await this.db.campaigns.get(incoming.id)) as Campaign | undefined
         row = { ...(row as object), post_position: existing?.post_position ?? null }
       }
+      // A server that has not run the weekly-rate / payout migration sends
+      // none of these. Keep this device's values, or derive them the way the
+      // migration would.
+      {
+        const sent = row as Partial<Campaign>
+        if (
+          typeof sent.posts_per_week !== 'number' ||
+          typeof sent.payout_schedule !== 'string' ||
+          sent.payout_date === undefined
+        ) {
+          const existing = (await this.db.campaigns.get(incoming.id)) as Campaign | undefined
+          row = {
+            ...sent,
+            posts_per_week:
+              typeof sent.posts_per_week === 'number'
+                ? sent.posts_per_week
+                : (existing?.posts_per_week ?? (sent.daily_post_quota ?? 0) * 7),
+            payout_schedule: sent.payout_schedule ?? existing?.payout_schedule ?? 'none',
+            payout_date: sent.payout_date ?? existing?.payout_date ?? null,
+          }
+        }
+      }
     }
     if (table === 'campaign_accounts') {
       // Same for bonus_only on accounts, from a server that predates it.
@@ -1392,6 +1668,10 @@ export class LocalAdapter implements DataAdapter {
       if (typeof incoming.bonus_only !== 'boolean') {
         const existing = (await this.db.campaign_accounts.get(incoming.id)) as CampaignAccount | undefined
         row = { ...incoming, bonus_only: existing?.bonus_only ?? false }
+      }
+      if ((row as Partial<CampaignAccount>).pay_per_post_cents === undefined) {
+        const existing = (await this.db.campaign_accounts.get(incoming.id)) as CampaignAccount | undefined
+        row = { ...(row as object), pay_per_post_cents: existing?.pay_per_post_cents ?? null }
       }
     }
     assertRow(table, row as never)
@@ -1424,8 +1704,7 @@ export class LocalAdapter implements DataAdapter {
             // Append-only tables insert and are deduplicated by client_id;
             // everything else upserts, so an update carries a row the server
             // has never seen just as well as one it has.
-            const op =
-              table === 'phase_events' || table === 'warmup_events' ? 'insert' : 'update'
+            const op = APPEND_ONLY.has(table) ? 'insert' : 'update'
             const rowId = table === 'user_settings' ? this.userId : String(row.id ?? '')
 
             this.enqueue(tx, table, rowId, op, row)
@@ -1473,8 +1752,7 @@ export class LocalAdapter implements DataAdapter {
             rowsClaimed++
             // phase_events and warmup_events are insert-only; the server has
             // never seen any of this, because sync does not run before sign-in.
-            const op =
-              table === "phase_events" || table === "warmup_events" ? "insert" : "update"
+            const op = APPEND_ONLY.has(table) ? "insert" : "update"
             const rowId =
               table === "user_settings" ? userId : (claimedRow.id ?? "")
             this.enqueue(tx, table, String(rowId), op, claimedRow)

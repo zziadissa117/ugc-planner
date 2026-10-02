@@ -27,11 +27,11 @@ import {
 import { ScreenHeader } from '../components/ui'
 import { SPRINGS, useSpring } from '../motion'
 
-import type { Campaign, CampaignAccount, Video, VideoPost } from '../data'
+import type { Campaign, CampaignAccount, EarningsEvent, Video, VideoPost } from '../data'
 import { localToday } from '../data'
+import { earnedOnDate } from '../data/earnings'
 import {
   boardsForToday,
-  earnedOn,
   markPosted,
   nextUnfilledCell,
   unmarkPosted,
@@ -50,6 +50,7 @@ interface Loaded {
   accounts: CampaignAccount[]
   videos: Video[]
   posts: VideoPost[]
+  events: EarningsEvent[]
 }
 
 const VIEW_KEY = 'ugc-planner.post_view'
@@ -85,13 +86,14 @@ export function Posting() {
   // missing, and after the first pass none are.
   const [loaded, reload] = useLoaded<Loaded>(async () => {
     await ensureTodaysQuota(data)
-    const [campaigns, accounts, videos, posts] = await Promise.all([
+    const [campaigns, accounts, videos, posts, events] = await Promise.all([
       data.listCampaigns(),
       data.listCampaignAccounts(),
       data.listVideos(),
       data.listAllVideoPosts(),
+      data.listEarningsEvents({ since: today }),
     ])
-    return { campaigns, accounts, videos, posts }
+    return { campaigns, accounts, videos, posts, events }
   }, [data])
 
   // Fetched and decoded when the screen opens, not on the first tap, so the
@@ -118,7 +120,10 @@ export function Posting() {
     [loaded, today],
   )
 
-  const earned = loaded === null ? 0 : earnedOn(loaded.videos, loaded.posts, today, loaded.campaigns, loaded.accounts)
+  // Off the earnings history, not recomputed from the posts: what each tick
+  // paid was written when he ticked it, so the figure cannot move because a
+  // rate was edited or a platform switched off since.
+  const earned = loaded === null ? 0 : earnedOnDate(loaded.events, today)
 
   const toggle = useCallback(
     async (board: PostingBoard, account: CampaignAccount, slot: number, post: VideoPost | null) => {

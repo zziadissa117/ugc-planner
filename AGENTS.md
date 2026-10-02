@@ -31,18 +31,18 @@ npm run vendor           # after editing src/parser/{types,verify}.ts or src/hoo
    No SupabaseAdapter; sync is row-level in `src/sync`.
 3. **Local-first:** every write lands locally, returns immediately, and enqueues to `_outbox`. Nothing waits on the network.
 4. **Money = integer cents.** No floats, no currency lib.
-5. **`phase_events` and `warmup_events` are append-only.** Counts come from them at query time.
+5. **`phase_events`, `warmup_events` and `earnings_events` are append-only.** Counts come from them at query time.
 6. **Never invent campaign data** (rates, quotas, handles, URLs, hooks, rules). Missing -> "not saved yet". Parsed fields are amber until confirmed. Generated text names its model.
 7. **`docs/schema.sql` is authoritative.** Change it, add `docs/migrations/00NN_*.sql` (re-runnable), run `npm run generate:types`. **Show the migration to the owner and wait for OK before applying it to Supabase.**
 8. **AI keys never reach the browser.** Bring-your-own-key: each user's key is stored encrypted (Vault) and used only inside Edge Functions in `supabase/functions/`; the browser sees the last 4 characters only. Never add a project-wide model key, never put a key in Dexie/localStorage/outbox/export. Files in `_shared/` other than `claude.ts` are generated; edit the `src/` source and run `npm run vendor`.
 9. **UI:** colour carries state only (green posted, white now, grey later, amber unconfirmed/overdue, red blocked). Use `src/components/ui.tsx` and `styles.ts`. Inline SVG icons only.
-10. **Posting is never gated on filming.** One video = one deliverable posted to many accounts; quota lives on `campaigns.daily_post_quota`.
+10. **Posting is never gated on filming.** One video = one deliverable posted to many accounts. Quota is `campaigns.posts_per_week` (edited, drives money); `daily_post_quota` = ceil(weekly/7) is what the Post grid owes - both written together by `LocalAdapter`, never separately.
 
 ## Where things are
 
 - Data layer: `src/data` (`DataAdapter.ts`, `local/LocalAdapter.ts`, `local/db.ts`, generated `schema.ts`)
 - Sync: `src/sync` (engine, supabaseTarget, auth)
-- Money maths: `src/money.ts`
+- Money maths: `src/money.ts` (projected, weekly), `src/data/earnings.ts` (per-tick pay + history), `src/data/payouts.ts`
 - Screens: `src/screens/*.tsx` (tests beside them); routes in `src/main.tsx`
 - AI: `src/parser/` + `supabase/functions/parse-campaign`; `src/hooks/` + `supabase/functions/generate-hooks`; keys: `src/ai/`, `src/screens/AiKeys.tsx`, `supabase/functions/ai-key`
 - The Supabase project is shared with the cutter/editor app (`cutter_*` tables/functions). Leave those alone.

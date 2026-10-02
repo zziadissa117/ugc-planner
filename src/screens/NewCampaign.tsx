@@ -70,10 +70,11 @@ export function NewCampaign() {
   const [excludedRules, setExcludedRules] = useState<Set<number>>(new Set())
   const [excludedTiers, setExcludedTiers] = useState<Set<number>>(new Set())
   const [platforms, setPlatforms] = useState<PlatformDraft[]>([])
-  /** Paid deliverables a day. No document states it, and without it the
+  /** Paid deliverables a WEEK. No document states it, and without it the
    *  campaign owes nothing and pays nothing - so it is asked for here, with
-   *  one a day as the starting point rather than a guess at his contract. */
-  const [quota, setQuota] = useState('1')
+   *  one a day (seven) as the starting point rather than a guess at his
+   *  contract. */
+  const [quota, setQuota] = useState('7')
   /** What one deliverable pays, in dollars as typed. Seeded from the contract
    *  when it states a rate, and blank when it does not - a campaign whose rate
    *  no document mentions had no way to get one at creation, so it landed on
@@ -172,7 +173,7 @@ export function NewCampaign() {
 
       const owed = Number(quota)
       if (Number.isInteger(owed) && owed >= 0) {
-        await data.updateCampaign(campaign.id, { daily_post_quota: owed })
+        await data.updateCampaign(campaign.id, { posts_per_week: owed })
       }
 
       // Only when it differs from what the parse produced, so confirming a
@@ -233,7 +234,7 @@ export function NewCampaign() {
         name: name.trim(),
         company: null,
         default_setup: 'face',
-        daily_post_quota: Number.isInteger(owed) && owed >= 0 ? owed : 0,
+        posts_per_week: Number.isInteger(owed) && owed >= 0 ? owed : 0,
         pay_per_video_cents: null,
         cycle_size: null,
       })
@@ -684,7 +685,7 @@ function Review({
   )
 }
 
-/** Where this campaign posts, and how much it owes a day.
+/** Where this campaign posts, and how much it owes a week.
  *
  *  Platforms are picked, not typed, and each carries its own handle, email and
  *  password on one line. Nothing here blocks saving: a campaign with no
@@ -741,11 +742,11 @@ function PlatformEntry({
             />
           </label>
           <label className="flex items-center gap-2 text-sm text-state-later">
-            posts owed per day
+            posts owed per week
             <input
               value={quota}
               onChange={(event) => onQuotaChange(event.target.value)}
-              aria-label="Posts owed per day"
+              aria-label="Posts owed per week"
               inputMode="numeric"
               className="min-h-tap rounded-xl border border-edge bg-surface text-text placeholder:text-state-later/80 transition-colors focus:border-state-now/80 focus:outline-none focus-visible:outline-none w-16 px-2"
             />

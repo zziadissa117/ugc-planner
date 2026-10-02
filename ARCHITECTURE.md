@@ -88,7 +88,7 @@ e2e/                       Playwright: offline.spec.ts, sound.spec.ts
 src/
   main.tsx                 router + providers + service worker registration
   App.tsx                  shell: 5-tab bottom nav, seed-on-boot
-  money.ts                 earnings maths (integer cents; rate x quota; per-platform flag)
+  money.ts                 projected pay maths (integer cents; week-based; per-platform)
   motion.ts, sound.ts, warmupTimer(s).ts(x)   springs, till/chime sounds, warm-up countdowns
   components/              ui.tsx (labels/buttons/disclosures), styles.ts, icons.tsx (inline SVG),
                            AccountsEditor, EditableField, DocumentInput, platforms.ts
@@ -113,6 +113,8 @@ src/
 | `sync.ts` | `PULL_CURSOR_COLUMN` per table |
 | `phases.ts` | chain `to_film -> filmed -> edited -> posted` |
 | `posting.ts` | Post-screen grid logic (deliverables x accounts, ticks, one video earned once) |
+| `earnings.ts` | per-tick pay, per-platform pay, history sums (pure) |
+| `payouts.ts` | payout schedule maths + paid/pending status (pure) |
 | `today.ts`, `streak.ts`, `workClock.ts` | day boundaries, counts, work-window helpers |
 | `warmup.ts`, `accounts.ts` | account warm-up status / platform helpers |
 | `campaignFields.ts`, `briefSections.ts` | parsed-field provenance, brief page sections |
@@ -122,7 +124,7 @@ src/
 
 `/` Now · `/post` Posting (the grid) · `/campaigns` list · `/campaigns/new`
 drop box · `/campaigns/:id` brief · `/campaigns/:id/update` · `/money` ·
-`/settings` (export/import, sign-in, studio todos). FILM console is `Console.tsx`,
+`/money/history` earnings history, `/settings` (export/import, sign-in, AI key, studio todos). FILM console is `Console.tsx`,
 launched from Now.
 
 ## Data model
@@ -130,14 +132,40 @@ launched from Now.
 Tables (see `docs/schema.sql`): `campaigns`, `campaign_accounts`,
 `campaign_documents`, `campaign_fields`, `campaign_angles`, `campaign_hooks`,
 `campaign_rules`, `videos`, `video_posts`, `phase_events` (append-only),
-`work_sessions`, `warmup_events` (append-only), `bonus_tiers`, `bonus_claims`,
-`time_estimates` (unused), `user_settings`. Local-only: `_outbox`.
+`work_sessions`, `warmup_events` (append-only), `earnings_events`
+(append-only), `campaign_payouts`, `bonus_tiers`, `bonus_claims`,
+`time_estimates` (unused), `user_settings`. Local-only: `_outbox`. Server-only
+(not in schema.sql): `user_ai_keys`.
 Every table has `user_id` + RLS `user_id = auth.uid()`.
 
 Key facts: money is integer cents; a video is one deliverable posted to many
-accounts (`video_posts`); quota lives on `campaigns.daily_post_quota`;
-`campaigns.pays_per_platform` is the only per-platform pay mechanism today;
-`videos.rate_snapshot_cents` freezes the rate at post time.
+accounts (`video_posts`).
+
+**Money model (Phase 2).** `campaigns.posts_per_week` is what he edits and what
+the money maths reads: week = deliverable value x posts_per_week, day = week/7,
+month = week x 30/7 (`src/money.ts`). `daily_post_quota` is what the Post grid
+owes per day and is kept at `ceil(posts_per_week/7)` by `quotaColumns` in
+`LocalAdapter` (a write that only speaks per-day gets weekly = daily x 7).
+What a deliverable is worth (`deliverableCents`, `src/data/earnings.ts`): the
+campaign rate once, unless platforms pay separately - `pays_per_platform` or any
+active account with its own `campaign_accounts.pay_per_post_cents` - in which
+case each paying platform's own rate (else the campaign's) is summed.
+
+**Earnings history (append-only).** `addVideoPost` / `removeVideoPost` write an
+`earnings_events` row in the same transaction: a `checkoff` for what the tick
+paid at that moment (`tickAmountCents`), or a negative `reversal` pointing at it
+(dated the day it happens). Totals are sums over the table (`totalsBy`,
+`earnedOnDate`); the Post screen's "Made today" and `/money/history` both read
+it. No rate yet = no row (unpriced is not zero). History starts
+`EARNINGS_HISTORY_START` (2026-10-01); `backfillEarningsHistory()` (run on app
+boot) writes rows for older ticks using the post's own id as the event id so
+two devices cannot double-pay. `videos.rate_snapshot_cents` still freezes the
+rate at post time (legacy, used by `conflict.ts`).
+
+**Payouts.** `campaigns.payout_schedule` (none/one_off/weekly/biweekly/monthly)
++ `payout_date` (first/only date). A row in `campaign_payouts` for a due date =
+paid; absence = pending (`payoutStatus`, `src/data/payouts.ts`). Edited on the
+brief page, shown on `/money`.
 
 Adding a table touches, in order: `docs/schema.sql` -> migration file ->
 `npm run generate:types` -> `local/db.ts` (new `version(n)`, `MIRRORED_TABLES`) ->
@@ -183,5 +211,7 @@ via Supabase tooling, never automatically; a schema change needs the owner's OK.
 - Generated text must say it was generated (`campaign_hooks.source`, `model`).
 - Colour is state only; build UI from `components/ui.tsx` + `styles.ts`; no new dependencies.
 - Posting is never gated on filming; ticks never reorder.
-- `pays_per_platform` is a flag he sets; nothing derives pay from the account list.
+- Pay is never derived from the account list: `pays_per_platform` and `pay_per_post_cents` are things he sets.
+- `earnings_events`, `phase_events`, `warmup_events` are append-only; `earnings_events.id` is a client uuid (not a server sequence) so `reverses_id` is valid on every device.
+- The Supabase MCP `apply_migration`/`execute_sql` tool hangs on statements containing `delete`/`drop`; apply those by hand in the SQL editor.
 - `posts_per_day` on accounts, `time_estimates`, `src/data/seed` angles, and the retired `video_phase` values exist but are legacy.

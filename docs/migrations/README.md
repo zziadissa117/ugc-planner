@@ -45,6 +45,12 @@ synced, exported, locally mirrored table. A fresh project needs `schema.sql`
 and 0015. The project is shared with the cutter app, so `list_migrations` also
 shows `cutter_*` entries that have no file here.
 
+0016 (`weekly_pay_payouts_earnings`) is a DRAFT, not yet applied: weekly posting
+rate, per-account pay, payout schedule, `campaign_payouts`, `earnings_events`.
+`src/data/schema.sql.test.ts` runs it against the pre-0016 schema in
+`docs/migrations/fixtures/` and asserts the result has the same columns as
+`schema.sql`.
+
 ## Writing a new one
 
 Make it re-runnable. The files up to 0006 pair `create table if not exists` with

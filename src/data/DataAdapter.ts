@@ -20,6 +20,8 @@ import type {
   Campaign,
   CampaignAccount,
   CampaignAngle,
+  CampaignPayout,
+  EarningsEvent,
   CampaignDocument,
   CampaignField,
   CampaignHook,
@@ -65,6 +67,8 @@ export interface BackupSnapshot {
   phase_events: PhaseEvent[]
   work_sessions: WorkSession[]
   warmup_events: WarmupEvent[]
+  earnings_events: EarningsEvent[]
+  campaign_payouts: CampaignPayout[]
   bonus_tiers: BonusTier[]
   bonus_claims: BonusClaim[]
   time_estimates: TimeEstimate[]
@@ -273,6 +277,38 @@ export interface DataAdapter {
    *  the account once it has enough of them. The campaign is resolved from the
    *  account rather than passed, so the two can never disagree. */
   recordWarmupEvent(accountId: string, minutes: number): Promise<WarmupEvent>
+
+  // --- Earnings history. Readable and appendable, never editable ----------
+  //
+  // Ticking a post appends what it paid; unticking appends a reversal. Nothing
+  // is rewritten, so a day's total cannot move after the fact. The events are
+  // written by addVideoPost / removeVideoPost themselves, in the same
+  // transaction as the post - there is deliberately no way to append one by
+  // hand, so the history cannot disagree with the posts that explain it.
+
+  listEarningsEvents(filter?: { since?: string; campaignId?: string }): Promise<EarningsEvent[]>
+
+  /** Writes the history for ticks that predate it: posts dated on or after
+   *  EARNINGS_HISTORY_START with no event yet. Idempotent, and safe to run on
+   *  every device - the event id is the post's own id, so two devices that
+   *  both backfill write the same row. Returns how many were written. */
+  backfillEarningsHistory(): Promise<number>
+
+  // --- Payouts -------------------------------------------------------------
+  //
+  // When a campaign pays is on the campaign (payout_schedule, payout_date).
+  // Whether the payout due on a given date has arrived is a row here.
+
+  listCampaignPayouts(campaignId?: string): Promise<CampaignPayout[]>
+  /** Marks the payout due on `dueDate` as received. `receivedCents` is what
+   *  actually arrived, when he says; never inferred. Marking twice updates. */
+  markPayoutPaid(
+    campaignId: string,
+    dueDate: string,
+    receivedCents?: number | null,
+  ): Promise<CampaignPayout>
+  /** Back to pending. */
+  unmarkPayoutPaid(campaignId: string, dueDate: string): Promise<void>
 
   // --- Accounts ----------------------------------------------------------
   //

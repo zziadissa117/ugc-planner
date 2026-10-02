@@ -17,6 +17,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { useLoaded } from '../data/useLoaded'
 
 import type { AccountStatus, CampaignAccount, DataAdapter } from '../data'
+import { centsToDollarsInput, parseDollarsToCents } from '../data/campaignFields'
 import { KNOWN_PLATFORMS } from './platforms'
 import { INPUT_CLASS, buttonClass } from './styles'
 
@@ -256,6 +257,56 @@ function GrowingBox({
  *  to its own line inside the card instead of being squeezed to a few
  *  characters wide - which is what made a handle unreadable at a glance. */
 
+/** What one post on this platform pays, when it differs from the campaign's
+ *  rate. Blank means it has no rate of its own and the campaign's applies -
+ *  never a guess. Setting one makes the campaign pay each platform separately
+ *  (see paysPerPlatform in data/earnings.ts), so the box says so. */
+function PlatformRate({
+  account,
+  onPatch,
+}: {
+  account: CampaignAccount
+  onPatch: (id: string, change: Partial<CampaignAccount>) => Promise<void>
+}) {
+  const [invalid, setInvalid] = useState(false)
+
+  return (
+    <label className="ml-2 flex items-center gap-1.5">
+      <span className="label text-state-later">Pays</span>
+      <input
+        key={account.pay_per_post_cents ?? 'none'}
+        defaultValue={account.pay_per_post_cents === null ? '' : centsToDollarsInput(account.pay_per_post_cents)}
+        onBlur={(event) => {
+          const raw = event.target.value.trim()
+          if (raw === '') {
+            setInvalid(false)
+            if (account.pay_per_post_cents !== null) void onPatch(account.id, { pay_per_post_cents: null })
+            return
+          }
+          const cents = parseDollarsToCents(raw)
+          if (cents === null) {
+            setInvalid(true)
+            return
+          }
+          setInvalid(false)
+          if (cents !== account.pay_per_post_cents) void onPatch(account.id, { pay_per_post_cents: cents })
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') event.currentTarget.blur()
+        }}
+        inputMode="decimal"
+        autoComplete="off"
+        aria-label={`${account.platform} pay per post`}
+        aria-invalid={invalid}
+        placeholder="campaign rate"
+        className={`w-24 rounded-lg border bg-surface px-2 py-1 text-sm text-text placeholder:text-state-later focus:outline-none ${
+          invalid ? 'border-state-blocked' : 'border-edge focus:border-state-now/80'
+        }`}
+      />
+    </label>
+  )
+}
+
 /** One platform: handle, email and password on one line, then the warm-up
  *  state. The password is masked until asked for - it is looked up in front
  *  of whoever is in the room. */
@@ -347,6 +398,7 @@ function AccountRow({
             {STATUS_LABELS[status]}
           </button>
         ))}
+        <PlatformRate account={account} onPatch={onPatch} />
         {/* Paid only through view-milestone bonuses: its ticks on the Post
             screen earn nothing and are never owed. */}
         <button

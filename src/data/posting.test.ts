@@ -8,15 +8,15 @@
 
 import 'fake-indexeddb/auto'
 import { IDBFactory } from 'fake-indexeddb'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { earnedOnDate } from './earnings'
 import { localToday } from './index'
 import { LocalAdapter } from './local/LocalAdapter'
 import { LocalDatabase } from './local/db'
 import {
   boardsForToday,
   buildBoard,
-  earnedOn,
   markPosted,
   nextUnfilledCell,
   pickVideoForSlot,
@@ -30,11 +30,24 @@ const USER = '11111111-1111-4111-8111-111111111111'
 let adapter: LocalAdapter
 
 beforeEach(async () => {
+  // A fixed day inside the earnings history (which starts 2026-10-01), so what
+  // these tests assert about money does not depend on when they are run.
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date(2026, 9, 5, 12, 0, 0))
   indexedDB = new IDBFactory()
   const db = new LocalDatabase(`posting-${crypto.randomUUID()}`)
   adapter = new LocalAdapter(db, USER)
   await db.open()
 })
+
+afterEach(() => {
+  vi.useRealTimers()
+})
+
+/** What the history says was earned on a day: today unless told otherwise. */
+async function earned(date: string = localToday()): Promise<number> {
+  return earnedOnDate(await adapter.listEarningsEvents(), date)
+}
 
 async function setUp(quota: number, platforms: string[]) {
   const campaign = await adapter.createCampaign({
@@ -372,9 +385,7 @@ describe("today's takings", () => {
   // The figure pinned to the Post screen, and the thing the till sound is
   // allowed to celebrate.
   it('is nothing before anything goes out', async () => {
-    const { campaign } = await setUp(2, ['Instagram'])
-    const { videos, posts } = await state(campaign)
-    expect(earnedOn(videos, posts)).toBe(0)
+    expect(await earned()).toBe(0)
   })
 
   it('pays once for a deliverable however many platforms it went out on', async () => {
@@ -387,8 +398,7 @@ describe("today's takings", () => {
       await markPosted(adapter, board, account, 0, videos)
     }
 
-    const { videos, posts } = await state(campaign)
-    expect(earnedOn(videos, posts)).toBe(3500)
+    expect(await earned()).toBe(3500)
   })
 
   it('pays nothing for a bonus-only account and splits the rate across the rest', async () => {
@@ -396,36 +406,33 @@ describe("today's takings", () => {
     const { campaign, accounts } = await setUp(1, ['YouTube', 'Instagram', 'Facebook'])
     const on = (platform: string) => accounts.find((a) => a.platform === platform)!
     await adapter.updateCampaignAccount(on('Facebook').id, { bonus_only: true })
-    const campaigns = await adapter.listCampaigns()
 
     let loaded = await state(campaign)
     await markPosted(adapter, loaded.board, on('Facebook'), 0, loaded.videos)
     loaded = await state(campaign)
-    expect(earnedOn(loaded.videos, loaded.posts, undefined, campaigns, loaded.accounts)).toBe(0)
+    expect(await earned()).toBe(0)
     // Ticked, but not part of what the day owes.
     expect(loaded.board.doneToday).toBe(0)
 
     await markPosted(adapter, loaded.board, on('YouTube'), 0, loaded.videos)
     loaded = await state(campaign)
-    expect(earnedOn(loaded.videos, loaded.posts, undefined, campaigns, loaded.accounts)).toBe(1750)
+    expect(await earned()).toBe(1750)
     expect(loaded.board.doneToday).toBe(1)
 
     await markPosted(adapter, loaded.board, on('Instagram'), 0, loaded.videos)
     loaded = await state(campaign)
-    expect(earnedOn(loaded.videos, loaded.posts, undefined, campaigns, loaded.accounts)).toBe(3500)
+    expect(await earned()).toBe(3500)
   })
 
   it('leaves a bonus-only account out of a per-platform campaign too', async () => {
     const { campaign, accounts } = await setUp(1, ['YouTube', 'Facebook'])
     await adapter.updateCampaign(campaign.id, { pays_per_platform: true })
     await adapter.updateCampaignAccount(accounts.find((a) => a.platform === 'Facebook')!.id, { bonus_only: true })
-    const campaigns = await adapter.listCampaigns()
     for (const account of accounts) {
       const { board, videos } = await state(campaign)
       await markPosted(adapter, board, account, 0, videos)
     }
-    const loaded = await state(campaign)
-    expect(earnedOn(loaded.videos, loaded.posts, undefined, campaigns, loaded.accounts)).toBe(3500)
+    expect(await earned()).toBe(3500)
   })
 
   it('never sends a network-view tap to a bonus-only account', async () => {
@@ -441,13 +448,11 @@ describe("today's takings", () => {
     await markPosted(adapter, board, accounts[0], 0, videos)
 
     let loaded = await state(campaign)
-    const campaigns = await adapter.listCampaigns()
-    const accountList = await adapter.listCampaignAccounts(campaign.id)
-    expect(earnedOn(loaded.videos, loaded.posts, undefined, campaigns, accountList)).toBe(1750)
+    expect(await earned()).toBe(1750)
 
     await markPosted(adapter, loaded.board, accounts[1], 0, loaded.videos)
     loaded = await state(campaign)
-    expect(earnedOn(loaded.videos, loaded.posts, undefined, campaigns, accountList)).toBe(3500)
+    expect(await earned()).toBe(3500)
   })
 
   it('pays once per platform ticked when the campaign pays per platform', async () => {
@@ -458,10 +463,7 @@ describe("today's takings", () => {
       await markPosted(adapter, board, account, 0, videos)
     }
 
-    const { videos, posts } = await state(campaign)
-    const campaigns = await adapter.listCampaigns()
-    expect(earnedOn(videos, posts, undefined, campaigns)).toBe(3500 * 3)
-    expect(earnedOn(videos, posts)).toBe(3500)
+    expect(await earned()).toBe(3500 * 3)
   })
 
   it('adds up across slots and campaigns', async () => {
@@ -471,9 +473,7 @@ describe("today's takings", () => {
       await markPosted(adapter, board, first.accounts[0], slot, videos)
     }
 
-    const videos = await adapter.listVideos()
-    const posts = (await Promise.all(videos.map((v) => adapter.listVideoPosts(v.id)))).flat()
-    expect(earnedOn(videos, posts)).toBe(7000)
+    expect(await earned()).toBe(7000)
   })
 
   it('gives back the money when he takes a post down', async () => {
@@ -482,11 +482,10 @@ describe("today's takings", () => {
     await markPosted(adapter, before.board, accounts[0], 0, before.videos)
 
     const loaded = await state(campaign)
-    expect(earnedOn(loaded.videos, loaded.posts)).toBe(3500)
+    expect(await earned()).toBe(3500)
 
     await unmarkPosted(adapter, accounts[0], loaded.posts[0])
-    const after = await state(campaign)
-    expect(earnedOn(after.videos, after.posts)).toBe(0)
+    expect(await earned()).toBe(0)
   })
 
   it('counts nothing for a deliverable posted before the campaign had a rate', async () => {
@@ -513,7 +512,7 @@ describe("today's takings", () => {
 
     const after = await state(campaign)
     expect(after.videos.filter((v) => v.phase === 'posted')).toHaveLength(1)
-    expect(earnedOn(after.videos, after.posts)).toBe(0)
+    expect(await earned()).toBe(0)
   })
 
   it('pays what the rate was when it went out, not what it is now', async () => {
@@ -525,8 +524,7 @@ describe("today's takings", () => {
 
     await adapter.updateCampaign(campaign.id, { pay_per_video_cents: 9900 })
 
-    const after = await state(campaign)
-    expect(earnedOn(after.videos, after.posts)).toBe(3500)
+    expect(await earned()).toBe(3500)
   })
 
   it('is only today, not the whole history', async () => {
@@ -534,8 +532,7 @@ describe("today's takings", () => {
     const before = await state(campaign)
     await markPosted(adapter, before.board, accounts[0], 0, before.videos)
 
-    const after = await state(campaign)
-    expect(earnedOn(after.videos, after.posts, '2026-01-01')).toBe(0)
+    expect(await earned('2026-01-01')).toBe(0)
   })
 })
 

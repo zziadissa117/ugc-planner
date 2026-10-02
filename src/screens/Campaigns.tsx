@@ -20,7 +20,7 @@ import {
  *
  *  The per-video rate is the headline on the right: it is the number he
  *  negotiated and the one he checks. The month sits under the name, because it
- *  is derived - rate x posts per day x 30 - and because it is the one he
+ *  is derived - rate x posts per week x 30/7 - and because it is the one he
  *  corrects, so it has to be a control rather than part of the link. */
 export function Campaigns() {
   const data = useData()
@@ -110,7 +110,7 @@ export function Campaigns() {
                         : `${formatCents(campaign.pay_per_video_cents)}/video`}
                     </span>
                     <span className="numeric meta block text-state-later">
-                      {campaign.daily_post_quota}/day
+                      {campaign.posts_per_week}/week
                       {paying > 1 ? ` x ${paying}` : ''}
                     </span>
                   </span>

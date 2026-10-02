@@ -16,6 +16,8 @@ export const PULL_CURSOR_COLUMN: Readonly<Record<TableName, string>> = {
   phase_events: 'occurred_at',
   work_sessions: 'updated_at',
   warmup_events: 'occurred_at',
+  earnings_events: 'occurred_at',
+  campaign_payouts: 'updated_at',
   bonus_tiers: 'updated_at',
   bonus_claims: 'updated_at',
   time_estimates: 'updated_at',

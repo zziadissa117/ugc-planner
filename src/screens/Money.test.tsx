@@ -295,3 +295,64 @@ describe('order on the money screen', () => {
     expect(rows).toEqual(['Rich', 'Middle', 'Cheap'])
   })
 })
+
+describe('weekly pay', () => {
+  it('is rate x posts per week, with the day and month following from the week', async () => {
+    // $35 x 5 a week: $175 a week, $25 a day, $750 a month (30/7 of a week).
+    await makeCampaign({ posts_per_week: 5 })
+    await renderMoney()
+
+    expect(screen.getByText('Per day').parentElement).toHaveTextContent('$25.00')
+    expect(screen.getByText('Per week').parentElement).toHaveTextContent('$175.00')
+    expect(screen.getByText('Per month').parentElement).toHaveTextContent('$750.00')
+    expect(screen.getByText(/\$35\.00 x 5\/week/)).toBeInTheDocument()
+  })
+
+  it('adds up each platform on its own rate when a platform has one', async () => {
+    const campaign = await makeCampaign({ pay_per_video_cents: 1600 })
+    const [facebook] = await adapter.listCampaignAccounts(campaign.id)
+    await adapter.updateCampaignAccount(facebook.id, { pay_per_post_cents: 2500 })
+    await adapter.addCampaignAccount({
+      campaign_id: campaign.id,
+      platform: 'TikTok',
+      handle: '@me',
+      status: 'ready',
+    })
+    await renderMoney()
+
+    // Facebook pays its own $25, TikTok the campaign's $16: $41 a video, seven
+    // a week.
+    expect(screen.getByText('Per week').parentElement).toHaveTextContent('$287.00')
+    expect(screen.getByText(/over 2 platforms x 7\/week/)).toBeInTheDocument()
+  })
+
+  it('links to the earnings history', async () => {
+    await renderMoney()
+    expect(screen.getByRole('link', { name: 'Earnings history' })).toHaveAttribute('href', '/money/history')
+  })
+})
+
+describe('payouts on the money screen', () => {
+  it('shows nothing when no payout date is saved', async () => {
+    await makeCampaign()
+    await renderMoney()
+    expect(screen.queryByText(/Payout /)).toBeNull()
+  })
+
+  it('shows a payout that has fallen due as pending, and as paid once marked', async () => {
+    const campaign = await makeCampaign({ payout_schedule: 'one_off', payout_date: '2026-01-05' })
+    await renderMoney()
+    expect(screen.getByText(/Payout Jan 5 - pending/)).toBeInTheDocument()
+    document.body.innerHTML = ''
+
+    await adapter.markPayoutPaid(campaign.id, '2026-01-05')
+    await renderMoney()
+    expect(screen.getByText(/Payout Jan 5 - paid/)).toBeInTheDocument()
+  })
+
+  it('shows an upcoming payout as pending, with its date', async () => {
+    await makeCampaign({ payout_schedule: 'one_off', payout_date: '2099-03-20' })
+    await renderMoney()
+    expect(screen.getByText(/Payout Mar 20 - pending/)).toBeInTheDocument()
+  })
+})

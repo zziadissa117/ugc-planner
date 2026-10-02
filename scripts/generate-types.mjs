@@ -193,6 +193,8 @@ const ROW_TYPE_NAMES = {
   phase_events: 'PhaseEvent',
   work_sessions: 'WorkSession',
   warmup_events: 'WarmupEvent',
+  earnings_events: 'EarningsEvent',
+  campaign_payouts: 'CampaignPayout',
   bonus_tiers: 'BonusTier',
   bonus_claims: 'BonusClaim',
   time_estimates: 'TimeEstimate',

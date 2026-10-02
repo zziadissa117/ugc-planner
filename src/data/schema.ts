@@ -169,6 +169,7 @@ export interface Campaign {
   needs_submission: boolean
   post_position: number | null
   cutter_campaign_id: string | null
+  archived_at: string | null
   posts_per_week: number
   payout_schedule: PayoutSchedule
   payout_date: string | null
@@ -180,8 +181,8 @@ export interface Campaign {
 
 /** `campaigns` as supplied by a caller: user_id comes from the session, and
  *  columns the database defaults are optional. */
-export type NewCampaign = Omit<Campaign, 'user_id' | 'id' | 'is_active' | 'approval_mode' | 'daily_post_quota' | 'monthly_pay_override_cents' | 'pays_per_platform' | 'needs_submission' | 'post_position' | 'cutter_campaign_id' | 'posts_per_week' | 'payout_schedule' | 'payout_date' | 'opening_post_count' | 'brief_is_incomplete' | 'created_at' | 'updated_at'> &
-  Partial<Pick<Campaign, 'id' | 'is_active' | 'approval_mode' | 'daily_post_quota' | 'monthly_pay_override_cents' | 'pays_per_platform' | 'needs_submission' | 'post_position' | 'cutter_campaign_id' | 'posts_per_week' | 'payout_schedule' | 'payout_date' | 'opening_post_count' | 'brief_is_incomplete' | 'created_at' | 'updated_at'>>
+export type NewCampaign = Omit<Campaign, 'user_id' | 'id' | 'is_active' | 'approval_mode' | 'daily_post_quota' | 'monthly_pay_override_cents' | 'pays_per_platform' | 'needs_submission' | 'post_position' | 'cutter_campaign_id' | 'archived_at' | 'posts_per_week' | 'payout_schedule' | 'payout_date' | 'opening_post_count' | 'brief_is_incomplete' | 'created_at' | 'updated_at'> &
+  Partial<Pick<Campaign, 'id' | 'is_active' | 'approval_mode' | 'daily_post_quota' | 'monthly_pay_override_cents' | 'pays_per_platform' | 'needs_submission' | 'post_position' | 'cutter_campaign_id' | 'archived_at' | 'posts_per_week' | 'payout_schedule' | 'payout_date' | 'opening_post_count' | 'brief_is_incomplete' | 'created_at' | 'updated_at'>>
 
 /** Mirrors `campaign_accounts`. */
 export interface CampaignAccount {

@@ -249,17 +249,17 @@ describe('notes', () => {
   })
 })
 
-describe('deleting a campaign', () => {
+describe('archiving a campaign', () => {
   it('takes two taps, and the first one can be taken back', async () => {
     const user = userEvent.setup()
     await renderBrief()
 
-    await user.click(screen.getByRole('button', { name: 'Delete this campaign' }))
-    expect(screen.getByText(/Delete Inflow\?/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Archive this campaign' }))
+    expect(screen.getByText(/Archive Inflow\?/)).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Keep it' }))
     expect(await adapter.listCampaigns()).toHaveLength(1)
-    expect(screen.getByRole('button', { name: 'Delete this campaign' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Archive this campaign' })).toBeInTheDocument()
   })
 
   it('leaves every screen, without destroying what it explains', async () => {
@@ -279,14 +279,15 @@ describe('deleting a campaign', () => {
 
     const user = userEvent.setup()
     await renderBrief()
-    await user.click(screen.getByRole('button', { name: 'Delete this campaign' }))
-    await user.click(screen.getByRole('button', { name: 'Delete it' }))
+    await user.click(screen.getByRole('button', { name: 'Archive this campaign' }))
+    await user.click(screen.getByRole('button', { name: 'Archive it' }))
 
     await waitFor(async () => {
       expect(await adapter.listCampaigns()).toHaveLength(0)
     })
-    // Still there underneath, with its history intact.
+    // Still there underneath, with its history intact, and restorable.
     expect(await adapter.listCampaigns({ includeInactive: true })).toHaveLength(1)
+    expect(await adapter.listArchivedCampaigns()).toHaveLength(1)
     expect(await adapter.getVideo(video.id)).not.toBeNull()
     expect(await adapter.listPhaseEvents({ videoId: video.id })).not.toHaveLength(0)
   })
@@ -299,8 +300,8 @@ describe('deleting a campaign', () => {
 
     const user = userEvent.setup()
     await renderBrief()
-    await user.click(screen.getByRole('button', { name: 'Delete this campaign' }))
-    await user.click(screen.getByRole('button', { name: 'Delete it' }))
+    await user.click(screen.getByRole('button', { name: 'Archive this campaign' }))
+    await user.click(screen.getByRole('button', { name: 'Archive it' }))
 
     await waitFor(async () => {
       expect(await adapter.listCampaignAccounts()).toHaveLength(0)

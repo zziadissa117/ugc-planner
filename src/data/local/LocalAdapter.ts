@@ -241,6 +241,7 @@ export class LocalAdapter implements DataAdapter {
       needs_submission: campaign.needs_submission ?? false,
       post_position: campaign.post_position ?? null,
       cutter_campaign_id: campaign.cutter_campaign_id ?? null,
+      archived_at: campaign.archived_at ?? null,
       payout_schedule: campaign.payout_schedule ?? 'none',
       payout_date: campaign.payout_date ?? null,
       opening_post_count: campaign.opening_post_count ?? 0,
@@ -291,6 +292,36 @@ export class LocalAdapter implements DataAdapter {
     for (const account of await this.listCampaignAccounts(id)) {
       await this.updateCampaignAccount(account.id, { is_active: false })
     }
+  }
+
+  async archiveCampaign(id: string): Promise<void> {
+    await this.updateCampaign(id, { is_active: false, archived_at: now() })
+    // Its accounts go off the lists with it, the same as a delete, and are
+    // brought back by restoreCampaign.
+    for (const account of await this.listCampaignAccounts(id)) {
+      await this.updateCampaignAccount(account.id, { is_active: false })
+    }
+  }
+
+  async restoreCampaign(id: string): Promise<void> {
+    const campaign = await this.getCampaign(id)
+    if (!campaign?.archived_at) return
+    const archivedAt = campaign.archived_at
+    await this.updateCampaign(id, { is_active: true, archived_at: null })
+    // The accounts the archive switched off: inactive, and changed at or after
+    // the archive. One he had removed himself earlier was changed before it
+    // and stays removed.
+    const rows = await this.db.campaign_accounts.where('campaign_id').equals(id).toArray()
+    for (const account of rows) {
+      if (!account.is_active && account.updated_at >= archivedAt) {
+        await this.updateCampaignAccount(account.id, { is_active: true })
+      }
+    }
+  }
+
+  async listArchivedCampaigns(): Promise<Campaign[]> {
+    const all = await this.db.campaigns.toArray()
+    return all.filter((c) => c.archived_at !== null && !c.is_active).sort((a, b) => a.name.localeCompare(b.name))
   }
 
   async backfillUnpricedVideos(campaignId: string): Promise<number> {
@@ -1635,6 +1666,10 @@ export class LocalAdapter implements DataAdapter {
       if (typeof (row as Partial<Campaign>).needs_submission !== 'boolean') {
         const existing = (await this.db.campaigns.get(incoming.id)) as Campaign | undefined
         row = { ...(row as object), needs_submission: existing?.needs_submission ?? false }
+      }
+      if ((row as Partial<Campaign>).archived_at === undefined) {
+        const existing = (await this.db.campaigns.get(incoming.id)) as Campaign | undefined
+        row = { ...(row as object), archived_at: existing?.archived_at ?? null }
       }
       if ((row as Partial<Campaign>).cutter_campaign_id === undefined) {
         const existing = (await this.db.campaigns.get(incoming.id)) as Campaign | undefined

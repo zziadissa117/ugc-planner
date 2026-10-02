@@ -196,7 +196,7 @@ export function Campaign() {
           <DeleteCampaign
             name={campaign.name}
             onDelete={async () => {
-              await data.deleteCampaign(campaign.id)
+              await data.archiveCampaign(campaign.id)
               void navigate('/campaigns')
             }}
           />
@@ -831,8 +831,8 @@ function DeleteCampaign({ name, onDelete }: { name: string; onDelete: () => Prom
       <button
         type="button"
         onClick={() => setConfirming(true)}
-        aria-label="Delete this campaign"
-        title="Delete this campaign"
+        aria-label="Archive this campaign"
+        title="Archive this campaign"
         className="press flex size-10 items-center justify-center rounded-full border border-edge text-state-later active:bg-surface"
       >
         <TrashIcon className="h-4 w-4" />
@@ -843,7 +843,7 @@ function DeleteCampaign({ name, onDelete }: { name: string; onDelete: () => Prom
   return (
     <div className="settle-in flex flex-col gap-2 border-l-2 border-state-blocked pl-3">
       <p className="text-base text-text">
-        Delete {name}? It stops being owed, stops being counted, and leaves every screen.
+        Archive {name}? It stops being owed, stops being counted, and leaves every screen. You can restore it from Archived on the Briefs page.
       </p>
       <div className="flex gap-2">
         <Button onClick={() => setConfirming(false)} className="flex-1">
@@ -858,7 +858,7 @@ function DeleteCampaign({ name, onDelete }: { name: string; onDelete: () => Prom
           }}
           className="flex-1"
         >
-          Delete it
+          Archive it
         </Button>
       </div>
     </div>

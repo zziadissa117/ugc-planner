@@ -1,10 +1,15 @@
 // What the work pays.
 //
-// One formula, in his words: "$ per post x posts per day". $35 a post and one
-// post a day is $35 a day. Three platforms does not make it $105, and a
+// One formula, in his words: "$ per post x posts per day" - now per WEEK,
+// because that is how most contracts are written. $35 a post and seven posts a
+// week is $245 a week, $35 a day. Three platforms does not make it $105, and a
 // backlog of old videos marked posted in one sitting does not make it $455 -
 // both of those were real figures this screen showed, and both came from
 // counting something other than the campaign's own numbers.
+//
+// The week is the base unit and the rest follow from it: a day is a seventh, a
+// month is 30/7 of a week (the same thirty-day month as before). Computed once
+// from the week and rounded once, so the three never disagree by a stray cent.
 //
 // There are two exceptions, and both are things he told the app rather than
 // things it worked out:
@@ -23,6 +28,7 @@
 
 import type { Campaign, CampaignAccount } from './data'
 import { canPostFrom } from './data'
+import { deliverableCents, paysPerPlatform } from './data/earnings'
 
 /** Days used for the week and month figures. Fixed rather than calendar-aware
  *  on purpose: this is what the work pays at his current quota, not a ledger
@@ -57,29 +63,42 @@ export function payingPlatforms(
   campaign: Campaign,
   accounts: readonly CampaignAccount[] = [],
 ): number {
-  if (!campaign.pays_per_platform) return 1
+  if (!paysPerPlatform(campaign, accounts)) return 1
   return Math.max(1, postableAccounts(campaign, accounts).filter((account) => !account.bonus_only).length)
 }
 
-/** What one day of this campaign pays at its rate, or null when it has no rate
- *  saved.
+/** What one week of this campaign pays, or null when it has no rate saved.
  *
- *  Null rather than zero: a campaign whose rate nobody has typed yet pays an
- *  unknown amount, and showing $0.00 would be a claim about his earnings
- *  rather than a gap in what the app was told. */
+ *  What one deliverable is worth across its platforms (see deliverableCents -
+ *  one rate once, or each paying platform's own rate added up when platforms
+ *  pay separately) times the posts the campaign owes a week. Null rather than
+ *  zero: a campaign whose rate nobody has typed yet pays an unknown amount,
+ *  and showing $0.00 would be a claim about his earnings rather than a gap in
+ *  what the app was told. */
+export function weeklyEarningsCents(
+  campaign: Campaign,
+  accounts: readonly CampaignAccount[] = [],
+): number | null {
+  const each = deliverableCents(campaign, accounts)
+  if (each === null) return null
+  return each * campaign.posts_per_week
+}
+
+/** A day of the same: a seventh of the week. */
 export function dailyEarningsCents(
   campaign: Campaign,
   accounts: readonly CampaignAccount[] = [],
 ): number | null {
-  if (campaign.pay_per_video_cents === null) return null
-  return campaign.pay_per_video_cents * campaign.daily_post_quota * payingPlatforms(campaign, accounts)
+  const week = weeklyEarningsCents(campaign, accounts)
+  return week === null ? null : Math.round(week / DAYS_PER_WEEK)
 }
 
-export function periodsFor(dayCents: number): PeriodEarnings {
+/** Day, week and month from a week's pay. */
+export function periodsFromWeek(weekCents: number): PeriodEarnings {
   return {
-    dayCents,
-    weekCents: dayCents * DAYS_PER_WEEK,
-    monthCents: dayCents * DAYS_PER_MONTH,
+    dayCents: Math.round(weekCents / DAYS_PER_WEEK),
+    weekCents,
+    monthCents: Math.round((weekCents * DAYS_PER_MONTH) / DAYS_PER_WEEK),
   }
 }
 
@@ -100,8 +119,8 @@ export function monthlyPayCents(
   accounts: readonly CampaignAccount[] = [],
 ): number | null {
   if (hasMonthlyOverride(campaign)) return campaign.monthly_pay_override_cents as number
-  const day = dailyEarningsCents(campaign, accounts)
-  return day === null ? null : day * DAYS_PER_MONTH
+  const week = weeklyEarningsCents(campaign, accounts)
+  return week === null ? null : periodsFromWeek(week).monthCents
 }
 
 /** Campaigns ordered by what they pay, best first.
@@ -154,8 +173,10 @@ export function campaignEarnings(
   campaign: Campaign,
   accounts: readonly CampaignAccount[] = [],
 ): PeriodEarnings | null {
-  const day = dailyEarningsCents(campaign, accounts)
-  if (!hasMonthlyOverride(campaign)) return day === null ? null : periodsFor(day)
+  if (!hasMonthlyOverride(campaign)) {
+    const week = weeklyEarningsCents(campaign, accounts)
+    return week === null ? null : periodsFromWeek(week)
+  }
 
   // Working back from his monthly figure, so the three periods agree with each
   // other rather than one of them quietly contradicting the number he typed.

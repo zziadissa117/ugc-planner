@@ -238,69 +238,6 @@ export function tallyBoards(boards: readonly PostingBoard[]): { owed: number; po
   }
 }
 
-/** What the deliverables posted on `date` are worth, in cents.
- *
- *  Off the rate each video snapshotted when it went out, not off the
- *  campaign's rate today: the snapshot is what makes the ledger
- *  non-rewritable, and a rate changed next month must not repay last night.
- *
- *  Counted per DELIVERABLE, not per tick. A video cross-posted to three
- *  platforms earned once, so ticking the second and third platform adds
- *  destinations and no money - which is the whole reason the figure is built
- *  from de-duplicated video ids rather than from the posts themselves.
- *
- *  A video posted before it had a rate contributes nothing rather than zero
- *  dollars pretending to be a price. It is picked up later by
- *  backfillUnpricedVideos when a rate first arrives. */
-export function earnedOn(
-  videos: readonly Video[],
-  posts: readonly VideoPost[],
-  date: string = localToday(),
-  campaigns: readonly Campaign[] = [],
-  accounts: readonly CampaignAccount[] = [],
-): number {
-  const rateById = new Map(videos.map((video) => [video.id, video.rate_snapshot_cents]))
-  const campaignById = new Map(videos.map((video) => [video.id, video.campaign_id]))
-  const perPlatform = new Set(campaigns.filter((c) => c.pays_per_platform).map((c) => c.id))
-  const known = new Set(campaigns.map((c) => c.id))
-  // Accounts paid only through bonuses earn nothing per post, so a tick on one
-  // is left out entirely - see campaign_accounts.bonus_only.
-  const bonusOnly = new Set(accounts.filter((a) => a.bonus_only).map((a) => a.id))
-
-  const destinations = new Map<string, Set<string>>()
-  for (const post of posts) {
-    if (localToday(new Date(post.posted_at)) !== date) continue
-    if (post.account_id !== null && bonusOnly.has(post.account_id)) continue
-    const set = destinations.get(post.video_id) ?? new Set<string>()
-    set.add(post.account_id ?? post.platform)
-    destinations.set(post.video_id, set)
-  }
-
-  let cents = 0
-  for (const [videoId, ticked] of destinations) {
-    const rate = rateById.get(videoId) ?? 0
-    const campaignId = campaignById.get(videoId) ?? ''
-
-    if (perPlatform.has(campaignId)) {
-      // Every platform pays the full rate on its own.
-      cents += rate * ticked.size
-    } else if (known.has(campaignId)) {
-      // The rate is for the deliverable on all of the campaign's paying
-      // accounts, so each one ticked earns its share of it. Rounded on the
-      // whole so a rate that does not divide evenly still adds up to exactly
-      // the rate once every paying platform is ticked.
-      const paying = accounts.filter(
-        (a) => a.campaign_id === campaignId && a.is_active && !a.bonus_only && canPostFrom(a),
-      ).length
-      const total = Math.max(1, paying)
-      cents += Math.round((rate * Math.min(ticked.size, total)) / total)
-    } else {
-      cents += rate
-    }
-  }
-  return cents
-}
-
 /** The box a tap in the neural view should fill: the campaign's first ready
  *  account, in slot order - the same box a first tap on that row of the list
  *  view would fill. Once every owed slot on that account is posted, one more

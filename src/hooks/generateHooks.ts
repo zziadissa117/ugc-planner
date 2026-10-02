@@ -14,6 +14,7 @@ import type {
   CampaignRule,
   DataAdapter,
 } from '../data'
+import { toAiError } from '../ai/errors'
 import { getSupabaseClient } from '../sync/auth'
 import {
   type GenerateHooksResult,
@@ -143,19 +144,6 @@ export function leaningFamily(
   return nextFamily(toHookAngles(angles), lastFamily)
 }
 
-/** The function's own explanation, when it gave one - supabase-js reports
- *  every non-2xx the same way and keeps the reason on the error's context. */
-async function describeError(error: { message: string; context?: unknown }): Promise<string> {
-  const context = error.context as { json?: () => Promise<unknown> } | undefined
-  try {
-    const body = (await context?.json?.()) as { error?: unknown } | undefined
-    if (body && typeof body.error === 'string') return body.error
-  } catch {
-    /* no readable body */
-  }
-  return error.message
-}
-
 /** Calls the function. Returns what it generated; writes nothing. */
 export async function generateHooks(context: HookContext): Promise<GenerateHooksResult> {
   const client = getSupabaseClient()
@@ -170,7 +158,10 @@ export async function generateHooks(context: HookContext): Promise<GenerateHooks
   })
 
   if (error) {
-    throw new HookGenerationError(`Hook generation failed: ${await describeError(error)}`)
+    const failure = await toAiError(error)
+    throw new HookGenerationError(
+      failure.code ? failure.message : `Hook generation failed: ${failure.message}`,
+    )
   }
   return data as GenerateHooksResult
 }

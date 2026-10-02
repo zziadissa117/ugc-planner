@@ -8,6 +8,7 @@ import { EXPORT_REMINDER_DAYS } from '../data'
 import type { Campaign } from '../data'
 import { useData } from '../data/useData'
 import { useAuth } from '../sync'
+import { AiKeys } from './AiKeys'
 
 type Status =
   | { kind: 'idle' }
@@ -96,6 +97,8 @@ export function Settings() {
       ) : null}
 
       <Account />
+
+      <AiKeys />
 
       <TodoList campaigns={campaigns} />
 
@@ -294,7 +297,7 @@ function Account() {
         <SectionLabel>Account</SectionLabel>
         <p className="text-base text-text-dim">
           Signed in as <span className="text-text">{auth.email}</span>. Syncs across devices, and
-          the AI parser can read your documents on the New campaign screen.
+          the AI parser can read your documents on the New campaign screen (add your API key below).
         </p>
         <Button onClick={() => void auth.signOut()} className="self-start">
           Sign out

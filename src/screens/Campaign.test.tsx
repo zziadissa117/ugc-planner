@@ -108,36 +108,40 @@ describe('what the brief shows', () => {
 })
 
 describe('the numbers that decide the day', () => {
-  it('shows the rate, the posts owed per day, and what that pays', async () => {
+  it('shows the rate, the posts owed per week, and what that pays', async () => {
     await renderBrief()
 
-    // Inflow: $35 a post, one a day - so $35 a day, twice over on the strip.
+    // Inflow: $35 a post, one a day (seven a week) - so $245 a week, $35 a day.
     expect(screen.getByLabelText('per post')).toHaveTextContent('$35.00')
-    expect(screen.getByLabelText('posts/day')).toHaveTextContent('1')
-    expect(screen.getByText('per day').parentElement).toHaveTextContent('$35.00')
+    expect(screen.getByLabelText('posts/week')).toHaveTextContent('7')
+    expect(screen.getByText('per week').parentElement).toHaveTextContent('$245.00')
+    expect(screen.getByText('per week').parentElement).toHaveTextContent('about $35.00 a day')
   })
 
-  it('lets the daily quota be set - no document ever states it', async () => {
+  it('lets the weekly quota be set - no document ever states it', async () => {
     const user = userEvent.setup()
     await renderBrief()
 
-    await user.click(screen.getByLabelText('posts/day'))
-    const input = screen.getByLabelText('posts/day')
+    await user.click(screen.getByLabelText('posts/week'))
+    const input = screen.getByLabelText('posts/week')
     await user.clear(input)
-    await user.type(input, '4')
+    await user.type(input, '5')
     await user.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(async () => {
-      expect((await adapter.getCampaign(INFLOW_CAMPAIGN_ID))?.daily_post_quota).toBe(4)
+      const saved = await adapter.getCampaign(INFLOW_CAMPAIGN_ID)
+      expect(saved?.posts_per_week).toBe(5)
+      // The Post grid still owes a whole number a day.
+      expect(saved?.daily_post_quota).toBe(1)
     })
   })
 
-  it('recalculates what a day pays from the rate and the quota alone', async () => {
+  it('recalculates what a week pays from the rate and the quota alone', async () => {
     const user = userEvent.setup()
     await renderBrief()
 
-    await user.click(screen.getByLabelText('posts/day'))
-    const input = screen.getByLabelText('posts/day')
+    await user.click(screen.getByLabelText('posts/week'))
+    const input = screen.getByLabelText('posts/week')
     await user.clear(input)
     await user.type(input, '3')
     await user.click(screen.getByRole('button', { name: 'Save' }))
@@ -465,6 +469,113 @@ describe('unreviewed parsed fields', () => {
     await waitFor(async () => {
       const fields = await adapter.listCampaignFields(INFLOW_CAMPAIGN_ID)
       expect(fields.find((f) => f.field_key === 'audience')?.confirmed_at).not.toBeNull()
+    })
+  })
+})
+
+
+describe('what each platform pays', () => {
+  it('lets one platform have a rate of its own, saved as integer cents', async () => {
+    const user = userEvent.setup()
+    await renderBrief()
+
+    const box = await screen.findByLabelText('TikTok pay per post')
+    await user.click(box)
+    await user.type(box, '25.50')
+    await user.tab()
+
+    await waitFor(async () => {
+      const tiktok = (await adapter.listCampaignAccounts(INFLOW_CAMPAIGN_ID)).find(
+        (a) => a.platform === 'TikTok',
+      )
+      expect(tiktok?.pay_per_post_cents).toBe(2550)
+    })
+    // A rate of its own means each platform is paid separately, so the switch
+    // reads on without his having touched it.
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Each platform pays separately' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      )
+    })
+  })
+
+  it('clears a platform back to the campaign rate when the box is emptied', async () => {
+    const user = userEvent.setup()
+    await renderBrief()
+    const accounts = await adapter.listCampaignAccounts(INFLOW_CAMPAIGN_ID)
+    await adapter.updateCampaignAccount(accounts[0].id, { pay_per_post_cents: 1000 })
+    // Re-render with the value in place.
+    document.body.innerHTML = ''
+    await renderBrief()
+
+    const box = await screen.findByLabelText(`${accounts[0].platform} pay per post`)
+    await user.clear(box)
+    await user.tab()
+    await waitFor(async () => {
+      const again = (await adapter.listCampaignAccounts(INFLOW_CAMPAIGN_ID)).find((a) => a.id === accounts[0].id)
+      expect(again?.pay_per_post_cents).toBeNull()
+    })
+  })
+
+  it('refuses a rate that is not an amount, and says nothing was saved', async () => {
+    const user = userEvent.setup()
+    await renderBrief()
+    const box = await screen.findByLabelText('TikTok pay per post')
+    await user.type(box, 'lots')
+    await user.tab()
+    expect(box).toHaveAttribute('aria-invalid', 'true')
+    const tiktok = (await adapter.listCampaignAccounts(INFLOW_CAMPAIGN_ID)).find((a) => a.platform === 'TikTok')
+    expect(tiktok?.pay_per_post_cents).toBeNull()
+  })
+})
+
+describe('when the campaign pays', () => {
+  it('says nothing is saved until he picks a schedule and a date', async () => {
+    await renderBrief()
+    expect(screen.queryByText(/- pending/)).toBeNull()
+    expect(screen.queryByLabelText('Payout date')).toBeNull()
+  })
+
+  it('saves a monthly payout date and shows the latest as pending, then paid', async () => {
+    const user = userEvent.setup()
+    await renderBrief()
+
+    await user.click(screen.getByRole('button', { name: 'Every month' }))
+    const date = await screen.findByLabelText('Payout date')
+    // The latest payout has to have fallen due for there to be anything to
+    // mark: a date well in the past, monthly, always has one.
+    await user.type(date, '2026-09-15')
+    await waitFor(async () => {
+      expect((await adapter.getCampaign(INFLOW_CAMPAIGN_ID))?.payout_date).toBe('2026-09-15')
+    })
+    expect((await adapter.getCampaign(INFLOW_CAMPAIGN_ID))?.payout_schedule).toBe('monthly')
+
+    const pending = await screen.findByText(/- pending/)
+    expect(pending).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Mark paid' }))
+    await waitFor(() => expect(screen.getByText(/- paid/)).toBeInTheDocument())
+    expect(await adapter.listCampaignPayouts(INFLOW_CAMPAIGN_ID)).toHaveLength(1)
+
+    await user.click(screen.getByRole('button', { name: 'Mark pending' }))
+    await waitFor(() => expect(screen.getByText(/- pending/)).toBeInTheDocument())
+    expect(await adapter.listCampaignPayouts(INFLOW_CAMPAIGN_ID)).toHaveLength(0)
+  })
+
+  it('forgets the date when the schedule goes back to none', async () => {
+    const user = userEvent.setup()
+    await renderBrief()
+    await user.click(screen.getByRole('button', { name: 'Once' }))
+    await user.type(await screen.findByLabelText('Payout date'), '2026-11-01')
+    await waitFor(async () => {
+      expect((await adapter.getCampaign(INFLOW_CAMPAIGN_ID))?.payout_date).toBe('2026-11-01')
+    })
+    await user.click(screen.getByRole('button', { name: 'No payout date' }))
+    await waitFor(async () => {
+      const row = await adapter.getCampaign(INFLOW_CAMPAIGN_ID)
+      expect(row?.payout_schedule).toBe('none')
+      expect(row?.payout_date).toBeNull()
     })
   })
 })

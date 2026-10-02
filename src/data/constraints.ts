@@ -17,7 +17,9 @@
 import {
   APPROVAL_MODE_VALUES,
   DOCUMENT_KIND_VALUES,
+  EARNINGS_SOURCE_VALUES,
   FIELD_SOURCE_VALUES,
+  PAYOUT_SCHEDULE_VALUES,
   SESSION_TYPE_VALUES,
   SETUP_TYPE_VALUES,
   VIDEO_KIND_VALUES,
@@ -27,6 +29,8 @@ import {
   type Campaign,
   type CampaignAccount,
   type CampaignAngle,
+  type CampaignPayout,
+  type EarningsEvent,
   type CampaignHook,
   type CampaignDocument,
   type CampaignField,
@@ -181,6 +185,9 @@ export function assertCampaign(row: Campaign): void {
   boolean(t, 'pays_per_platform', row.pays_per_platform)
   boolean(t, 'needs_submission', row.needs_submission)
   integer(t, 'post_position', row.post_position, { min: 0, nullable: true })
+  integer(t, 'posts_per_week', row.posts_per_week, { min: 0, nullable: false })
+  isEnum(t, 'payout_schedule', row.payout_schedule, PAYOUT_SCHEDULE_VALUES, false)
+  dateOnly(t, 'payout_date', row.payout_date, { nullable: true })
   integer(t, 'opening_post_count', row.opening_post_count, { min: 0, nullable: false })
   boolean(t, 'brief_is_incomplete', row.brief_is_incomplete)
   timestamp(t, 'created_at', row.created_at, { nullable: false })
@@ -253,7 +260,7 @@ export function assertCampaignAngle(row: CampaignAngle): void {
 export function assertCampaignAccount(row: CampaignAccount): void {
   const t: TableName = 'campaign_accounts'
   text(t, 'id', row.id, { nullable: false }); text(t, 'user_id', row.user_id, { nullable: false }); text(t, 'campaign_id', row.campaign_id, { nullable: false }); text(t, 'platform', row.platform, { nullable: false }); text(t, 'handle', row.handle, { nullable: true }); text(t, 'email', row.email, { nullable: true }); text(t, 'password', row.password, { nullable: true })
-  integer(t, 'posts_per_day', row.posts_per_day, { min: 0, nullable: false }); isEnum(t, 'status', row.status, ['new', 'warming', 'ready'], false); boolean(t, 'is_active', row.is_active); boolean(t, 'bonus_only', row.bonus_only); integer(t, 'sort_order', row.sort_order, { nullable: false }); timestamp(t, 'created_at', row.created_at, { nullable: false }); timestamp(t, 'updated_at', row.updated_at, { nullable: false })
+  integer(t, 'posts_per_day', row.posts_per_day, { min: 0, nullable: false }); isEnum(t, 'status', row.status, ['new', 'warming', 'ready'], false); boolean(t, 'is_active', row.is_active); boolean(t, 'bonus_only', row.bonus_only); integer(t, 'pay_per_post_cents', row.pay_per_post_cents, { min: 0, nullable: true }); integer(t, 'sort_order', row.sort_order, { nullable: false }); timestamp(t, 'created_at', row.created_at, { nullable: false }); timestamp(t, 'updated_at', row.updated_at, { nullable: false })
 }
 
 export function assertCampaignHook(row: CampaignHook): void {
@@ -340,6 +347,41 @@ export function assertWarmupEvent(row: WarmupEvent): void {
   text(t, 'client_id', row.client_id, { nullable: false })
 }
 
+export function assertEarningsEvent(row: EarningsEvent): void {
+  const t: TableName = 'earnings_events'
+  text(t, 'id', row.id, { nullable: false })
+  text(t, 'user_id', row.user_id, { nullable: false })
+  text(t, 'campaign_id', row.campaign_id, { nullable: false })
+  text(t, 'video_id', row.video_id, { nullable: false })
+  text(t, 'account_id', row.account_id, { nullable: true })
+  text(t, 'platform', row.platform, { nullable: false })
+  integer(t, 'amount_cents', row.amount_cents, { nullable: false })
+  isEnum(t, 'source', row.source, EARNINGS_SOURCE_VALUES, false)
+  dateOnly(t, 'earned_on', row.earned_on, { nullable: false })
+  text(t, 'reverses_id', row.reverses_id, { nullable: true })
+  timestamp(t, 'occurred_at', row.occurred_at, { nullable: false })
+  if (row.source === 'checkoff' && row.amount_cents < 0) {
+    fail(t, 'checkoff_is_not_negative', 'a checkoff cannot take money away')
+  }
+  if (row.source === 'reversal' && row.amount_cents > 0) {
+    fail(t, 'reversal_is_not_positive', 'a reversal cannot add money')
+  }
+  if (row.source === 'reversal' && row.reverses_id === null) {
+    fail(t, 'reversal_names_its_checkoff', 'a reversal must say which checkoff it undoes')
+  }
+}
+
+export function assertCampaignPayout(row: CampaignPayout): void {
+  const t: TableName = 'campaign_payouts'
+  text(t, 'id', row.id, { nullable: false })
+  text(t, 'user_id', row.user_id, { nullable: false })
+  text(t, 'campaign_id', row.campaign_id, { nullable: false })
+  dateOnly(t, 'due_date', row.due_date, { nullable: false })
+  timestamp(t, 'paid_at', row.paid_at, { nullable: false })
+  integer(t, 'received_cents', row.received_cents, { min: 0, nullable: true })
+  timestamp(t, 'updated_at', row.updated_at, { nullable: false })
+}
+
 export function assertWorkSession(row: WorkSession): void {
   const t: TableName = 'work_sessions'
   text(t, 'id', row.id, { nullable: false }); text(t, 'user_id', row.user_id, { nullable: false }); text(t, 'campaign_id', row.campaign_id, { nullable: false }); isEnum(t, 'kind', row.kind, SESSION_TYPE_VALUES, false); integer(t, 'goal_videos', row.goal_videos, { exclusiveMin: 0, nullable: false }); integer(t, 'planned_minutes', row.planned_minutes, { exclusiveMin: 0, nullable: false }); timestamp(t, 'started_at', row.started_at, { nullable: false }); timestamp(t, 'ended_at', row.ended_at, { nullable: true }); timestamp(t, 'created_at', row.created_at, { nullable: false }); timestamp(t, 'updated_at', row.updated_at, { nullable: false })
@@ -422,6 +464,8 @@ const VALIDATORS = {
   phase_events: assertPhaseEvent,
   work_sessions: assertWorkSession,
   warmup_events: assertWarmupEvent,
+  earnings_events: assertEarningsEvent,
+  campaign_payouts: assertCampaignPayout,
   bonus_tiers: assertBonusTier,
   bonus_claims: assertBonusClaim,
   time_estimates: assertTimeEstimate,

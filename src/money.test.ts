@@ -26,6 +26,9 @@ import {
 } from './money'
 
 function campaign(overrides: Partial<Campaign> = {}): Campaign {
+  // The fixture speaks per-day, as every test below was written; the weekly
+  // quota the money maths reads is seven of it unless a test says otherwise.
+  const weekly = overrides.posts_per_week ?? (overrides.daily_post_quota ?? 1) * 7
   return {
     id: 'c1',
     user_id: 'u1',
@@ -41,11 +44,14 @@ function campaign(overrides: Partial<Campaign> = {}): Campaign {
     pays_per_platform: false,
     needs_submission: false,
     post_position: null,
+    payout_schedule: 'none',
+    payout_date: null,
     opening_post_count: 0,
     brief_is_incomplete: false,
     created_at: '2026-09-01T00:00:00.000Z',
     updated_at: '2026-09-01T00:00:00.000Z',
     ...overrides,
+    posts_per_week: weekly,
   }
 }
 
@@ -176,6 +182,7 @@ describe('whether a campaign counts at all', () => {
       email: null,
       password: null,
       posts_per_day: 0,
+      pay_per_post_cents: null,
       status: 'ready',
       is_active: true,
       bonus_only: false,
@@ -258,6 +265,7 @@ describe('campaigns that pay for each platform', () => {
       email: null,
       password: null,
       posts_per_day: 0,
+      pay_per_post_cents: null,
       status: 'ready',
       is_active: true,
       bonus_only: false,
@@ -344,6 +352,7 @@ describe('byBestPay', () => {
       name,
       pay_per_video_cents: rate,
       daily_post_quota: quota,
+      posts_per_week: quota * 7,
       pays_per_platform: false,
       monthly_pay_override_cents: null,
       ...extra,

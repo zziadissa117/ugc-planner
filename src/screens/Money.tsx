@@ -1,9 +1,12 @@
 import { Link } from 'react-router-dom'
 
 import { ChevronRightIcon } from '../components/icons'
+import { buttonClass } from '../components/styles'
 import { ScreenHeader, SectionLabel } from '../components/ui'
-import type { Campaign, CampaignAccount } from '../data'
-import { canPostFrom } from '../data'
+import type { Campaign, CampaignAccount, CampaignPayout } from '../data'
+import { canPostFrom, localToday } from '../data'
+import { deliverableCents, paysPerPlatform } from '../data/earnings'
+import { formatDay, payoutStatus } from '../data/payouts'
 import { useData } from '../data/useData'
 import { useLoaded } from '../data/useLoaded'
 import {
@@ -35,15 +38,16 @@ import {
 export function Money() {
   const data = useData()
   const [loaded] = useLoaded(async () => {
-    const [campaigns, accounts] = await Promise.all([
+    const [campaigns, accounts, payouts] = await Promise.all([
       data.listCampaigns(),
       data.listCampaignAccounts(),
+      data.listCampaignPayouts(),
     ])
-    return { campaigns, accounts }
+    return { campaigns, accounts, payouts }
   }, [data])
 
   if (loaded === null) return null
-  const { campaigns, accounts } = loaded
+  const { campaigns, accounts, payouts } = loaded
 
   const live = campaigns.filter((campaign) => campaignIsLive(campaign, accounts))
   const totals = totalEarnings(live, accounts)
@@ -63,7 +67,15 @@ export function Money() {
 
   return (
     <section className="mx-auto flex max-w-3xl flex-col gap-7">
-      <ScreenHeader title="Money" meta="What you earn from campaigns with a ready account." />
+      <ScreenHeader
+        title="Money"
+        meta="What you earn from campaigns with a ready account."
+        aside={
+          <Link to="/money/history" className={buttonClass('quiet', 'small')}>
+            Earnings history
+          </Link>
+        }
+      />
 
       {/* One hero - the day, which is the unit he works in - and the week
           and month beside each other under it. What each period would come
@@ -96,6 +108,7 @@ export function Money() {
                 campaign={campaign}
                 counting={campaignIsLive(campaign, accounts)}
                 accounts={accounts}
+                payouts={payouts}
                 share={(monthlyPayCents(campaign, accounts) ?? 0) / biggest}
               />
             </li>
@@ -129,6 +142,24 @@ function Figure({ label, cents, size }: { label: string; cents: number; size: 'h
       </p>
       <p className="numeric meta mt-2 whitespace-nowrap text-state-later">~{formatCents(toCadCents(cents))} CAD</p>
     </div>
+  )
+}
+
+/** When the campaign pays and whether the latest payout has arrived.
+ *  Green is paid, amber is past its date and not marked, grey is simply not
+ *  here yet - the colour is the state and nothing else. */
+function PayoutLine({ status }: { status: NonNullable<ReturnType<typeof payoutStatus>> }) {
+  const { latest, next, overdue } = status
+  if (latest === null && next !== null) {
+    return <span className="meta text-state-later">Payout {formatDay(next)} - pending</span>
+  }
+  if (latest === null) return null
+  const tone = latest.paid ? 'text-state-posted' : overdue ? 'text-state-waiting' : 'text-state-later'
+  return (
+    <span className={`meta ${tone}`}>
+      Payout {formatDay(latest.dueDate)} - {latest.paid ? 'paid' : 'pending'}
+      {next ? <span className="text-state-later"> · next {formatDay(next)}</span> : null}
+    </span>
   )
 }
 
@@ -166,11 +197,13 @@ function CampaignLine({
   campaign,
   counting,
   accounts,
+  payouts,
   share,
 }: {
   campaign: Campaign
   counting: boolean
   accounts: readonly CampaignAccount[]
+  payouts: readonly CampaignPayout[]
   /** This campaign's month against the best-paying one, 0 to 1. */
   share: number
 }) {
@@ -178,6 +211,9 @@ function CampaignLine({
   const monthly = monthlyPayCents(campaign, accounts)
   const mine = hasMonthlyOverride(campaign)
   const platforms = payingPlatforms(campaign, accounts)
+  const separate = paysPerPlatform(campaign, accounts)
+  const each = deliverableCents(campaign, accounts)
+  const payout = payoutStatus(campaign, payouts, localToday())
 
   return (
     <Link
@@ -201,14 +237,16 @@ function CampaignLine({
         {/* The workings on their own line. Beside the name and the total they
             ran past the edge of the row once the text was made bigger. */}
         <span className="numeric meta text-state-later">
-          {campaign.pay_per_video_cents === null
+          {each === null
             ? mine
               ? 'your figure'
               : 'no rate saved'
-            : `${formatCents(campaign.pay_per_video_cents)} x ${campaign.daily_post_quota}/day${
-                platforms > 1 ? ` x ${platforms}` : ''
-              }`}
+            : `${formatCents(each)}${separate && platforms > 1 ? ` over ${platforms} platforms` : ''} x ${
+                campaign.posts_per_week
+              }/week`}
         </span>
+
+        {payout === null ? null : <PayoutLine status={payout} />}
 
         <span aria-hidden className="mt-1 h-px w-full bg-rule">
           <span

@@ -280,12 +280,19 @@ nothing. Do not build anything new on it.
 > A campaign paying $35 for one post a day across three platforms had also read
 > as **$105/day** while demand was derived from the account list.
 
+> Updated 2026-10: the week is now the base unit (posts per WEEK, as most
+> contracts are written), platforms can pay separately at their own rates,
+> and the money actually made is logged in an append-only history
+> (`/money/history`). The formula below is the projection; see ARCHITECTURE.md
+> "Money model" for the current definitions.
+
 One formula, and nothing else on the screen:
 
 ```
-day   = pay_per_video_cents x daily_post_quota
-week  = day x 7
-month = day x 30
+week  = deliverable value x posts_per_week      (deliverable value = pay_per_video_cents,
+                                                 or each paying platform's own rate summed)
+day   = week / 7
+month = week x 30 / 7
 ```
 
 - **Nothing here counts videos, posts or platforms.** There is no path by

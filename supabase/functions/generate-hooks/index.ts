@@ -21,7 +21,7 @@ import {
   type GenerateHooksResult,
   type HookContext,
 } from '../_shared/hookPrompt.ts'
-import { ModelError, callForJson, jsonResponse, refuseUnlessSignedIn } from '../_shared/claude.ts'
+import { callForJson, errorResponse, jsonResponse, loadUserKey, requireUser } from '../_shared/claude.ts'
 
 // Opus. Hook writing is the one genuinely creative call the app makes, and
 // the failure it keeps having is sameness - Haiku returned nine rewordings of
@@ -87,8 +87,8 @@ function readContext(body: unknown): HookContext | string {
 }
 
 Deno.serve(async (req: Request) => {
-  const refused = await refuseUnlessSignedIn(req)
-  if (refused) return refused
+  const auth = await requireUser(req)
+  if (auth instanceof Response) return auth
 
   let parsed: unknown
   try {
@@ -103,6 +103,7 @@ Deno.serve(async (req: Request) => {
   let answer: { data: GenerateHooksResult; model: string }
   try {
     answer = await callForJson<GenerateHooksResult>({
+      apiKey: await loadUserKey(auth.userId),
       model: MODEL,
       system: HOOK_SYSTEM_PROMPT,
       user: buildHookRequest(context),
@@ -111,8 +112,7 @@ Deno.serve(async (req: Request) => {
       maxTokens: MAX_TOKENS,
     })
   } catch (err) {
-    const message = err instanceof ModelError ? err.message : (err as Error).message
-    return jsonResponse({ error: `Hook generation failed: ${message}` }, 502)
+    return errorResponse(err, 'Hook generation failed: ')
   }
 
   // A model told to pick an angle id from a list will occasionally return one

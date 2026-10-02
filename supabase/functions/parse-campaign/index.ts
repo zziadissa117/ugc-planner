@@ -17,7 +17,7 @@ import {
   type ParsedField,
   type ParsedRule,
 } from '../_shared/parserTypes.ts'
-import { ModelError, callForJson, jsonResponse, nullable, refuseUnlessSignedIn } from '../_shared/claude.ts'
+import { callForJson, errorResponse, jsonResponse, loadUserKey, nullable, requireUser } from '../_shared/claude.ts'
 
 // Opus, not Haiku. These are PDF conversions with split tables, running
 // headers and OCR noise, and every value has to come back with a quote that
@@ -248,8 +248,8 @@ function legacyShape(result: ParseResult): unknown {
 }
 
 Deno.serve(async (req: Request) => {
-  const refused = await refuseUnlessSignedIn(req)
-  if (refused) return refused
+  const auth = await requireUser(req)
+  if (auth instanceof Response) return auth
 
   let briefText: string | null
   let contractText: string | null
@@ -276,6 +276,7 @@ Deno.serve(async (req: Request) => {
   let answer: { data: ModelOutput; model: string }
   try {
     answer = await callForJson<ModelOutput>({
+      apiKey: await loadUserKey(auth.userId),
       model: MODEL,
       system: SYSTEM_PROMPT,
       user,
@@ -284,8 +285,7 @@ Deno.serve(async (req: Request) => {
       maxTokens: 16000,
     })
   } catch (err) {
-    const message = err instanceof ModelError ? err.message : (err as Error).message
-    return jsonResponse({ error: `Parse failed: ${message}` }, 502)
+    return errorResponse(err, 'Parse failed: ')
   }
 
   const { result } = verifyQuotes(toResult(answer.data), { briefText, contractText })

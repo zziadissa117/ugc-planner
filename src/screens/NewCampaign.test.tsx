@@ -87,13 +87,13 @@ describe('typing a campaign in by hand', () => {
     expect(screen.getByRole('button', { name: 'Type it in myself' })).not.toBeDisabled()
   })
 
-  it('saves a name, a rate, a daily quota and a platform', async () => {
+  it('saves a name, a rate, a weekly quota and a platform', async () => {
     const user = userEvent.setup()
     await reachManual(user)
 
     await user.type(screen.getByLabelText('Campaign name'), 'Vertus')
     await user.type(screen.getByLabelText('Dollars per post'), '50')
-    const quota = screen.getByLabelText('Posts owed per day')
+    const quota = screen.getByLabelText('Posts owed per week')
     await user.clear(quota)
     await user.type(quota, '4')
     await user.click(screen.getByRole('button', { name: 'TikTok' }))
@@ -109,7 +109,7 @@ describe('typing a campaign in by hand', () => {
     })
     const [saved] = await adapter.listCampaigns()
     expect(saved.name).toBe('Vertus')
-    expect(saved.daily_post_quota).toBe(4)
+    expect(saved.posts_per_week).toBe(4)
 
     // His word for the rate, not a document's.
     const fields = await adapter.listCampaignFields(saved.id)
@@ -510,18 +510,20 @@ describe('where the campaign posts', () => {
     expect(screen.queryByLabelText('TikTok handle')).toBeNull()
   })
 
-  it('asks how many posts a day, because no document states it', async () => {
+  it('asks how many posts a week, because no document states it', async () => {
     const user = userEvent.setup()
     await reachReview(user)
 
-    const quota = screen.getByLabelText('Posts owed per day')
+    const quota = screen.getByLabelText('Posts owed per week')
     await user.clear(quota)
     await user.type(quota, '4')
     await user.click(screen.getByRole('button', { name: 'Save campaign' }))
 
     await waitFor(async () => {
       const [saved] = await adapter.listCampaigns()
-      expect(saved?.daily_post_quota).toBe(4)
+      expect(saved?.posts_per_week).toBe(4)
+      // Still owed as a whole number on the Post grid: ceil(4 / 7).
+      expect(saved?.daily_post_quota).toBe(1)
     })
   })
 

@@ -17,6 +17,7 @@
 // function that isn't there and surface as a confusing failure instead of the
 // honest "paste the JSON instead" path.
 
+import { toAiError } from '../ai/errors'
 import { getSupabaseClient } from '../sync/auth'
 import {
   ParseError,
@@ -52,7 +53,9 @@ export class EdgeFunctionParser implements CampaignParser {
     })
 
     if (error) {
-      throw new ParseError(`The server parser failed: ${await describeError(error)}`)
+      const failure = await toAiError(error)
+      // A coded failure (no key, bad key, rate limit) already says what to do.
+      throw new ParseError(failure.code ? failure.message : `The server parser failed: ${failure.message}`)
     }
     return withQuotedRules(data as ParseResult)
   }
@@ -70,19 +73,4 @@ function withQuotedRules(result: ParseResult): ParseResult {
     source_quote: tier.source_quote ?? null,
   }))
   return { ...result, rules, bonus_tiers }
-}
-
-/** The function's own explanation, when it gave one. supabase-js reports any
- *  non-2xx as "Edge Function returned a non-2xx status code" and keeps the
- *  body - where the function says what actually went wrong - on the error's
- *  context, so without this every failure read the same. */
-async function describeError(error: { message: string; context?: unknown }): Promise<string> {
-  const context = error.context as { json?: () => Promise<unknown> } | undefined
-  try {
-    const body = (await context?.json?.()) as { error?: unknown } | undefined
-    if (body && typeof body.error === 'string') return body.error
-  } catch {
-    /* no readable body - fall back to the generic message */
-  }
-  return error.message
 }

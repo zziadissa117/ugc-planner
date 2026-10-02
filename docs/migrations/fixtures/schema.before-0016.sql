@@ -53,14 +53,6 @@ create type field_source as enum (
 
 create type document_kind as enum ('brief', 'contract', 'other');
 
--- How often a campaign pays out. 'none' = no payout date saved yet.
-create type payout_schedule as enum ('none', 'one_off', 'weekly', 'biweekly', 'monthly');
-
--- Why a row is in the earnings history. 'checkoff' is money earned by ticking
--- a post; 'reversal' takes one back (negative amount, points at the row it
--- undoes). History is only ever appended to.
-create type earnings_source as enum ('checkoff', 'reversal');
-
 -- ---------------------------------------------------------------------------
 -- Campaigns
 -- ---------------------------------------------------------------------------
@@ -134,19 +126,6 @@ create table campaigns (
   -- is how every campaign starts, and what "sort by best pay" goes back to.
   post_position integer default null check (post_position >= 0),
 
-  -- Posts the campaign owes per WEEK. The money side reads this: a week pays
-  -- rate x posts_per_week, a day is a seventh of that and a month is 30/7 of
-  -- it. daily_post_quota stays beside it as what the Post grid owes on a given
-  -- day (the app keeps it at ceil(posts_per_week / 7)); the two are written
-  -- together by the data layer, never read as competing sources.
-  posts_per_week integer not null default 0 check (posts_per_week >= 0),
-
-  -- When the brand pays out. One-off or recurring from payout_date, which is
-  -- the first (or only) payout. Whether a given payout has arrived is a row in
-  -- campaign_payouts, not a column here, so each recurrence has its own status.
-  payout_schedule payout_schedule not null default 'none',
-  payout_date date default null,
-
   -- Posts made before this app existed. User-entered, never fabricated.
   opening_post_count  integer not null default 0 check (opening_post_count >= 0),
 
@@ -188,10 +167,6 @@ create table campaign_accounts (
   -- retainer for YouTube and Instagram and only a bonus for Facebook. Set by
   -- him, never inferred.
   bonus_only    boolean not null default false,
-  -- What one post on THIS account pays, when it differs from the campaign's
-  -- pay_per_video_cents. Null means "no rate of its own": the campaign's rate
-  -- applies. Setting one on any account makes the campaign pay per platform.
-  pay_per_post_cents integer default null check (pay_per_post_cents >= 0),
   sort_order    integer not null default 0,
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now(),
@@ -502,66 +477,6 @@ create table bonus_claims (
 create index on bonus_claims (video_id);
 
 -- ---------------------------------------------------------------------------
--- Earnings history. Append-only.
--- ---------------------------------------------------------------------------
-
--- Money earned, one row per event, from 2026-10-01 on. Ticking a post appends
--- a 'checkoff' for what it paid at that moment; un-ticking appends a
--- 'reversal' for the same amount, negative, pointing back at it. Nothing is
--- ever updated or deleted, so a rate changed next month or a box unticked
--- tomorrow cannot rewrite what a past day earned. Totals are sums over this
--- table at query time.
---
--- amount_cents is signed. A post with no rate yet writes no row at all:
--- unpriced is not zero.
-create table earnings_events (
-  -- Minted by the client, so a retried push hits the primary key and is
-  -- recognised rather than inserted twice, and so reverses_id means the same
-  -- thing on every device.
-  id             uuid primary key default gen_random_uuid(),
-  user_id        uuid not null references auth.users(id) on delete cascade,
-  campaign_id    uuid not null references campaigns(id) on delete cascade,
-  -- Which post earned it. Kept as plain ids rather than foreign keys: an
-  -- unticked post deletes its video_posts row, and the history must outlive it.
-  video_id       uuid not null,
-  account_id     uuid default null,
-  platform       text not null,
-  amount_cents   integer not null,
-  source         earnings_source not null,
-  -- The local calendar day the money belongs to, as the app saw it.
-  earned_on      date not null,
-  -- For a reversal, the checkoff it undoes.
-  reverses_id    uuid default null references earnings_events(id),
-  occurred_at    timestamptz not null default now(),
-
-  constraint checkoff_is_not_negative check (source <> 'checkoff' or amount_cents >= 0),
-  constraint reversal_is_not_positive check (source <> 'reversal' or amount_cents <= 0),
-  constraint reversal_names_its_checkoff check (source <> 'reversal' or reverses_id is not null)
-);
-
-create index on earnings_events (user_id, earned_on);
-create index on earnings_events (campaign_id, earned_on);
-create index on earnings_events (video_id, account_id);
-
--- Payouts that have arrived. A campaign's payout_schedule says when one is
--- due; a row here says that the one due on due_date was paid. Pending is the
--- absence of a row.
-create table campaign_payouts (
-  id             uuid primary key default gen_random_uuid(),
-  user_id        uuid not null references auth.users(id) on delete cascade,
-  campaign_id    uuid not null references campaigns(id) on delete cascade,
-  due_date       date not null,
-  paid_at        timestamptz not null default now(),
-  -- What actually arrived, when he says. Never inferred.
-  received_cents integer default null check (received_cents >= 0),
-  updated_at     timestamptz not null default now(),
-
-  unique (campaign_id, due_date)
-);
-
-create index on campaign_payouts (campaign_id);
-
--- ---------------------------------------------------------------------------
 -- Settings and estimates
 -- ---------------------------------------------------------------------------
 
@@ -607,8 +522,6 @@ alter table work_sessions      enable row level security;
 alter table warmup_events      enable row level security;
 alter table bonus_tiers        enable row level security;
 alter table bonus_claims       enable row level security;
-alter table earnings_events    enable row level security;
-alter table campaign_payouts   enable row level security;
 alter table time_estimates     enable row level security;
 alter table user_settings      enable row level security;
 
@@ -618,7 +531,7 @@ begin
   foreach t in array array[
     'campaigns','campaign_accounts','campaign_documents','campaign_fields','campaign_angles','campaign_hooks',
     'campaign_rules','videos','video_posts','bonus_tiers','bonus_claims',
-    'time_estimates','work_sessions','campaign_payouts'
+    'time_estimates','work_sessions'
   ]
   loop
     execute format(
@@ -642,10 +555,4 @@ create policy phase_events_append on phase_events for insert to authenticated
 create policy warmup_events_read on warmup_events for select to authenticated
   using (user_id = (select auth.uid()));
 create policy warmup_events_append on warmup_events for insert to authenticated
-  with check (user_id = (select auth.uid()));
-
--- earnings_events is append-only in exactly the same way.
-create policy earnings_events_read on earnings_events for select to authenticated
-  using (user_id = (select auth.uid()));
-create policy earnings_events_append on earnings_events for insert to authenticated
   with check (user_id = (select auth.uid()));

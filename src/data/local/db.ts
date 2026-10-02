@@ -19,8 +19,10 @@ import type {
   CampaignAngle,
   CampaignDocument,
   CampaignField,
+  CampaignPayout,
   CampaignRule,
   CampaignHook,
+  EarningsEvent,
   PhaseEvent,
   TableName,
   TimeEstimate,
@@ -72,6 +74,8 @@ export class LocalDatabase extends Dexie {
   phase_events!: EntityTable<PhaseEvent, 'id'>
   work_sessions!: EntityTable<WorkSession, 'id'>
   warmup_events!: EntityTable<WarmupEvent, 'id'>
+  earnings_events!: EntityTable<EarningsEvent, 'id'>
+  campaign_payouts!: EntityTable<CampaignPayout, 'id'>
   bonus_tiers!: EntityTable<BonusTier, 'id'>
   bonus_claims!: EntityTable<BonusClaim, 'id'>
   time_estimates!: EntityTable<TimeEstimate, 'id'>
@@ -221,6 +225,47 @@ export class LocalDatabase extends Dexie {
           console.error('v7 upgrade could not fill needs_submission; continuing.', error)
         }
       })
+
+    // v8 adds the earnings history and payout tables, and the columns that
+    // came with them. Campaigns saved before this have no posts_per_week, and
+    // the validator insists on one: it is filled from the per-day quota he had
+    // already set, times seven - the same arithmetic as the SQL migration, so
+    // the two stores agree about a campaign they have never compared. Every
+    // other new column has a "nothing saved" default that changes no figure.
+    this.version(8)
+      .stores({
+        earnings_events: 'id, campaign_id, video_id, earned_on, reverses_id',
+        campaign_payouts: 'id, campaign_id, &[campaign_id+due_date]',
+      })
+      .upgrade(async (tx) => {
+        try {
+          await tx
+            .table('campaigns')
+            .toCollection()
+            .modify(
+              (row: {
+                daily_post_quota?: number
+                posts_per_week?: number
+                payout_schedule?: string
+                payout_date?: string | null
+              }) => {
+                if (typeof row.posts_per_week !== 'number') {
+                  row.posts_per_week = (row.daily_post_quota ?? 0) * 7
+                }
+                if (typeof row.payout_schedule !== 'string') row.payout_schedule = 'none'
+                if (row.payout_date === undefined) row.payout_date = null
+              },
+            )
+          await tx
+            .table('campaign_accounts')
+            .toCollection()
+            .modify((row: { pay_per_post_cents?: number | null }) => {
+              if (row.pay_per_post_cents === undefined) row.pay_per_post_cents = null
+            })
+        } catch (error) {
+          console.error('v8 upgrade could not fill the new campaign columns; continuing.', error)
+        }
+      })
   }
 }
 
@@ -360,6 +405,8 @@ export const MIRRORED_TABLES: readonly TableName[] = [
   'phase_events',
   'work_sessions',
   'warmup_events',
+  'earnings_events',
+  'campaign_payouts',
   'bonus_tiers',
   'bonus_claims',
   'time_estimates',

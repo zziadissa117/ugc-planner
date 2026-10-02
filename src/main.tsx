@@ -9,6 +9,7 @@ import './index.css'
 import { installSprings } from './motion'
 import { Campaign } from './screens/Campaign'
 import { Campaigns } from './screens/Campaigns'
+import { EarningsHistory } from './screens/EarningsHistory'
 import { Money } from './screens/Money'
 import { NewCampaign } from './screens/NewCampaign'
 import { NotFound } from './screens/NotFound'
@@ -60,6 +61,7 @@ const router = createBrowserRouter([
       { path: 'campaigns/:campaignId', element: <Campaign /> },
       { path: 'campaigns/:campaignId/update', element: <UpdateCampaign /> },
       { path: 'money', element: <Money /> },
+      { path: 'money/history', element: <EarningsHistory /> },
       { path: 'settings', element: <Settings /> },
       { path: '*', element: <NotFound /> },
     ],

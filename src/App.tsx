@@ -36,6 +36,16 @@ export function App() {
         // A failed seed must not take the app down with it: everything else
         // still works, and the campaigns list will simply be empty.
       })
+      .then(async () => {
+        // Ticks made before the earnings history existed get their rows. Safe
+        // on every launch and on every device: it writes nothing that is
+        // already there. A failure here costs a history entry, never the app.
+        try {
+          await data.backfillEarningsHistory()
+        } catch {
+          /* the history catches up on the next launch */
+        }
+      })
       .finally(() => {
         if (!cancelled) setReady(true)
       })

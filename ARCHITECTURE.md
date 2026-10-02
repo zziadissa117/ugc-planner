@@ -44,7 +44,7 @@ never reaches the browser. **Bring-your-own-key:** there is no project-wide
 model key. Each call decrypts the *signed-in user's* key from Supabase Vault
 (`loadUserKey` in `supabase/functions/_shared/claude.ts`) for that one request.
 Keys live in `public.user_ai_keys` (pointer + last 4 only; migration
-`docs/migrations/0015_ai_keys.sql`), a **server-only** table: not in
+`docs/migrations/0015_ai_keys.sql`, applied 2026-10-02 except `delete_ai_key`, which is still to be run by hand), a **server-only** table: not in
 `schema.sql`, not in Dexie, not synced or exported. The browser can read only
 `provider/key_last4/updated_at`; writes go through the `ai-key` function.
 

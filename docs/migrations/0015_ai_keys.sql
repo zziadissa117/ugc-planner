@@ -1,6 +1,11 @@
 -- 0015 - bring-your-own AI key.
 --
--- DRAFT: not applied anywhere. Shown to the owner for approval first.
+-- Applied to the live project (uykuoibqdxmpbbrsmyad) on 2026-10-02 after the
+-- owner approved it - EXCEPT delete_ai_key (and its grants), see the end of
+-- this file. The apply tool timed out on any statement containing a delete or
+-- a drop, so the table, policy, column grants, save_ai_key and get_ai_key were
+-- applied one statement at a time and delete_ai_key is still to be run by hand
+-- in the Supabase SQL editor. Not yet in supabase_migrations.schema_migrations.
 --
 -- A user's model API key, encrypted at rest, tied to their account, readable
 -- only by Edge Functions.

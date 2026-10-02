@@ -40,14 +40,23 @@ screens (src/screens)  ->  useData() / DataAdapter intents  ->  LocalAdapter (De
 ## Where AI calls happen
 
 All model calls go through **Supabase Edge Functions** (Deno), so the API key
-never reaches the browser. Both currently read one project-wide secret,
-`ANTHROPIC_API_KEY` (see `supabase/functions/_shared/claude.ts`). *Phase 1
-replaces this with a per-user key.*
+never reaches the browser. **Bring-your-own-key:** there is no project-wide
+model key. Each call decrypts the *signed-in user's* key from Supabase Vault
+(`loadUserKey` in `supabase/functions/_shared/claude.ts`) for that one request.
+Keys live in `public.user_ai_keys` (pointer + last 4 only; migration
+`docs/migrations/0015_ai_keys.sql`), a **server-only** table: not in
+`schema.sql`, not in Dexie, not synced or exported. The browser can read only
+`provider/key_last4/updated_at`; writes go through the `ai-key` function.
 
 | Feature | Client | Edge Function |
 |---|---|---|
 | Brief + contract organizer (parser) | `src/parser/edgeFunction.ts` (`EdgeFunctionParser`), fallback `src/parser/pastedJson.ts` | `supabase/functions/parse-campaign/index.ts` |
 | Hook generation | `src/hooks/generateHooks.ts` | `supabase/functions/generate-hooks/index.ts` |
+| Key management (save/status/remove) | `src/ai/keys.ts`, UI `src/screens/AiKeys.tsx` (in Setup) | `supabase/functions/ai-key/index.ts` |
+
+Failures are `{ error, code }` with `code` in `no_key | invalid_key |
+rate_limited | model_error` (HTTP 412 / 422 / 429 / 502); `src/ai/errors.ts`
+turns them into plain sentences for both clients.
 
 Both functions: require a signed-in session, call Anthropic Messages API with a
 JSON-schema `output_config.format`, and **write nothing to the DB**. The client
@@ -85,6 +94,7 @@ src/
                            AccountsEditor, EditableField, DocumentInput, platforms.ts
   data/                    the data layer (see below)
   sync/                    auth + outbox engine + SupabaseSyncTarget + conflict + claim
+  ai/                      BYOK client: keys.ts (ai-key wrapper), errors.ts (error codes -> messages)
   parser/                  brief/contract parsing: types, verify, apply, edgeFunction, pastedJson
   hooks/                   hook generation client + hookPrompt (vendored to the function)
   screens/                 one file per route (+ .test.tsx beside each)
@@ -142,8 +152,9 @@ Client (Vite, baked at build; none are secrets): `VITE_SUPABASE_URL`,
 `VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_PARSE_CAMPAIGN_DEPLOYED`,
 `VITE_GENERATE_HOOKS_DEPLOYED`. Template: `.env.example`. Netlify must have them
 with scope "all" (see `docs/DEPLOY.md`).
-Edge Function secrets (server only): `ANTHROPIC_API_KEY`, `PARSE_CAMPAIGN_MODEL`,
-`GENERATE_HOOKS_MODEL`; `SUPABASE_URL` / `SUPABASE_ANON_KEY` are injected by Supabase.
+Edge Function env (server only): `PARSE_CAMPAIGN_MODEL`, `GENERATE_HOOKS_MODEL`
+(optional); `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` are
+injected by Supabase. `ANTHROPIC_API_KEY` is **no longer used** (per-user keys).
 Playwright: `PLAYWRIGHT_BASE_URL`. Live tests need real-project credentials (see `*.live.test.ts`).
 
 ## Run, build, test
@@ -159,7 +170,7 @@ npm run test:e2e           # Playwright offline spec against a preview build
 npm run test:live          # hits the real Supabase project; deliberate only
 ```
 
-Supabase project ref: `uykuoibqdxmpbbrsmyad`. Migrations are applied by hand /
+Supabase project ref: `uykuoibqdxmpbbrsmyad`. **It is shared with the cutter/editor app** (`cutter_*` tables, `cutter` and `postiz` Edge Functions, `cutter_*` migrations that are not in this repo): never touch those, and expect `list_migrations` to show entries this repo does not have. Migrations are applied by hand /
 via Supabase tooling, never automatically; a schema change needs the owner's OK.
 
 ## Conventions and gotchas

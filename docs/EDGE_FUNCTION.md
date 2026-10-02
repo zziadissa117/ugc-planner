@@ -11,6 +11,31 @@ The model API key must never reach the browser. That is the entire reason this
 is a function rather than a client call, and it is the one thing that cannot be
 compromised for convenience.
 
+## Whose key
+
+**His own.** There is no project-wide `ANTHROPIC_API_KEY` secret any more. He
+pastes his key in Setup; the `ai-key` function checks it with the provider
+(a list-models call, no tokens) and stores it in Supabase Vault via
+`save_ai_key`, pointer and last four characters in `public.user_ai_keys`
+(`docs/migrations/0015_ai_keys.sql`). `parse-campaign` and `generate-hooks`
+call `loadUserKey(userId)` with the id from the verified session and use the
+key for that one request. The browser can read the last four characters and
+nothing else, and the table has no client write grant.
+
+Failures answer `{ error, code, retry_after_seconds? }`:
+
+| code | HTTP | meaning |
+|---|---|---|
+| `no_key` | 412 | nothing saved for this user |
+| `invalid_key` | 422 | the provider rejected the key (401/403) |
+| `rate_limited` | 429 | the provider rate limited the key |
+| `model_error` | 502 | anything else (refusal, truncation, provider 5xx) |
+
+`ai-key` takes `{ action: 'status' | 'save' | 'remove', provider?, key? }` and
+never returns a key. Deploy it with `verify_jwt: true`; files
+`source/index.ts`, `source/deno.json` and `_shared/claude.ts`. Adding a
+provider is an entry in its `PROVIDERS` map plus whatever function calls it.
+
 ## Reuse `verifyQuotes` - do not reimplement it
 
 `src/parser/verify.ts` already implements the quote check, and it is tested.
@@ -286,8 +311,7 @@ Set `VITE_GENERATE_HOOKS_DEPLOYED=true` only after a smoke test. Until then the
 console does not offer to write hooks and he writes them himself on the brief
 page - a working path, not a broken button.
 
-Env: `ANTHROPIC_API_KEY` (project secret, shared with parse-campaign) and
-`GENERATE_HOOKS_MODEL` (optional, defaults to `claude-opus-5` at
+Env: `GENERATE_HOOKS_MODEL` (optional, defaults to `claude-opus-5` at
 `effort: medium`). Sameness is the failure hook writing keeps having - Haiku
 returned nine rewordings of the brief's thesis, Sonnet handed back lines from
 his own hook bank - and Opus holds each hook against his material and the rest

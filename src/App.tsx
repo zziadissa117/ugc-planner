@@ -2,7 +2,6 @@ import { useEffect, useState, type ComponentType } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 
 import { BriefsIcon, MoneyIcon, NowIcon, PostIcon, SetupIcon } from './components/icons'
-import { ensureSeeded } from './data/seed'
 import { useData } from './data/useData'
 import { useCutterBridge } from './sync/cutterBridge'
 import { WarmupTimersProvider } from './warmupTimers'
@@ -28,15 +27,14 @@ export function App() {
   // counts as staying put.
   const section = useLocation().pathname.split('/')[1] ?? ''
 
-  // The seed runs before anything renders, so no screen ever paints an empty
-  // state that is about to fill itself in a moment later.
+  // Nothing is seeded any more. The app used to create the Inflow campaign -
+  // its rate, rules and contract terms - for every new user on first launch,
+  // which handed one person's private deal to everyone the planner was shared
+  // with, and shipped it in the public bundle. A new account starts empty; the
+  // owner's own campaign arrives from his account on sign-in.
   useEffect(() => {
     let cancelled = false
-    void ensureSeeded(data)
-      .catch(() => {
-        // A failed seed must not take the app down with it: everything else
-        // still works, and the campaigns list will simply be empty.
-      })
+    void Promise.resolve()
       .then(async () => {
         // Ticks made before the earnings history existed get their rows. Safe
         // on every launch and on every device: it writes nothing that is

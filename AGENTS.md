@@ -47,6 +47,7 @@ npm run vendor           # after editing src/parser/{types,verify}.ts or src/hoo
 - AI: `src/parser/` + `supabase/functions/parse-campaign`; `src/hooks/` + `supabase/functions/generate-hooks`; keys: `src/ai/`, `src/screens/AiKeys.tsx`, `supabase/functions/ai-key`
 - The Supabase project is shared with the cutter/editor app (`cutter_*` tables/functions). Leave those alone.
 - Archive: `archiveCampaign` / `restoreCampaign` / `listArchivedCampaigns` (`campaigns.archived_at`, migration 0018); Archived view `src/screens/ArchivedCampaigns.tsx` at `/campaigns/archived`. Restore reactivates the accounts changed at or after the archive. The old `deleteCampaign` stays as "Delete for good", only from that view.
+- No seeding: the app no longer creates the Inflow campaign on first launch (it handed one person's private deal to every new user and shipped it in the bundle). `src/data/seed/` is imported by tests only; keep it out of app code.
 - Cutter bridge: `docs/CUTTER_BRIDGE.md` (migration 0017, `supabase/functions/cutter-posted`, `src/sync/cutterBridge.ts`).
 - Schema + migrations: `docs/schema.sql`, `docs/migrations/`
 

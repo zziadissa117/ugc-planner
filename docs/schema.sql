@@ -134,6 +134,18 @@ create table campaigns (
   -- is how every campaign starts, and what "sort by best pay" goes back to.
   post_position integer default null check (post_position >= 0),
 
+  -- The cutter app's campaign this one is posted from, so a video the cutter
+  -- posts ticks the Post grid by itself (see supabase/functions/cutter-posted).
+  -- The cutter keeps its own campaign ids, text, so this is text too. Set by
+  -- him, never guessed from a name. Null means this campaign is ticked by hand.
+  cutter_campaign_id text default null,
+
+  -- Set when he archives the campaign instead of deleting it. An archived
+  -- campaign is inactive (not owed, not paid, off every list) but keeps its
+  -- history and can be restored from the Archived view. Null for every other
+  -- campaign, including ones deleted for good (is_active false, this null).
+  archived_at timestamptz default null,
+
   -- Posts the campaign owes per WEEK. The money side reads this: a week pays
   -- rate x posts_per_week, a day is a seventh of that and a month is 30/7 of
   -- it. daily_post_quota stays beside it as what the Post grid owes on a given

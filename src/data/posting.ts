@@ -266,6 +266,8 @@ export async function markPosted(
   slot: number,
   videos: readonly Video[],
   date: string = localToday(),
+  /** Where it went out, when something else (the cutter) already knows. */
+  url: string | null = null,
 ): Promise<void> {
   let videoId = board.videoIdBySlot[slot] ?? null
 
@@ -296,7 +298,7 @@ export async function markPosted(
       video_id: videoId,
       account_id: account.id,
       platform: account.platform,
-      url: null,
+      url,
       view_count: null,
       view_count_entered_at: null,
     })

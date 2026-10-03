@@ -31,6 +31,7 @@ import type {
   PayoutSchedule,
 } from '../data'
 import { PAYOUT_SCHEDULE_VALUES } from '../data'
+import { listCutterCampaigns, type CutterCampaign } from '../sync/cutterBridge'
 import { deliverableCents, paysPerPlatform } from '../data/earnings'
 import { PAYOUT_SCHEDULE_LABELS, payoutStatus } from '../data/payouts'
 import {
@@ -195,7 +196,7 @@ export function Campaign() {
           <DeleteCampaign
             name={campaign.name}
             onDelete={async () => {
-              await data.deleteCampaign(campaign.id)
+              await data.archiveCampaign(campaign.id)
               void navigate('/campaigns')
             }}
           />
@@ -236,6 +237,8 @@ export function Campaign() {
         accounts={accounts}
         onToggle={(on) => saveColumn({ pays_per_platform: on })}
       />
+
+      <CutterLink campaign={campaign} onSave={saveColumn} />
 
       <PayoutSection
         campaign={campaign}
@@ -606,6 +609,44 @@ function SwitchRow({
  *  been received is its own record per due date, so ticking this month's off
  *  leaves next month's pending. Nothing is guessed: with no date saved the
  *  section says so and shows no status. */
+/** Links this campaign to the cutter's, so a video the cutter posts ticks the
+ *  Post grid by itself. Only shown to the user the bridge is enabled for. */
+function CutterLink({ campaign, onSave }: { campaign: CampaignRow; onSave: (patch: Partial<CampaignRow>) => Promise<void> }) {
+  const [options, setOptions] = useState<CutterCampaign[] | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    void listCutterCampaigns()
+      .then((list) => !cancelled && setOptions(list))
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  if (options === null) return null
+  return (
+    <label className="flex flex-col gap-1 border-b border-rule pb-3">
+      <span className="label text-state-later">Posted by the cutter</span>
+      <select
+        className={INPUT_CLASS}
+        value={campaign.cutter_campaign_id ?? ''}
+        onChange={(e) => void onSave({ cutter_campaign_id: e.target.value || null })}
+      >
+        <option value="">Not linked - I tick it myself</option>
+        {options.map((o) => (
+          <option key={o.id} value={o.id}>
+            {o.name}
+          </option>
+        ))}
+      </select>
+      <span className="meta text-state-later">
+        {campaign.cutter_campaign_id
+          ? 'Videos the cutter posts tick this campaign\'s Post boxes by themselves.'
+          : 'Link it and the Post boxes tick themselves when the cutter posts.'}
+      </span>
+    </label>
+  )
+}
+
 function PayoutSection({
   campaign,
   payouts,
@@ -790,8 +831,8 @@ function DeleteCampaign({ name, onDelete }: { name: string; onDelete: () => Prom
       <button
         type="button"
         onClick={() => setConfirming(true)}
-        aria-label="Delete this campaign"
-        title="Delete this campaign"
+        aria-label="Archive this campaign"
+        title="Archive this campaign"
         className="press flex size-10 items-center justify-center rounded-full border border-edge text-state-later active:bg-surface"
       >
         <TrashIcon className="h-4 w-4" />
@@ -802,7 +843,7 @@ function DeleteCampaign({ name, onDelete }: { name: string; onDelete: () => Prom
   return (
     <div className="settle-in flex flex-col gap-2 border-l-2 border-state-blocked pl-3">
       <p className="text-base text-text">
-        Delete {name}? It stops being owed, stops being counted, and leaves every screen.
+        Archive {name}? It stops being owed, stops being counted, and leaves every screen. You can restore it from Archived on the Briefs page.
       </p>
       <div className="flex gap-2">
         <Button onClick={() => setConfirming(false)} className="flex-1">
@@ -817,7 +858,7 @@ function DeleteCampaign({ name, onDelete }: { name: string; onDelete: () => Prom
           }}
           className="flex-1"
         >
-          Delete it
+          Archive it
         </Button>
       </div>
     </div>

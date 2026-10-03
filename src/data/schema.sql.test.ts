@@ -18,6 +18,8 @@ import { beforeAll, afterAll, describe, expect, it } from 'vitest'
 import SCHEMA from '../../docs/schema.sql?raw'
 import MIGRATION_0002 from '../../docs/migrations/0002_phase_events_client_id.sql?raw'
 import MIGRATION_0016 from '../../docs/migrations/0016_weekly_pay_payouts_earnings.sql?raw'
+import MIGRATION_0018 from '../../docs/migrations/0018_campaign_archive.sql?raw'
+import MIGRATION_0017 from '../../docs/migrations/0017_cutter_campaign_link.sql?raw'
 import SCHEMA_BEFORE_0016 from '../../docs/migrations/fixtures/schema.before-0016.sql?raw'
 
 /** The pieces Supabase supplies that plain Postgres does not. */
@@ -454,6 +456,11 @@ describe('docs/migrations/0016_weekly_pay_payouts_earnings.sql', () => {
       await migrated.exec(`insert into auth.users (id) values ('${USER}')`)
       await migrated.exec(SCHEMA_BEFORE_0016)
       await migrated.exec(MIGRATION_0016)
+      // Later migrations, in order, so the comparison is against everything.
+      await migrated.exec(MIGRATION_0017)
+      await migrated.exec(MIGRATION_0017)
+      await migrated.exec(MIGRATION_0018)
+      await migrated.exec(MIGRATION_0018)
       // If the migration and schema.sql ever describe different tables, a
       // fresh project and an upgraded one would not be the same project.
       expect((await columns(migrated)).rows).toEqual((await columns(db)).rows)

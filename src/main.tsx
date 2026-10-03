@@ -8,6 +8,7 @@ import { DataProvider } from './data/DataProvider'
 import './index.css'
 import { installSprings } from './motion'
 import { Campaign } from './screens/Campaign'
+import { ArchivedCampaigns } from './screens/ArchivedCampaigns'
 import { Campaigns } from './screens/Campaigns'
 import { EarningsHistory } from './screens/EarningsHistory'
 import { Money } from './screens/Money'
@@ -58,6 +59,7 @@ const router = createBrowserRouter([
       { path: 'post', element: <Posting /> },
       { path: 'campaigns', element: <Campaigns /> },
       { path: 'campaigns/new', element: <NewCampaign /> },
+      { path: 'campaigns/archived', element: <ArchivedCampaigns /> },
       { path: 'campaigns/:campaignId', element: <Campaign /> },
       { path: 'campaigns/:campaignId/update', element: <UpdateCampaign /> },
       { path: 'money', element: <Money /> },

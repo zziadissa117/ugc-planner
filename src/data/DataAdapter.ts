@@ -147,6 +147,16 @@ export interface DataAdapter {
    *  appearing anywhere he can reach. */
   deleteCampaign(id: string): Promise<void>
 
+  /** Takes a campaign off every screen but keeps it: inactive like a delete,
+   *  with `archived_at` set so it can be found and restored. Its accounts go
+   *  off the lists with it. */
+  archiveCampaign(id: string): Promise<void>
+  /** Brings an archived campaign back, with the accounts the archive switched
+   *  off. A no-op for a campaign that is not archived. */
+  restoreCampaign(id: string): Promise<void>
+  /** The archived campaigns, for the Archived view. */
+  listArchivedCampaigns(): Promise<Campaign[]>
+
   /** Writes the campaign's current rate onto its posted videos that have no
    *  rate snapshot yet, and returns how many it changed.
    *

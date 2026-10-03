@@ -25,11 +25,12 @@ import {
 export function Campaigns() {
   const data = useData()
   const [loaded, reload] = useLoaded(async () => {
-    const [campaigns, accounts] = await Promise.all([
+    const [campaigns, accounts, archived] = await Promise.all([
       data.listCampaigns(),
       data.listCampaignAccounts(),
+      data.listArchivedCampaigns(),
     ])
-    return { campaigns, accounts }
+    return { campaigns, accounts, archived: archived.length }
   }, [data])
   const campaigns = loaded?.campaigns ?? null
   const accounts = loaded?.accounts ?? []
@@ -126,6 +127,12 @@ export function Campaigns() {
         <PlusIcon className="h-5 w-5" />
         New campaign
       </Link>
+
+      {(loaded?.archived ?? 0) > 0 ? (
+        <Link to="/campaigns/archived" className="meta text-state-later underline">
+          Archived ({loaded?.archived})
+        </Link>
+      ) : null}
     </section>
   )
 }

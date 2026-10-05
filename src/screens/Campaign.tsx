@@ -295,6 +295,7 @@ export function Campaign() {
 
           <GenerationBrief
             value={byKey.get(GENERATION_BRIEF_KEY)?.field_value ?? ''}
+            unreviewed={byKey.get(GENERATION_BRIEF_KEY)?.source === 'parsed_unreviewed'}
             onSave={(value) => saveField(GENERATION_BRIEF_KEY, value)}
           />
 
@@ -358,9 +359,13 @@ export function Campaign() {
  *  is exactly what he asked for. */
 function GenerationBrief({
   value,
+  unreviewed,
   onSave,
 }: {
   value: string
+  /** Written by Claude when the documents were read, and not yet saved by
+   *  him. Saving it - as is or edited - is what makes it his. */
+  unreviewed: boolean
   onSave: (value: string | null) => Promise<void>
 }) {
   const [draft, setDraft] = useState(value)
@@ -372,16 +377,24 @@ function GenerationBrief({
   // afterwards.
   const [open, setOpen] = useState(value.trim() === '')
 
-  const dirty = draft.trim() !== value.trim()
+  const dirty = draft.trim() !== value.trim() || unreviewed
 
   return (
     <Disclosure
-      summary={`Brief for the hook writer${value.trim() === '' ? '' : ' - saved'}`}
+      summary={`Brief for the hook writer${
+        value.trim() === '' ? '' : unreviewed ? ' - written by Claude, not checked' : ' - saved'
+      }`}
      
       className="border-t"
       open={open}
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
+      {unreviewed ? (
+        <p className="meta mb-3 text-state-waiting">
+          Claude wrote this from your brief and nothing in it has been checked. Read it, fix what is
+          wrong, then save - saving makes it yours.
+        </p>
+      ) : null}
       <p className="meta mb-3 text-state-later">
         Paste the whole thing - product, audience, voice, structure, formats, hook banks, angles. It
         goes to the hook writer as-is and outranks the short fields above. It is never shown as a
@@ -407,7 +420,7 @@ function GenerationBrief({
         disabled={busy || !dirty}
         className="mt-2 w-full"
       >
-        {busy ? 'Saving...' : saved && !dirty ? 'Saved' : 'Save the brief'}
+        {busy ? 'Saving...' : saved && !dirty ? 'Saved' : unreviewed ? 'Looks right - save it' : 'Save the brief'}
       </Button>
     </Disclosure>
   )

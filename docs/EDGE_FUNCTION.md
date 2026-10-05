@@ -81,6 +81,7 @@ Exactly `ParseResult` from `src/parser/types.ts`, plus `model`:
   fields: Record<string, { value, source_quote, from?: 'brief' | 'contract', note?: string | null }>,
   bonus_tiers: { label, threshold_views, payout_cents, view_window_days, source_quote, from? }[],
   rules: { body, source_quote, from? }[],
+  hook_brief: string | null,   // working brief for the hook writer; see below
   brief_is_incomplete: boolean,
   warnings: string[],
   model: string          // the model the API says answered
@@ -92,6 +93,22 @@ Exactly `ParseResult` from `src/parser/types.ts`, plus `model`:
 **Money is integer cents.** `payout_cents` is `5000` for $50.00. Never a float,
 never a string with a currency symbol. A money or count field that comes back
 as anything but digits is dropped with a warning, not converted.
+
+`hook_brief` is a markdown document the model writes from the brief in the
+layout `docs/BRIEF_PROMPT.md` describes (PRODUCT, AUDIENCE, VOICE, STRUCTURE,
+TALKING POINTS, FORMATS, ANGLES, HOOK BANK, NEVER DO, GAPS), or null when no
+brief was uploaded. It is **not** quote-checked - it is composed, so there is no
+single span to find - and the prompt's only protection against an invented fact
+is "work only from the documents; write 'not stated in the brief' where silent".
+The client therefore treats it as generated: the review screen labels it as
+written by Claude and lets him edit or clear it, it is saved as
+`generation_brief` with source `parsed_unreviewed` and no quote, and the
+campaign page keeps saying so until he saves it himself.
+
+Besides the keys listed earlier, `fields` may now carry `posts_per_week`
+(prefills the review screen's weekly box, never applied unseen),
+`payout_timing`, `min_views_to_be_paid` and `other_requirements` (kept as
+unreviewed fields; nothing in the app acts on them).
 
 `note` is the model's one-line reason to look twice at a value - two different
 rates, garbled text around it, a condition. It is shown on the review screen

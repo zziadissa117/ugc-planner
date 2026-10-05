@@ -6,6 +6,7 @@
 
 import type { Campaign, DataAdapter } from '../data'
 import { COLUMN_FIELDS } from '../data/campaignFields'
+import { GENERATION_BRIEF_KEY } from '../hooks/generateHooks'
 import type { ParseResult } from './types'
 
 export interface ApplyInput {
@@ -20,6 +21,9 @@ export interface ApplyInput {
   excludedRules?: ReadonlySet<number>
   /** Indexes into `result.bonus_tiers` he unticked on the review screen. */
   excludedTiers?: ReadonlySet<number>
+  /** The working brief for the hook writer as it stood on the review screen,
+   *  after any edits. Blank means none is saved. */
+  hookBrief?: string | null
 }
 
 export async function applyParseResult(
@@ -91,6 +95,21 @@ async function applyWithin(adapter: DataAdapter, input: ApplyInput): Promise<Cam
     if (found && confirmed.has(key)) {
       await adapter.confirmCampaignField(campaign.id, key)
     }
+  }
+
+  // The working brief for the hook writer. Written by the model, not quoted
+  // from a document, so it is saved as parsed_unreviewed with no quote: the
+  // campaign page says so until he saves it himself, which makes it his.
+  const hookBrief = input.hookBrief?.trim() ?? ''
+  if (hookBrief !== '') {
+    await adapter.setCampaignField({
+      campaign_id: campaign.id,
+      field_key: GENERATION_BRIEF_KEY,
+      field_value: hookBrief,
+      source: 'parsed_unreviewed',
+      source_quote: null,
+      source_document_id: null,
+    })
   }
 
   // Confirmed numbers become the campaign's operating figures.

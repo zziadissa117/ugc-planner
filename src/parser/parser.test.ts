@@ -286,6 +286,38 @@ describe('saving a reviewed parse', () => {
     expect(campaign.brief_is_incomplete).toBe(true)
   })
 
+  it('saves the hook-writer brief as unreviewed, with no quote behind it', async () => {
+    const campaign = await applyParseResult(adapter, {
+      result: baseResult(),
+      confirmed: new Set(),
+      briefText: 'A brief.',
+      briefFilename: 'brief.md',
+      contractText: null,
+      contractFilename: null,
+      hookBrief: '  ## PRODUCT\nA payments app.  ',
+    })
+    const fields = await adapter.listCampaignFields(campaign.id)
+    const brief = fields.find((f) => f.field_key === 'generation_brief')
+    expect(brief?.field_value).toBe('## PRODUCT\nA payments app.')
+    expect(brief?.source).toBe('parsed_unreviewed')
+    expect(brief?.source_quote).toBeNull()
+    expect(brief?.confirmed_at).toBeNull()
+  })
+
+  it('saves no hook-writer brief when the box was cleared', async () => {
+    const campaign = await applyParseResult(adapter, {
+      result: baseResult(),
+      confirmed: new Set(),
+      briefText: 'A brief.',
+      briefFilename: 'brief.md',
+      contractText: null,
+      contractFilename: null,
+      hookBrief: '   ',
+    })
+    const fields = await adapter.listCampaignFields(campaign.id)
+    expect(fields.some((f) => f.field_key === 'generation_brief')).toBe(false)
+  })
+
   it('saves the bonus tiers and rules', async () => {
     const campaign = await apply([])
     expect(await adapter.listBonusTiers(campaign.id)).toHaveLength(1)

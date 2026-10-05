@@ -73,6 +73,12 @@ export interface ParseResult {
   bonus_tiers: ParsedBonusTier[]
   /** Never-do rules read from the documents. */
   rules: ParsedRule[]
+  /** A working brief for the hook writer, written by the model from the
+   *  uploaded documents in the layout docs/BRIEF_PROMPT.md asks for. Not a
+   *  quoted fact, so verifyQuotes cannot check it: it is shown on the review
+   *  screen as written by Claude, saved as unreviewed, and his to edit.
+   *  Absent or null when there was no brief to work from. */
+  hook_brief?: string | null
   /** Set when the brief looks like it lost sections in conversion. */
   brief_is_incomplete: boolean
   /** Plain-language notes for the review screen. */

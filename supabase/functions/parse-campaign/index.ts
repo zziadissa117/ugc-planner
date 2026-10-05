@@ -41,6 +41,13 @@ const FIELD_KEYS = {
   post_public_days: 'count',
   revision_rounds: 'count',
   payment_trigger: 'text',
+  // What the contract says he owes and when he is paid. posts_per_week fills
+  // the review screen's weekly box; the rest are kept as fields and read from
+  // the campaign page - none of them is acted on by the app.
+  posts_per_week: 'count',
+  payout_timing: 'text',
+  min_views_to_be_paid: 'count',
+  other_requirements: 'text',
   // From either.
   platforms: 'text',
   // From the brief.
@@ -62,7 +69,7 @@ const DOCUMENT = { type: 'string', enum: ['brief', 'contract'] }
 const SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['campaign', 'fields', 'bonus_tiers', 'rules', 'brief_is_incomplete', 'warnings'],
+  required: ['campaign', 'fields', 'bonus_tiers', 'rules', 'hook_brief', 'brief_is_incomplete', 'warnings'],
   properties: {
     campaign: {
       type: 'object',
@@ -121,6 +128,7 @@ const SCHEMA = {
         },
       },
     },
+    hook_brief: nullable({ type: 'string' }),
     brief_is_incomplete: { type: 'boolean' },
     warnings: { type: 'array', items: { type: 'string' } },
   },
@@ -147,6 +155,10 @@ Contract (SideShift contracts are templated - these anchors recur):
 - revision_rounds: how many rounds of revisions a video gets. Digits only.
 - payment_trigger: when and how he is paid, in a sentence.
 - platforms: "Required platforms:" - the platform names, comma-separated.
+- posts_per_week: how many deliverables he owes per week, as a whole number, only if the documents state it as a weekly count (or as a per-week figure you can read off directly, such as "5 posts a week"). Do not work it out from a daily, monthly or cycle figure.
+- payout_timing: when payment is made after posting or after a cycle completes, in a sentence.
+- min_views_to_be_paid: a minimum view count a video must reach to be paid at all. Digits only. Not a bonus tier.
+- other_requirements: anything the documents require of him that no other key and no never-do rule holds (reporting, links, response times), in a few plain sentences.
 
 Brief:
 - platforms, if the contract did not state them.
@@ -178,6 +190,21 @@ Under "Bonuses (per Deliverable):", lines of "N views: $NN.NN". source_quote is 
 
 Handles, account emails or passwords, editing style, setup type, per-stage minutes, and the daily post quota. No document states these; anything that looks like one is a coincidence.
 
+## hook_brief
+
+When a brief is provided, write a working brief for the hook writer in markdown; when none is provided, return null. Output the document only, in exactly these sections in this order: ## PRODUCT, ## AUDIENCE, ## VOICE, ## STRUCTURE, ## TALKING POINTS, ## FORMATS, ## ANGLES, ## HOOK BANK, ## NEVER DO, ## GAPS.
+
+- PRODUCT: what it is and what he may claim, with any attribution the brief demands shown as phrasing ("X says ..."), then a short "never claim" list.
+- AUDIENCE, VOICE, STRUCTURE: as the brief states them. VOICE includes phrasings and deliveries it forbids. STRUCTURE is what the video does after the hook.
+- TALKING POINTS: a plain list of six to eight lines, "- " each, one idea per line, twelve words or fewer, written as he would say it aloud, in the order they should come out. Slots, in order: the problem, why it happens, the turn (what the product does differently), the one concrete detail the brief permits exactly as written, the proof, the objection, why now, the stake. Skip any slot the brief does not support - fewer honest lines beat padded ones. No sub-bullets, bold, numbering, opening line or call to action. Keep a required attribution inside the line.
+- FORMATS: each repeatable video shape the brief states or implies, with what it looks like and how long it runs.
+- ANGLES: eight to twelve distinct storylines, one per line as "ID - FAMILY: one-sentence concept", where the ID is short (A-FROZEN), the FAMILY groups them into two or three emotional registers, and each is a genuinely different reason to stop scrolling that traces back to something the brief supports.
+- HOOK BANK: hooks, openers or viral references already in the brief, grouped by format; otherwise exactly "none in the brief".
+- NEVER DO: the absolute restrictions, one short imperative per line, including compliance and disclosure.
+- GAPS: what he should go and ask the brand.
+
+Work only from the documents. Never add a statistic, price, percentage, guarantee or feature that is not in them. Where the brief is silent, write "not stated in the brief" for that section instead of filling it. Do not include the pay rate, post quota, handles or logins. hook_brief is not quote-checked, so this restraint is the only protection against an invention reaching a brand.
+
 ## Damaged briefs
 
 If the brief looks like a lossy conversion - missing section headings, scrambled tables, a cross-reference to a section that is not there - set brief_is_incomplete and say why in warnings. A missing section is a rule you cannot see, not a rule that does not exist.
@@ -197,6 +224,7 @@ interface ModelOutput {
   fields: ModelField[]
   bonus_tiers: ParsedBonusTier[]
   rules: ParsedRule[]
+  hook_brief: string | null
   brief_is_incomplete: boolean
   warnings: string[]
 }
@@ -234,6 +262,7 @@ function toResult(output: ModelOutput): ParseResult {
     fields,
     bonus_tiers: output.bonus_tiers ?? [],
     rules: (output.rules ?? []).filter((rule) => rule.body.trim() !== ''),
+    hook_brief: output.hook_brief === null || output.hook_brief?.trim() === '' ? null : (output.hook_brief ?? null),
     brief_is_incomplete: output.brief_is_incomplete === true,
     warnings,
   }
@@ -282,7 +311,7 @@ Deno.serve(async (req: Request) => {
       user,
       schema: SCHEMA,
       effort: 'medium',
-      maxTokens: 16000,
+      maxTokens: 24000,
     })
   } catch (err) {
     return errorResponse(err, 'Parse failed: ')

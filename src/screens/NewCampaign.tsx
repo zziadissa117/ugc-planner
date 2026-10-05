@@ -5,6 +5,7 @@ import { KNOWN_PLATFORMS } from '../components/platforms'
 import { DocumentInput, type Upload } from '../components/DocumentInput'
 import { fieldLabel } from '../components/fieldLabel'
 import { ReadingProgress } from '../components/ReadingProgress'
+import { INPUT_CLASS } from '../components/styles'
 import {
   MONEY_FIELDS,
   centsToDollarsInput,
@@ -80,6 +81,9 @@ export function NewCampaign() {
    *  no document mentions had no way to get one at creation, so it landed on
    *  the brief page reading "no rate yet" and stayed there. */
   const [rate, setRate] = useState('')
+  /** The working brief for the hook writer, as the model wrote it from the
+   *  documents. Editable on the review screen; blank saves nothing. */
+  const [hookBrief, setHookBrief] = useState('')
 
   const briefText = brief.text.trim() === '' ? null : brief.text
   const contractText = contract.text.trim() === '' ? null : contract.text
@@ -149,6 +153,13 @@ export function NewCampaign() {
           ? centsToDollarsInput(parsedCents)
           : '',
       )
+      // The weekly count, when the documents state one. Only a starting point
+      // in an editable box: the seven a week it otherwise starts at is a
+      // placeholder, and a stated number is better than that. Never applied
+      // behind his back - it is what the box says when he looks at it.
+      const parsedWeekly = verified.result.fields.posts_per_week?.value ?? null
+      if (parsedWeekly !== null && /^\d+$/.test(parsedWeekly)) setQuota(parsedWeekly)
+      setHookBrief(verified.result.hook_brief?.trim() ?? '')
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught))
     } finally {
@@ -169,6 +180,7 @@ export function NewCampaign() {
         contractFilename: contract.filename,
         excludedRules,
         excludedTiers,
+        hookBrief,
       })
 
       const owed = Number(quota)
@@ -215,6 +227,7 @@ export function NewCampaign() {
     data,
     excludedRules,
     excludedTiers,
+    hookBrief,
     navigate,
     platforms,
     quota,
@@ -350,6 +363,8 @@ export function NewCampaign() {
         onQuotaChange={setQuota}
         rate={rate}
         onRateChange={setRate}
+        hookBrief={hookBrief}
+        onHookBriefChange={setHookBrief}
       />
     )
   }
@@ -428,6 +443,8 @@ const COUNT_FIELDS: readonly string[] = [
   'post_public_days',
   'revision_rounds',
   'minimum_length_seconds',
+  'posts_per_week',
+  'min_views_to_be_paid',
 ]
 
 function kindOf(key: string): 'money' | 'count' | 'text' {
@@ -455,6 +472,8 @@ function Review({
   onQuotaChange,
   rate,
   onRateChange,
+  hookBrief,
+  onHookBriefChange,
 }: {
   result: ParseResult
   rejected: readonly string[]
@@ -474,6 +493,8 @@ function Review({
   onQuotaChange: (next: string) => void
   rate: string
   onRateChange: (next: string) => void
+  hookBrief: string
+  onHookBriefChange: (next: string) => void
 }) {
   const entries = Object.entries(result.fields).sort(([a], [b]) => a.localeCompare(b))
   const blank = entries.filter(([, field]) => field.value === null)
@@ -569,6 +590,23 @@ function Review({
               )
             })}
           </ul>
+        </div>
+      ) : null}
+
+      {result.hook_brief !== undefined && result.hook_brief !== null ? (
+        <div>
+          <h2 className="label text-state-waiting">Brief for the hook writer - written by Claude</h2>
+          <p className="meta mt-1 text-state-later">
+            Claude wrote this from your documents, so it is not a quote and nothing here is
+            checked. Read it, fix anything wrong, and clear the box to save none. It goes to the
+            hook writer as-is. It ends with what the documents do not say.
+          </p>
+          <textarea
+            value={hookBrief}
+            onChange={(event) => onHookBriefChange(event.target.value)}
+            aria-label="Brief for the hook writer"
+            className={`${INPUT_CLASS} mt-2 h-64 w-full resize-y py-3 font-mono text-xs`}
+          />
         </div>
       ) : null}
 

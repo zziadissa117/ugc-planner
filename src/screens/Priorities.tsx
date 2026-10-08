@@ -7,6 +7,12 @@
 // The answers put it in a group; the important ones go up onto Today, which
 // holds three, worked from the top. The top one is "do this now" - the one
 // bright white thing on the list.
+//
+// Big and bare by design: he asked for less on screen and the work bigger.
+// What he does every day - tick, sort, put on Today - is always there and
+// large. What he does rarely - remove, sort again, reorder, take off Today -
+// sits behind one Edit button rather than on every row. (Not behind hover:
+// index.css keeps every affordance visible at rest.)
 
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -45,6 +51,7 @@ function storage(): Storage | null {
 export function Priorities({ campaigns }: { campaigns: Campaign[] }) {
   const [list, setList] = useState<Priority[]>(() => loadPriorities(storage()))
   const [draft, setDraft] = useState('')
+  const [editing, setEditing] = useState(false)
 
   useEffect(() => {
     try {
@@ -72,17 +79,18 @@ export function Priorities({ campaigns }: { campaigns: Campaign[] }) {
   }
 
   const groups = arrange(list)
-  const full = todayIsFull(list)
-  const row = { matchFor, onChange: setList, full }
+  const row = { matchFor, onChange: setList, full: todayIsFull(list), editing }
 
   return (
-    <div className="flex flex-col gap-4">
-      {/* Grey, not amber: a count of what is left is not a state. */}
-      <SectionLabel
-        trailing={groups.today.length === 0 ? undefined : `${groups.today.length} on today`}
-      >
-        Priorities
-      </SectionLabel>
+    <div className="flex flex-col gap-6">
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <SectionLabel>Priorities</SectionLabel>
+        </div>
+        <Button variant="ghost" size="small" aria-pressed={editing} onClick={() => setEditing((on) => !on)}>
+          {editing ? 'Done editing' : 'Edit'}
+        </Button>
+      </div>
 
       <div className="flex gap-2">
         <input
@@ -93,37 +101,31 @@ export function Priorities({ campaigns }: { campaigns: Campaign[] }) {
           }}
           placeholder="e.g. Charge the phone rig"
           aria-label="Add a priority"
-          className={`${INPUT_CLASS} min-w-0 flex-1`}
+          className={`${INPUT_CLASS} min-h-14 min-w-0 flex-1 text-lg`}
         />
-        <Button onClick={submit} disabled={!draft.trim()}>
+        <Button onClick={submit} disabled={!draft.trim()} className="min-h-14 px-6 text-lg">
           Add
         </Button>
       </div>
 
       {groups.unsorted.length > 0 ? (
-        <Section title="Sort these" hint="Two questions each. Importance first, so the loud ones don't win by default.">
+        <Section title="Sort these">
           {groups.unsorted.map((p) => (
             <SortRow key={p.id} item={p} {...row} />
           ))}
         </Section>
       ) : null}
 
-      <Section
-        title="Today"
-        trailing={`${groups.today.length} of ${TODAY_LIMIT}`}
-        hint={
-          groups.today.length === 0
-            ? 'Nothing on Today. Put up to three on it, the important ones first, and work from the top.'
-            : 'Finish the top one before the next. Anything left stays here for tomorrow.'
-        }
-      >
-        {groups.today.map((p) => (
-          <TodayRow key={p.id} item={p} {...row} />
-        ))}
+      <Section title="Today" trailing={`${groups.today.length} of ${TODAY_LIMIT}`}>
+        {groups.today.length === 0 ? (
+          <li className="py-3 text-lg text-state-later">Nothing on Today yet.</li>
+        ) : (
+          groups.today.map((p) => <TodayRow key={p.id} item={p} {...row} />)
+        )}
       </Section>
 
       {groups.doFirst.length > 0 ? (
-        <Section title="Important and soon" hint="Do these first: put them on Today.">
+        <Section title="Important and soon">
           {groups.doFirst.map((p) => (
             <GroupRow key={p.id} item={p} {...row} />
           ))}
@@ -131,7 +133,7 @@ export function Priorities({ campaigns }: { campaigns: Campaign[] }) {
       ) : null}
 
       {groups.plan.length > 0 ? (
-        <Section title="Important, not urgent" hint="These are the ones that slip. Give each a when, so it happens.">
+        <Section title="Important, not urgent">
           {groups.plan.map((p) => (
             <GroupRow key={p.id} item={p} withWhen {...row} />
           ))}
@@ -139,38 +141,40 @@ export function Priorities({ campaigns }: { campaigns: Campaign[] }) {
       ) : null}
 
       {groups.batch.length > 0 ? (
-        <Section title="Urgent, not important" hint="Do the quick ones together in one sitting, not between the work that matters.">
+        <Section title="Urgent, not important">
           {groups.batch.map((p) => (
             <GroupRow key={p.id} item={p} {...row} />
           ))}
         </Section>
       ) : null}
 
-      {groups.drop.length > 0 ? (
-        <Disclosure summary={`Neither - drop these? (${groups.drop.length})`} className="border-t">
-          <ul className="flex flex-col divide-y divide-rule">
-            {groups.drop.map((p) => (
-              <GroupRow key={p.id} item={p} {...row} />
-            ))}
-          </ul>
-        </Disclosure>
-      ) : null}
-
-      {groups.done.length > 0 ? (
-        <Disclosure summary={`Done (${groups.done.length})`} className="border-t">
-          <ul className="flex flex-col divide-y divide-rule">
-            {groups.done.map((p) => (
-              <li key={p.id} className="flex min-h-tap items-center gap-3 py-1.5">
-                <Tick item={p} onChange={setList} />
-                <span className="min-w-0 flex-1 text-base text-state-later line-through">{p.text}</span>
-                <RemoveButton item={p} onChange={setList} />
-              </li>
-            ))}
-          </ul>
-          <Button variant="ghost" size="small" className="mt-2" onClick={() => setList((current) => clearDone(current))}>
-            Clear done
-          </Button>
-        </Disclosure>
+      {groups.drop.length > 0 || groups.done.length > 0 ? (
+        <div className="flex flex-col">
+          {groups.drop.length > 0 ? (
+            <Disclosure summary="Not worth doing now" trailing={String(groups.drop.length)} className="border-t">
+              <ul className="flex flex-col divide-y divide-rule">
+                {groups.drop.map((p) => (
+                  <GroupRow key={p.id} item={p} {...row} editing />
+                ))}
+              </ul>
+            </Disclosure>
+          ) : null}
+          {groups.done.length > 0 ? (
+            <Disclosure summary="Done" trailing={String(groups.done.length)} className={groups.drop.length > 0 ? '' : 'border-t'}>
+              <ul className="flex flex-col divide-y divide-rule">
+                {groups.done.map((p) => (
+                  <li key={p.id} className="flex min-h-tap items-center gap-3 py-1.5">
+                    <Tick item={p} onChange={setList} />
+                    <span className="min-w-0 flex-1 text-base text-state-later line-through">{p.text}</span>
+                  </li>
+                ))}
+              </ul>
+              <Button variant="ghost" size="small" className="mt-2" onClick={() => setList((current) => clearDone(current))}>
+                Clear done
+              </Button>
+            </Disclosure>
+          ) : null}
+        </div>
       ) : null}
     </div>
   )
@@ -181,48 +185,38 @@ type RowProps = {
   matchFor: (text: string) => Campaign | null
   onChange: (change: (current: Priority[]) => Priority[]) => void
   full: boolean
+  editing: boolean
 }
 
-function Section({
-  title,
-  trailing,
-  hint,
-  children,
-}: {
-  title: string
-  trailing?: string
-  hint?: string
-  children: React.ReactNode
-}) {
+function Section({ title, trailing, children }: { title: string; trailing?: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1">
       <SectionLabel as="h3" trailing={trailing}>
         {title}
       </SectionLabel>
-      {hint ? <p className="meta text-state-later">{hint}</p> : null}
       <ul className="flex flex-col divide-y divide-rule">{children}</ul>
     </div>
   )
 }
 
-function SortRow({ item, matchFor, onChange }: RowProps) {
+function SortRow({ item, matchFor, onChange, editing }: RowProps) {
   const asking = item.important === null ? 'important' : 'urgent'
   const question =
     asking === 'important' ? 'Does it move a campaign or money forward?' : 'Does it have to happen in the next day or two?'
   return (
-    <li className="flex flex-col gap-2 py-2.5">
+    <li className="flex flex-col gap-3 py-4">
       <div className="flex items-center gap-3">
         <StateDot tone="later" />
-        <span className="min-w-0 flex-1 text-base text-text">{item.text}</span>
+        <span className="min-w-0 flex-1 text-xl text-text">{item.text}</span>
         <CampaignLink campaign={matchFor(item.text)} />
-        <RemoveButton item={item} onChange={onChange} />
+        {editing ? <RemoveButton item={item} onChange={onChange} /> : null}
       </div>
-      <div className="flex flex-wrap items-center gap-2 pl-5">
-        <span className="meta text-state-later">{question}</span>
-        <Button size="small" aria-label={`${item.text}: yes`} onClick={() => onChange((c) => answer(c, item.id, asking, true))}>
+      <div className="flex flex-wrap items-center gap-3 pl-5">
+        <span className="text-base text-text-dim">{question}</span>
+        <Button aria-label={`${item.text}: yes`} onClick={() => onChange((c) => answer(c, item.id, asking, true))}>
           Yes
         </Button>
-        <Button size="small" aria-label={`${item.text}: no`} onClick={() => onChange((c) => answer(c, item.id, asking, false))}>
+        <Button aria-label={`${item.text}: no`} onClick={() => onChange((c) => answer(c, item.id, asking, false))}>
           No
         </Button>
       </div>
@@ -230,51 +224,57 @@ function SortRow({ item, matchFor, onChange }: RowProps) {
   )
 }
 
-function TodayRow({ item, matchFor, onChange }: RowProps) {
+function TodayRow({ item, matchFor, onChange, editing }: RowProps) {
   const top = item.rank === 1
   return (
-    <li className="flex min-h-tap items-center gap-3 py-1.5">
-      <Tick item={item} onChange={onChange} />
+    <li className={`flex items-center gap-4 ${top ? 'py-4' : 'py-3'}`}>
+      <Tick item={item} onChange={onChange} big={top} />
       <span className="min-w-0 flex-1">
-        <span className={`block text-base ${top ? 'font-semibold text-state-now' : 'text-text'}`}>{item.text}</span>
-        <span className="meta block text-state-later">
-          {top ? 'Do this now' : `Then, number ${item.rank}`}
-          {item.when ? ` - ${item.when}` : ''}
-        </span>
+        <span className={`block ${top ? 'text-2xl font-semibold text-state-now' : 'text-xl text-text'}`}>{item.text}</span>
+        {top || item.when ? (
+          <span className="block text-base text-state-later">
+            {top ? 'Do this now' : ''}
+            {top && item.when ? ' - ' : ''}
+            {item.when ?? ''}
+          </span>
+        ) : null}
       </span>
       <CampaignLink campaign={matchFor(item.text)} />
-      {!top ? (
-        <button
-          type="button"
-          aria-label={`Move ${item.text} up`}
-          onClick={() => onChange((c) => moveUp(c, item.id))}
-          className="press flex size-10 shrink-0 items-center justify-center rounded-full text-state-later active:bg-surface"
-        >
-          <ChevronDownIcon className="h-4 w-4 rotate-180" />
-        </button>
+      {editing && !top ? (
+        <IconButton label={`Move ${item.text} up`} onClick={() => onChange((c) => moveUp(c, item.id))}>
+          <ChevronDownIcon className="h-5 w-5 rotate-180" />
+        </IconButton>
       ) : null}
-      <button
-        type="button"
-        aria-label={`Take ${item.text} off Today`}
-        onClick={() => onChange((c) => takeOffToday(c, item.id))}
-        className="press -mr-2 flex size-10 shrink-0 items-center justify-center rounded-full text-state-later active:bg-surface"
-      >
-        <CloseIcon className="h-4 w-4" />
-      </button>
+      {editing ? (
+        <IconButton label={`Take ${item.text} off Today`} onClick={() => onChange((c) => takeOffToday(c, item.id))}>
+          <CloseIcon className="h-5 w-5" />
+        </IconButton>
+      ) : null}
     </li>
   )
 }
 
-function GroupRow({ item, matchFor, onChange, full, withWhen = false }: RowProps & { withWhen?: boolean }) {
+function GroupRow({ item, matchFor, onChange, full, editing, withWhen = false }: RowProps & { withWhen?: boolean }) {
   const [when, setWhenDraft] = useState(item.when ?? '')
+  const [writingWhen, setWritingWhen] = useState(false)
+  const showWhenBox = withWhen && (writingWhen || (editing && item.when !== undefined))
   return (
-    <li className="flex flex-col gap-1.5 py-1.5">
-      <div className="flex min-h-tap items-center gap-3">
+    <li className="flex flex-col gap-2 py-3">
+      <div className="flex items-center gap-4">
         <Tick item={item} onChange={onChange} />
-        <span className="min-w-0 flex-1 text-base text-text">{item.text}</span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-xl text-text">{item.text}</span>
+          {withWhen && item.when && !showWhenBox ? (
+            <span className="block text-base text-state-later">{item.when}</span>
+          ) : null}
+        </span>
         <CampaignLink campaign={matchFor(item.text)} />
+        {withWhen && !item.when && !writingWhen ? (
+          <Button variant="ghost" size="small" aria-label={`Add a when for ${item.text}`} onClick={() => setWritingWhen(true)}>
+            + When
+          </Button>
+        ) : null}
         <Button
-          size="small"
           disabled={full}
           aria-label={`Put ${item.text} on Today`}
           title={full ? `Today already has ${TODAY_LIMIT}. Finish one or take one off.` : undefined}
@@ -282,61 +282,75 @@ function GroupRow({ item, matchFor, onChange, full, withWhen = false }: RowProps
         >
           Today
         </Button>
-        <RemoveButton item={item} onChange={onChange} />
+        {editing ? <RemoveButton item={item} onChange={onChange} /> : null}
       </div>
-      {withWhen ? (
+      {showWhenBox ? (
         <input
+          autoFocus={writingWhen}
           value={when}
           onChange={(event) => setWhenDraft(event.target.value)}
-          onBlur={() => onChange((c) => setWhen(c, item.id, when))}
+          onBlur={() => {
+            onChange((c) => setWhen(c, item.id, when))
+            setWritingWhen(false)
+          }}
           onKeyDown={(event) => {
             if (event.key === 'Enter') event.currentTarget.blur()
           }}
           placeholder="When and where? e.g. Sunday 10am at the desk"
           aria-label={`When for ${item.text}`}
-          className={`${INPUT_CLASS} ml-9 min-h-10 text-sm`}
+          className={`${INPUT_CLASS} ml-11 text-base`}
         />
       ) : null}
-      <button
-        type="button"
-        onClick={() => onChange((c) => resort(c, item.id))}
-        className="meta self-start pl-9 text-state-later underline-offset-2 hover:underline"
-      >
-        Sort again
-      </button>
+      {editing ? (
+        <button
+          type="button"
+          onClick={() => onChange((c) => resort(c, item.id))}
+          className="self-start pl-11 text-base text-state-later underline-offset-2 hover:underline"
+        >
+          Sort again
+        </button>
+      ) : null}
     </li>
   )
 }
 
-function Tick({ item, onChange }: { item: Priority; onChange: RowProps['onChange'] }) {
+function Tick({ item, onChange, big = false }: { item: Priority; onChange: RowProps['onChange']; big?: boolean }) {
   return (
     <button
       type="button"
       aria-label={`Mark ${item.text} ${item.done ? 'not done' : 'done'}`}
       onClick={() => onChange((c) => setDone(c, item.id, !item.done))}
-      className="press -m-2 flex size-11 shrink-0 items-center justify-center"
+      className="press -m-2 flex size-12 shrink-0 items-center justify-center"
     >
       <span
-        className={`flex size-6 items-center justify-center rounded-full border ${
-          item.done ? 'border-state-posted text-state-posted' : 'border-edge-lit'
+        className={`flex items-center justify-center rounded-full border ${big ? 'size-8 border-state-now/80' : 'size-7'} ${
+          item.done ? 'border-state-posted text-state-posted' : big ? '' : 'border-edge-lit'
         }`}
       >
-        {item.done ? <CheckIcon className="draw-check h-4 w-4" strokeWidth={2.25} /> : null}
+        {item.done ? <CheckIcon className="draw-check h-5 w-5" strokeWidth={2.25} /> : null}
       </span>
+    </button>
+  )
+}
+
+function IconButton({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      onClick={onClick}
+      className="press flex size-11 shrink-0 items-center justify-center rounded-full text-state-later active:bg-surface"
+    >
+      {children}
     </button>
   )
 }
 
 function RemoveButton({ item, onChange }: { item: Priority; onChange: RowProps['onChange'] }) {
   return (
-    <button
-      type="button"
-      aria-label={`Remove ${item.text}`}
-      onClick={() => onChange((c) => remove(c, item.id))}
-      className="press -mr-2 flex size-10 shrink-0 items-center justify-center rounded-full text-state-later active:bg-surface"
-    >
-      <CloseIcon className="h-4 w-4" />
-    </button>
+    <IconButton label={`Remove ${item.text}`} onClick={() => onChange((c) => remove(c, item.id))}>
+      <CloseIcon className="h-5 w-5" />
+    </IconButton>
   )
 }
 

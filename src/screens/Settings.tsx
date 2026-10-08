@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { CopyIcon, UploadIcon } from '../components/icons'
-import { Button, Disclosure, ScreenHeader, SectionLabel } from '../components/ui'
+import { Button, Disclosure, ScreenHeader } from '../components/ui'
 import { INPUT_CLASS } from '../components/styles'
 import { EXPORT_REMINDER_DAYS } from '../data'
 import type { Campaign } from '../data'
@@ -84,7 +84,7 @@ export function Settings() {
   }, [data, json])
 
   return (
-    <section className="mx-auto flex max-w-screen-sm flex-col gap-8">
+    <section className="mx-auto flex max-w-3xl flex-col gap-8">
       <ScreenHeader title="Setup" />
 
       {exportIsStale ? (
@@ -93,47 +93,64 @@ export function Settings() {
         </p>
       ) : null}
 
-      <Account />
-
-      <AiKeys />
-
+      {/* The work first, and big. Everything below it is set once and folded. */}
       <Priorities campaigns={campaigns} />
 
-      <Disclosure summary="Backup" trailing="Export / import" className="border-t">
-        <div className="flex flex-col gap-3 pt-1">
-          <div className="grid grid-cols-2 gap-3">
-            <Button onClick={() => void handleExport()}>
-              <UploadIcon className="h-5 w-5" />
-              Export
+      <div className="flex flex-col border-t border-rule">
+        <AccountAndKeys />
+
+        <Disclosure summary="Backup" trailing="Export / import">
+          <div className="flex flex-col gap-3 pt-1">
+            <div className="grid grid-cols-2 gap-3">
+              <Button onClick={() => void handleExport()}>
+                <UploadIcon className="h-5 w-5" />
+                Export
+              </Button>
+              <Button onClick={() => void handleCopy()} disabled={json === ''}>
+                <CopyIcon className="h-5 w-5" />
+                Copy
+              </Button>
+            </div>
+
+            <textarea
+              value={json}
+              onChange={(event) => setJson(event.target.value)}
+              spellCheck={false}
+              placeholder="Export puts your backup here. Or paste one in and import it."
+              className={`${INPUT_CLASS} h-32 w-full resize-y py-3 font-mono text-xs`}
+            />
+
+            <Button variant="waiting" onClick={() => void handleImport()} disabled={json === ''}>
+              Import - replaces everything
             </Button>
-            <Button onClick={() => void handleCopy()} disabled={json === ''}>
-              <CopyIcon className="h-5 w-5" />
-              Copy
-            </Button>
+
+            {status.kind === 'ok' ? <p className="text-base text-state-posted">{status.message}</p> : null}
+            {status.kind === 'error' ? <p className="text-base text-state-blocked">{status.message}</p> : null}
+            {status.kind === 'busy' ? <p className="text-base text-state-later">Working...</p> : null}
           </div>
-
-          <textarea
-            value={json}
-            onChange={(event) => setJson(event.target.value)}
-            spellCheck={false}
-            placeholder="Export puts your backup here. Or paste one in and import it."
-            className={`${INPUT_CLASS} h-32 w-full resize-y py-3 font-mono text-xs`}
-          />
-
-          <Button variant="waiting" onClick={() => void handleImport()} disabled={json === ''}>
-            Import - replaces everything
-          </Button>
-
-          {status.kind === 'ok' ? <p className="text-base text-state-posted">{status.message}</p> : null}
-          {status.kind === 'error' ? <p className="text-base text-state-blocked">{status.message}</p> : null}
-          {status.kind === 'busy' ? <p className="text-base text-state-later">Working...</p> : null}
-        </div>
-      </Disclosure>
-
-      <p className="meta text-state-later">
-        The reset buttons are not built. Nothing else here needs setting.
-      </p>
+        </Disclosure>
+      </div>
     </section>
+  )
+}
+
+/** Account and AI key, set once and then not needed day to day: folded,
+ *  with who is signed in on the fold. Open when nobody is signed in, since
+ *  that is the one time it needs doing. */
+function AccountAndKeys() {
+  const auth = useAuth()
+  if (!auth.configured) return null
+  return (
+    <Disclosure
+      summary="Account and AI key"
+      trailing={auth.email ?? 'Not signed in'}
+      open={auth.email ? undefined : true}
+    >
+      <div className="flex flex-col gap-6">
+        <Account />
+        <AiKeys />
+      </div>
+    </Disclosure>
   )
 }
 
@@ -158,10 +175,8 @@ function Account() {
   if (auth.email) {
     return (
       <div className="flex flex-col gap-3">
-        <SectionLabel>Account</SectionLabel>
         <p className="text-base text-text-dim">
-          Signed in as <span className="text-text">{auth.email}</span>. Syncs across devices, and
-          the AI parser can read your documents on the New campaign screen (add your API key below).
+          Signed in as <span className="text-text">{auth.email}</span>.
         </p>
         <Button onClick={() => void auth.signOut()} className="self-start">
           Sign out
@@ -172,10 +187,8 @@ function Account() {
 
   return (
     <div className="flex flex-col gap-3">
-      <SectionLabel>Account</SectionLabel>
       <p className="text-base text-text-dim">
-        Sign in to sync across devices and let the AI parser read your campaign documents. Not
-        required otherwise - everything works signed out.
+        Sign in to sync and to use the contract reader. Everything else works signed out.
       </p>
       <div className="flex gap-2">
         <input

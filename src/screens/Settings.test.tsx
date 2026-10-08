@@ -98,7 +98,8 @@ describe('the account section', () => {
     const user = userEvent.setup()
     renderSettings()
 
-    expect(await screen.findByText('creator@example.com')).toBeInTheDocument()
+    // On the fold, and inside it.
+    expect(await screen.findAllByText('creator@example.com')).not.toHaveLength(0)
 
     await user.click(screen.getByRole('button', { name: 'Sign out' }))
     expect(signOutFn).toHaveBeenCalled()
@@ -121,7 +122,7 @@ describe('the priorities list', () => {
     expect(await screen.findByText('Do this now')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Mark Answer Vertus done' }))
-    expect(await screen.findByText('Done (1)')).toBeInTheDocument()
+    expect(await screen.findByText('Done')).toBeInTheDocument()
     expect(screen.queryByText('Do this now')).toBeNull()
   })
 
@@ -134,7 +135,10 @@ describe('the priorities list', () => {
     await user.click(await screen.findByRole('button', { name: 'Plan next month: no' }))
 
     expect(await screen.findByText('Important, not urgent')).toBeInTheDocument()
-    expect(screen.getByRole('textbox', { name: 'When for Plan next month' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Add a when for Plan next month' }))
+    const when = screen.getByRole('textbox', { name: 'When for Plan next month' })
+    await user.type(when, 'Sunday 10am at the desk{Enter}')
+    expect(await screen.findByText('Sunday 10am at the desk')).toBeInTheDocument()
   })
 
   it('carries the old checklist over, waiting to be sorted', async () => {
@@ -143,6 +147,23 @@ describe('the priorities list', () => {
 
     expect(await screen.findByText('Charge the rig')).toBeInTheDocument()
     expect(screen.getByText('Sort these')).toBeInTheDocument()
+  })
+})
+
+describe('the priorities list, kept bare', () => {
+  it('keeps remove and sort-again behind Edit', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+
+    await user.type(await screen.findByPlaceholderText('e.g. Charge the phone rig'), 'Charge the rig{Enter}')
+    await user.click(await screen.findByRole('button', { name: 'Charge the rig: no' }))
+    await user.click(await screen.findByRole('button', { name: 'Charge the rig: yes' }))
+    expect(screen.queryByRole('button', { name: 'Remove Charge the rig' })).toBeNull()
+    expect(screen.queryByText('Sort again')).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: 'Edit' }))
+    await user.click(screen.getByRole('button', { name: 'Remove Charge the rig' }))
+    expect(screen.queryByText('Charge the rig')).toBeNull()
   })
 })
 

@@ -10,13 +10,14 @@
 // the one the sign-in form was on, since the link is opened from an email,
 // often on a different tab or device.
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import { useData } from '../data/useData'
 import { AuthContext, type AuthControls } from './AuthContext'
 import { claimLocalRows } from './claim'
 import { drainOutbox, pullChanges } from './engine'
 import { getSupabaseClient, signIn, signOut as signOutRemote } from './auth'
+import { sessionExpired } from './session'
 import { SupabaseSyncTarget } from './supabaseTarget'
 
 const SYNC_CURSOR_KEY = 'ugc-planner.sync_cursor'
@@ -38,6 +39,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [email, setEmail] = useState<string | null>(null)
   const [requestStatus, setRequestStatus] = useState<AuthControls['requestStatus']>('idle')
   const [requestError, setRequestError] = useState<string | null>(null)
+  const [sessionLost, setSessionLost] = useState(false)
+  // Set while he signs out on purpose, so that sign-out is not mistaken for
+  // the server dropping him.
+  const leaving = useRef(false)
 
   // Sync is intentionally owned by the app root: UI writes stay local-first,
   // while this small loop drains the outbox after sign-in, on reconnect, and
@@ -52,6 +57,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (running || !navigator.onLine) return
       const { data: { session } } = await client.auth.getSession()
       if (!session?.user.id) return
+      // A dead sign-in (see the check below) would only be refused.
+      if (sessionExpired(session.expires_at, Date.now())) return
       running = true
       try {
         await claimLocalRows(data, { getAuthState: async () => ({ userId: session.user.id }) })
@@ -86,12 +93,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!cancelled) setEmail(session?.user.email ?? null)
     })
 
+    // supabase-js renews the token well before it runs out. One that is past
+    // its time by more than a minute could not be renewed: the server refused
+    // it, and every call made with it is a 401 - so say so.
+    const check = () =>
+      void client.auth.getSession().then(({ data: { session } }) => {
+        if (!cancelled && session && sessionExpired(session.expires_at, Date.now())) setSessionLost(true)
+      })
+    check()
+    const checking = window.setInterval(check, 30_000)
+
     // claimLocalRows is a no-op the second time (src/sync/claim.ts), so
     // calling it on every SIGNED_IN event rather than only "the first ever"
     // is safe and simpler than tracking whether this is a fresh sign-in.
-    const { data: subscription } = client.auth.onAuthStateChange((_event, session) => {
+    const { data: subscription } = client.auth.onAuthStateChange((event, session) => {
       if (cancelled) return
-      setEmail(session?.user.email ?? null)
+      // A renewal that failed signs him out from under the app; one he asked
+      // for does not count. A fresh sign-in or renewal clears it.
+      if (event === 'SIGNED_OUT' && !leaving.current) setSessionLost(true)
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') setSessionLost(false)
+      setEmail((current) => session?.user.email ?? (event === 'SIGNED_OUT' && !leaving.current ? current : null))
       const userId = session?.user.id ?? null
       if (userId) {
         void claimLocalRows(data, { getAuthState: async () => ({ userId }) })
@@ -100,6 +121,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => {
       cancelled = true
+      window.clearInterval(checking)
       subscription.subscription.unsubscribe()
     }
   }, [client, data])
@@ -117,14 +139,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const signOut = useCallback(async () => {
-    await signOutRemote()
+    leaving.current = true
+    try {
+      await signOutRemote()
+    } finally {
+      leaving.current = false
+    }
     setEmail(null)
+    setSessionLost(false)
     setRequestStatus('idle')
   }, [])
 
   const value = useMemo<AuthControls>(
-    () => ({ configured: client !== null, email, requestStatus, requestError, requestLink, signOut }),
-    [client, email, requestError, requestLink, requestStatus, signOut],
+    () => ({ configured: client !== null, email, sessionLost, requestStatus, requestError, requestLink, signOut }),
+    [client, email, requestError, requestLink, requestStatus, sessionLost, signOut],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

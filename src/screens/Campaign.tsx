@@ -13,10 +13,11 @@
 // "More" fold here.
 
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { AccountsEditor } from '../components/AccountsEditor'
 import { EditableField } from '../components/EditableField'
+import { PostizChannels } from '../components/PostizChannels'
 import { TrashIcon, UploadIcon } from '../components/icons'
 import { Button, Disclosure, SectionLabel } from '../components/ui'
 import { INPUT_CLASS, buttonClass } from '../components/styles'
@@ -76,6 +77,7 @@ export function Campaign() {
   const { campaignId } = useParams()
   const data = useData()
   const navigate = useNavigate()
+  const [params, setParams] = useSearchParams()
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [missing, setMissing] = useState(false)
 
@@ -169,11 +171,24 @@ export function Campaign() {
             name={campaign.name}
             onDelete={async () => {
               await data.archiveCampaign(campaign.id)
-              void navigate('/campaigns')
+              // A campaign the cutter posts still holds its Postiz channels:
+              // land on the list that says which to switch off.
+              void navigate(campaign.cutter_campaign_id ? `/campaigns/archived?free=${campaign.id}` : '/campaigns')
             }}
           />
         </div>
       </header>
+
+      {/* Just restored from the archive: the Postiz channels it had switched
+          off, to switch back on. */}
+      {params.get('postiz') === 'restore' ? (
+        <div className="flex flex-col gap-2">
+          <PostizChannels campaign={campaign} mode="restore" />
+          <Button size="small" variant="ghost" className="self-start" onClick={() => setParams({}, { replace: true })}>
+            Done
+          </Button>
+        </div>
+      ) : null}
 
       {/* The pay: two numbers, and what they come to. */}
       <div className="flex flex-wrap items-center gap-2 border-y border-rule py-3">

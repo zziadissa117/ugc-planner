@@ -21,11 +21,11 @@ import type { ParseResult, ParsedBonusTier, ParsedField, ParsedRule } from './pa
  *  normalising will rescue it - which is exactly the line this draws. */
 function normalise(text: string): string {
   return text
-    .replace(/ /g, ' ')
+    .replace(/\u00a0/g, ' ')
     // Curly quotes and dashes survive conversion inconsistently.
-    .replace(/[‘’]/g, "'")
-    .replace(/[“”]/g, '"')
-    .replace(/[–—]/g, '-')
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201c\u201d]/g, '"')
+    .replace(/[\u2013\u2014]/g, '-')
     .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase()

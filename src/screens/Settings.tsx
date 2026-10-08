@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
 
-import { CheckIcon, CloseIcon, CopyIcon, UploadIcon } from '../components/icons'
+import { CopyIcon, UploadIcon } from '../components/icons'
 import { Button, Disclosure, ScreenHeader, SectionLabel } from '../components/ui'
 import { INPUT_CLASS } from '../components/styles'
 import { EXPORT_REMINDER_DAYS } from '../data'
@@ -9,15 +8,13 @@ import type { Campaign } from '../data'
 import { useData } from '../data/useData'
 import { useAuth } from '../sync'
 import { AiKeys } from './AiKeys'
-
+import { Priorities } from './Priorities'
 type Status =
   | { kind: 'idle' }
   | { kind: 'busy' }
   | { kind: 'ok'; message: string }
   | { kind: 'error'; message: string }
 
-type Todo = { id: string; text: string; done: boolean }
-const TODO_KEY = 'ugc-planner.studio-todos'
 
 /** Export and import of all state as JSON.
  *
@@ -29,8 +26,8 @@ export function Settings() {
   const data = useData()
   const [json, setJson] = useState('')
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
-  // For the studio list below: which line mentions which campaign, so a note
-  // he writes about a campaign can jump straight to its brief.
+  // For the priorities list below: which line mentions which campaign, so a
+  // note he writes about a campaign can jump straight to its brief.
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
   useEffect(() => {
     void data.listCampaigns().then(setCampaigns)
@@ -100,7 +97,7 @@ export function Settings() {
 
       <AiKeys />
 
-      <TodoList campaigns={campaigns} />
+      <Priorities campaigns={campaigns} />
 
       <Disclosure summary="Backup" trailing="Export / import" className="border-t">
         <div className="flex flex-col gap-3 pt-1">
@@ -138,139 +135,6 @@ export function Settings() {
       </p>
     </section>
   )
-}
-
-/** A deliberately small device-local scratchpad: useful on set, but never
- * mixed into campaign obligations or the syncable production record.
- *
- *  He writes lines like "Amboras: create account and do this and that" - his
- *  own shorthand, not a form field, so nothing here asks him to pick a
- *  campaign from a list. A line is matched by campaign name appearing in it
- *  (case-insensitive), and when one does, a small button opens that
- *  campaign's brief straight from the checklist. */
-function TodoList({ campaigns }: { campaigns: Campaign[] }) {
-  const [todos, setTodos] = useState<Todo[]>(() => readTodos())
-  const [draft, setDraft] = useState('')
-
-  const matchFor = useCallback(
-    (text: string): Campaign | null => {
-      const lower = text.toLowerCase()
-      // Longest name first, so "Inflow" cannot steal a match that "Inflow
-      // Canada" deserves when both would otherwise match the same line.
-      const sorted = [...campaigns].sort((a, b) => b.name.length - a.name.length)
-      return sorted.find((c) => c.name.trim() !== '' && lower.includes(c.name.toLowerCase())) ?? null
-    },
-    [campaigns],
-  )
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(TODO_KEY, JSON.stringify(todos))
-    } catch {
-      // Private browsing or full storage: the list still works for this visit.
-    }
-  }, [todos])
-
-  const add = () => {
-    const text = draft.trim()
-    if (!text) return
-    setTodos((current) => [...current, { id: crypto.randomUUID(), text, done: false }])
-    setDraft('')
-  }
-
-  const remaining = todos.filter((todo) => !todo.done).length
-
-  return (
-    <div className="flex flex-col gap-3">
-      {/* The count is plain grey text. It used to be an amber pill, and amber
-          means waiting on someone or unconfirmed - a to-do count is neither. */}
-      <SectionLabel
-        trailing={remaining === 0 ? (todos.length === 0 ? undefined : 'clear') : `${remaining} left`}
-      >
-        Studio list
-      </SectionLabel>
-
-      {todos.length === 0 ? (
-        <p className="py-2 text-base text-text-dim">Add the next small thing and get it out of your head.</p>
-      ) : (
-        <ul className="flex flex-col divide-y divide-rule border-y border-rule">
-          {todos.map((todo) => {
-            const match = matchFor(todo.text)
-            return (
-              <li key={todo.id} className="flex min-h-tap items-center gap-3 py-1.5">
-                <button
-                  type="button"
-                  aria-label={`Mark ${todo.text} ${todo.done ? 'incomplete' : 'complete'}`}
-                  onClick={() =>
-                    setTodos((current) =>
-                      current.map((item) => (item.id === todo.id ? { ...item, done: !item.done } : item)),
-                    )
-                  }
-                  className="press -m-2 flex size-11 shrink-0 items-center justify-center"
-                >
-                  <span
-                    className={`flex size-6 items-center justify-center rounded-full border ${
-                      todo.done ? 'border-state-posted text-state-posted' : 'border-edge-lit'
-                    }`}
-                  >
-                    {todo.done ? <CheckIcon className="draw-check h-4 w-4" strokeWidth={2.25} /> : null}
-                  </span>
-                </button>
-                <span
-                  className={`min-w-0 flex-1 text-base ${todo.done ? 'text-state-later line-through' : 'text-text'}`}
-                >
-                  {todo.text}
-                </span>
-                {match ? (
-                  <Link
-                    to={`/campaigns/${match.id}`}
-                    aria-label={`Open the brief for ${match.name}`}
-                    className="press shrink-0 rounded-full border border-edge px-3 py-1 text-sm font-semibold text-text-dim active:bg-surface"
-                  >
-                    {match.name}
-                  </Link>
-                ) : null}
-                <button
-                  type="button"
-                  aria-label={`Remove ${todo.text}`}
-                  onClick={() => setTodos((current) => current.filter((item) => item.id !== todo.id))}
-                  className="press -mr-2 flex size-10 shrink-0 items-center justify-center rounded-full text-state-later active:bg-surface"
-                >
-                  <CloseIcon className="h-4 w-4" />
-                </button>
-              </li>
-            )
-          })}
-        </ul>
-      )}
-
-      <div className="flex gap-2">
-        <input
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') add()
-          }}
-          placeholder="e.g. Charge the phone rig"
-          className={`${INPUT_CLASS} min-w-0 flex-1`}
-        />
-        <Button onClick={add} disabled={!draft.trim()}>
-          Add
-        </Button>
-      </div>
-    </div>
-  )
-}
-
-function readTodos(): Todo[] {
-  try {
-    const value: unknown = JSON.parse(localStorage.getItem(TODO_KEY) ?? '[]')
-    return Array.isArray(value)
-      ? value.filter((item): item is Todo => typeof item === 'object' && item !== null && typeof item.id === 'string' && typeof item.text === 'string' && typeof item.done === 'boolean')
-      : []
-  } catch {
-    return []
-  }
 }
 
 function describe(error: unknown): string {

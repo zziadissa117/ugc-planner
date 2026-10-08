@@ -38,6 +38,7 @@ const USER = '11111111-1111-4111-8111-111111111111'
 let adapter: DataAdapter
 
 beforeEach(async () => {
+  localStorage.clear()
   indexedDB = new IDBFactory()
   const db = new LocalDatabase(`settings-${crypto.randomUUID()}`)
   adapter = new LocalAdapter(db, USER)
@@ -104,7 +105,48 @@ describe('the account section', () => {
   })
 })
 
-describe("the studio checklist's campaign link", () => {
+describe('the priorities list', () => {
+  it('sorts a new line with two questions, importance first, then puts it on Today', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+
+    await user.type(await screen.findByPlaceholderText('e.g. Charge the phone rig'), 'Answer Vertus{Enter}')
+    expect(await screen.findByText('Does it move a campaign or money forward?')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Answer Vertus: yes' }))
+    expect(await screen.findByText('Does it have to happen in the next day or two?')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Answer Vertus: yes' }))
+
+    expect(await screen.findByText('Important and soon')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Put Answer Vertus on Today' }))
+    expect(await screen.findByText('Do this now')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Mark Answer Vertus done' }))
+    expect(await screen.findByText('Done (1)')).toBeInTheDocument()
+    expect(screen.queryByText('Do this now')).toBeNull()
+  })
+
+  it('asks when for something important that is not urgent', async () => {
+    const user = userEvent.setup()
+    renderSettings()
+
+    await user.type(await screen.findByPlaceholderText('e.g. Charge the phone rig'), 'Plan next month{Enter}')
+    await user.click(await screen.findByRole('button', { name: 'Plan next month: yes' }))
+    await user.click(await screen.findByRole('button', { name: 'Plan next month: no' }))
+
+    expect(await screen.findByText('Important, not urgent')).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'When for Plan next month' })).toBeInTheDocument()
+  })
+
+  it('carries the old checklist over, waiting to be sorted', async () => {
+    localStorage.setItem('ugc-planner.studio-todos', JSON.stringify([{ id: 'a', text: 'Charge the rig', done: false }]))
+    renderSettings()
+
+    expect(await screen.findByText('Charge the rig')).toBeInTheDocument()
+    expect(screen.getByText('Sort these')).toBeInTheDocument()
+  })
+})
+
+describe("the priorities list's campaign link", () => {
   async function makeCampaign(name: string) {
     return adapter.createCampaign({
       name,

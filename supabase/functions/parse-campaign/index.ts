@@ -18,13 +18,17 @@ import {
   type ParsedRule,
 } from '../_shared/parserTypes.ts'
 import { callForJson, errorResponse, jsonResponse, loadUserKey, nullable, requireUser } from '../_shared/claude.ts'
+import { isOwner } from '../_shared/owner.ts'
+import { MAX_PDF_BYTES, streamTranscript } from '../_shared/pdf.ts'
 
 // Opus, not Haiku. These are PDF conversions with split tables, running
 // headers and OCR noise, and every value has to come back with a quote that
 // matches the text exactly - Haiku was fast at the clean template and lost
 // fields on the messy ones, which then read as "not saved yet". It runs a
 // couple of times a month, so accuracy is worth far more than the cost.
-const MODEL = Deno.env.get('PARSE_CAMPAIGN_MODEL') ?? 'claude-opus-5'
+// Opus 5.5 rather than 5: newer, and cheaper per token. It also writes out
+// the owner's PDFs (_shared/pdf.ts).
+const MODEL = Deno.env.get('PARSE_CAMPAIGN_MODEL') ?? 'claude-opus-5-5'
 
 /** The field keys the parser may return, and the only ones. A fixed list,
  *  so the same fact always lands under the same key - the app reads
@@ -280,18 +284,43 @@ Deno.serve(async (req: Request) => {
   const auth = await requireUser(req)
   if (auth instanceof Response) return auth
 
-  let briefText: string | null
-  let contractText: string | null
-  let version: number
+  // deno-lint-ignore no-explicit-any
+  let body: any
   try {
-    const body = await req.json()
-    briefText = typeof body.briefText === 'string' && body.briefText.trim() !== '' ? body.briefText : null
-    contractText =
-      typeof body.contractText === 'string' && body.contractText.trim() !== '' ? body.contractText : null
-    version = Number(body.version ?? 1)
+    body = await req.json()
   } catch {
     return jsonResponse({ error: 'Body must be JSON: { briefText, contractText }.' }, 400)
   }
+
+  // What this account may send. The browser asks once and offers PDF only
+  // when told yes; the transcribe action below checks again regardless.
+  if (body?.action === 'capabilities') {
+    return jsonResponse({ pdf: isOwner(auth.userId) })
+  }
+
+  if (body?.action === 'transcribe') {
+    if (!isOwner(auth.userId)) {
+      return jsonResponse({ error: 'PDF reading is only on for the owner account. Paste Markdown instead.' }, 403)
+    }
+    const pdf = typeof body.pdf === 'string' ? body.pdf : ''
+    if (pdf === '' || !/^[A-Za-z0-9+/]+={0,2}$/.test(pdf.slice(-64))) {
+      return jsonResponse({ error: 'Send the PDF as base64: { action: "transcribe", pdf }.' }, 400)
+    }
+    if (Math.floor((pdf.length * 3) / 4) > MAX_PDF_BYTES) {
+      return jsonResponse({ error: 'That PDF is over 15 MB. Split it, or paste the text instead.' }, 413)
+    }
+    try {
+      return await streamTranscript({ apiKey: await loadUserKey(auth.userId), model: MODEL, pdfBase64: pdf })
+    } catch (err) {
+      return errorResponse(err, 'Reading the PDF failed: ')
+    }
+  }
+
+  const briefText: string | null =
+    typeof body?.briefText === 'string' && body.briefText.trim() !== '' ? body.briefText : null
+  const contractText: string | null =
+    typeof body?.contractText === 'string' && body.contractText.trim() !== '' ? body.contractText : null
+  const version = Number(body?.version ?? 1)
 
   if (briefText === null && contractText === null) {
     return jsonResponse({ error: 'At least one of briefText or contractText is required.' }, 400)

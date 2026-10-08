@@ -28,8 +28,7 @@ export function AiKeys() {
       {auth.email ? (
         <>
           <p className="text-base text-text-dim">
-            The contract reader and hook writer run on your own API key. It is stored encrypted on
-            the server and never shown again - only its last four characters.
+            For the contract reader and hook writer. Stored encrypted; only its last four characters are shown.
           </p>
           {AI_PROVIDERS.map((provider) => (
             <ProviderKey key={provider.id} {...provider} />

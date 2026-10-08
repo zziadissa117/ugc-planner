@@ -23,6 +23,7 @@ let adapter: DataAdapter
 let campaignId: string
 
 beforeEach(async () => {
+  localStorage.clear()
   indexedDB = new IDBFactory()
   const db = new LocalDatabase(`accounts-${crypto.randomUUID()}`)
   adapter = new LocalAdapter(db, USER)
@@ -136,6 +137,7 @@ describe('the login for each platform', () => {
       expect(await adapter.listCampaignAccounts(campaignId)).toHaveLength(1)
     })
 
+    await user.click(screen.getByRole('button', { name: 'Different login per account' }))
     await user.type(screen.getByLabelText('Instagram handle'), '@vertus.ig')
     await user.type(screen.getByLabelText('Instagram email'), 'ig@example.com')
     await user.type(screen.getByLabelText('Instagram password'), 'hunter2')
@@ -160,8 +162,9 @@ describe('the login for each platform', () => {
     })
     renderEditor()
 
+    // One account, so one login: it shows once, above the platforms.
     const handle = await screen.findByLabelText('Instagram handle')
-    const email = screen.getByLabelText('Instagram email')
+    const email = screen.getByLabelText('Email for all accounts')
     expect(handle.tagName).toBe('TEXTAREA')
     expect(email.tagName).toBe('TEXTAREA')
     expect(handle).toHaveValue(account.handle)
@@ -191,11 +194,11 @@ describe('the login for each platform', () => {
     await user.click(screen.getByRole('button', { name: 'Add' }))
     await user.click(screen.getByRole('button', { name: 'TikTok' }))
 
-    const password = await screen.findByLabelText('TikTok password')
+    const password = await screen.findByLabelText('Password for all accounts')
     expect(password).toHaveAttribute('type', 'password')
 
     await user.click(screen.getByRole('button', { name: 'Show' }))
-    expect(screen.getByLabelText('TikTok password')).toHaveAttribute('type', 'text')
+    expect(screen.getByLabelText('Password for all accounts')).toHaveAttribute('type', 'text')
   })
 
   it('keeps two campaigns posting to the same platform on separate logins', async () => {
@@ -227,5 +230,109 @@ describe('the login for each platform', () => {
     const mine = await adapter.listCampaignAccounts(campaignId)
     expect(mine).toHaveLength(1)
     expect(mine[0].email).toBe('vertus@example.com')
+  })
+})
+
+describe('one login for every account, or one each', () => {
+  async function twoAccounts(a: { email: string | null; password: string | null }, b: { email: string | null; password: string | null }) {
+    await adapter.addCampaignAccount({ campaign_id: campaignId, platform: 'TikTok', handle: '@tt', ...a })
+    await adapter.addCampaignAccount({ campaign_id: campaignId, platform: 'Instagram', handle: '@ig', ...b, sort_order: 1 })
+  }
+
+  it('starts on "same for all" when every account shares one login, and writes it to all of them', async () => {
+    await twoAccounts({ email: 'one@example.com', password: 'pw' }, { email: 'one@example.com', password: 'pw' })
+    const user = userEvent.setup()
+    renderEditor()
+
+    const email = await screen.findByLabelText('Email for all accounts')
+    expect(screen.getByRole('button', { name: 'Same login for all accounts' })).toHaveAttribute('aria-pressed', 'true')
+    // Each platform shows only its username.
+    expect(screen.queryByLabelText('TikTok email')).toBeNull()
+
+    await user.clear(email)
+    await user.type(email, 'new@example.com')
+    await user.tab()
+
+    await waitFor(async () => {
+      const accounts = await adapter.listCampaignAccounts(campaignId)
+      expect(accounts.map((a) => a.email)).toEqual(['new@example.com', 'new@example.com'])
+    })
+  })
+
+  it('starts on "different" when the accounts have their own logins', async () => {
+    await twoAccounts({ email: 'tt@example.com', password: 'a' }, { email: 'ig@example.com', password: 'b' })
+    renderEditor()
+
+    expect(await screen.findByLabelText('TikTok email')).toHaveValue('tt@example.com')
+    expect(screen.getByLabelText('Instagram email')).toHaveValue('ig@example.com')
+    expect(screen.getByRole('button', { name: 'Different login per account' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('asks before one login overwrites different ones, and leaves them alone when told to', async () => {
+    await twoAccounts({ email: 'tt@example.com', password: 'a' }, { email: 'ig@example.com', password: 'b' })
+    const user = userEvent.setup()
+    renderEditor()
+    await screen.findByLabelText('TikTok email')
+
+    await user.click(screen.getByRole('button', { name: 'Same login for all accounts' }))
+    await user.click(screen.getByRole('button', { name: 'Keep them different' }))
+    expect((await adapter.listCampaignAccounts(campaignId)).map((a) => a.email)).toEqual(['tt@example.com', 'ig@example.com'])
+
+    await user.click(screen.getByRole('button', { name: 'Same login for all accounts' }))
+    await user.click(screen.getByRole('button', { name: 'Use it for all' }))
+    await waitFor(async () => {
+      const accounts = await adapter.listCampaignAccounts(campaignId)
+      expect(accounts.map((a) => [a.email, a.password])).toEqual([
+        ['tt@example.com', 'a'],
+        ['tt@example.com', 'a'],
+      ])
+    })
+  })
+
+  it('gives a platform added later the shared login', async () => {
+    await adapter.addCampaignAccount({ campaign_id: campaignId, platform: 'TikTok', handle: null, email: 'one@example.com', password: 'pw' })
+    const user = userEvent.setup()
+    renderEditor()
+    await screen.findByLabelText('Email for all accounts')
+
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+    await user.click(screen.getByRole('button', { name: 'YouTube' }))
+
+    await waitFor(async () => {
+      const youtube = (await adapter.listCampaignAccounts(campaignId)).find((a) => a.platform === 'YouTube')
+      expect([youtube?.email, youtube?.password]).toEqual(['one@example.com', 'pw'])
+    })
+  })
+
+  it('copies a login with one tap', async () => {
+    await adapter.addCampaignAccount({ campaign_id: campaignId, platform: 'TikTok', handle: '@tt', email: 'one@example.com', password: 'pw' })
+    // userEvent.setup() puts its own clipboard in place; read back from it.
+    const user = userEvent.setup()
+    renderEditor()
+
+    await user.click(await screen.findByRole('button', { name: 'Copy email for all accounts' }))
+    expect(await screen.findByText('Copied')).toBeInTheDocument()
+    expect(await navigator.clipboard.readText()).toBe('one@example.com')
+  })
+})
+
+describe('adding back a platform that was removed', () => {
+  it('brings the same account back instead of refusing it', async () => {
+    const first = await adapter.addCampaignAccount({ campaign_id: campaignId, platform: 'TikTok', handle: '@tt' })
+    await adapter.deleteCampaignAccount(first.id)
+    expect(await adapter.listCampaignAccounts(campaignId)).toHaveLength(0)
+
+    const again = await adapter.addCampaignAccount({ campaign_id: campaignId, platform: 'TikTok', handle: null })
+    expect(again.id).toBe(first.id)
+    expect(again.is_active).toBe(true)
+    expect(again.handle).toBe('@tt')
+    expect(await adapter.listCampaignAccounts(campaignId)).toHaveLength(1)
+  })
+
+  it('still refuses a second live account on the same platform', async () => {
+    await adapter.addCampaignAccount({ campaign_id: campaignId, platform: 'TikTok', handle: '@tt' })
+    await expect(adapter.addCampaignAccount({ campaign_id: campaignId, platform: 'TikTok', handle: null })).rejects.toThrow(
+      /already has a TikTok account/,
+    )
   })
 })

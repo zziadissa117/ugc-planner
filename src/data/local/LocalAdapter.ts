@@ -1175,21 +1175,41 @@ export class LocalAdapter implements DataAdapter {
     }
     assertRow('campaign_accounts', row)
 
-    await this.tx([this.db.campaign_accounts, this.db.campaigns, this.db._outbox], async (tx) => {
+    return this.tx([this.db.campaign_accounts, this.db.campaigns, this.db._outbox], async (tx) => {
       await this.requireRow(tx, 'campaigns', row.campaign_id)
       // The SQL's unique (campaign_id, platform). Dexie enforces it too, but
       // the message it throws is not one anybody could act on.
-      const clash = await tx
+      const clash = (await tx
         .table('campaign_accounts')
         .where('[campaign_id+platform]')
         .equals([row.campaign_id, row.platform])
-        .first()
-      if (clash) throw new DataError(`This campaign already has a ${row.platform} account.`)
+        .first()) as CampaignAccount | undefined
+      if (clash?.is_active) throw new DataError(`This campaign already has a ${row.platform} account.`)
+
+      if (clash) {
+        // Removed earlier and added again. Removing only hid the row (posts
+        // that went out from it still point at it), so the same row comes
+        // back rather than a second one the unique key would refuse.
+        const back: CampaignAccount = {
+          ...clash,
+          handle: account.handle ?? clash.handle,
+          email: account.email ?? clash.email,
+          password: account.password ?? clash.password,
+          status: account.status ?? clash.status,
+          sort_order: account.sort_order ?? clash.sort_order,
+          is_active: true,
+          updated_at: timestamp,
+        }
+        assertRow('campaign_accounts', back)
+        await tx.table('campaign_accounts').put(back)
+        this.enqueue(tx, 'campaign_accounts', back.id, 'update', back)
+        return back
+      }
 
       await tx.table('campaign_accounts').add(row)
       this.enqueue(tx, 'campaign_accounts', row.id, 'insert', row)
+      return row
     })
-    return row
   }
 
   async updateCampaignAccount(

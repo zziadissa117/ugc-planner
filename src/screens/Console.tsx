@@ -26,6 +26,7 @@ import type {
   CampaignRule,
   PhaseEvent,
 } from '../data'
+import { CreativeBrief } from '../components/CreativeBrief'
 import { CheckIcon, ChevronDownIcon, SparkIcon } from '../components/icons'
 import { Button, SectionLabel } from '../components/ui'
 import { type Tone } from '../components/styles'
@@ -278,6 +279,14 @@ export function Console({
 
             {note === null ? null : <p className="meta mt-2 text-state-later">{note}</p>}
           </Section>
+
+          {/* The creative brief and his own ideas: here, where hooks are
+              written, not on the campaign page he never opens for them. */}
+          <CreativeBrief
+            campaignId={campaign.id}
+            field={fields.find((f) => f.field_key === GENERATION_BRIEF_KEY)}
+            onChanged={reload}
+          />
         </div>
 
         <div className="flex flex-col gap-7 lg:[&_p]:text-lg lg:[&_li]:text-lg">

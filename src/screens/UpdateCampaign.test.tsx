@@ -2,7 +2,7 @@
 // through the review screen, none of it silently applied.
 
 import 'fake-indexeddb/auto'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { IDBFactory } from 'fake-indexeddb'
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -88,7 +88,7 @@ describe('updating an existing campaign', () => {
     })
   })
 
-  it('applies the new value, as amber, once he chooses Use new', async () => {
+  it('accepts the new value once he chooses Use new', async () => {
     const user = userEvent.setup()
     await renderScreen()
 
@@ -112,12 +112,11 @@ describe('updating an existing campaign', () => {
       const fields = await adapter.listCampaignFields(INFLOW_CAMPAIGN_ID)
       const rate = fields.find((f) => f.field_key === 'pay_per_video_cents')
       expect(rate?.field_value).toBe('4000')
-      // Amber, not documented - a second parse earns the same confirm tap.
-      expect(rate?.source).toBe('parsed_unreviewed')
-      // The operating column is untouched until he also confirms it on the
-      // brief page - exactly how a first-time parse behaves.
+      // His tap plus the new document's quote: documented, and the rate the
+      // app plans against follows.
+      expect(rate?.source).toBe('documented')
       const campaign = await adapter.getCampaign(INFLOW_CAMPAIGN_ID)
-      expect(campaign?.pay_per_video_cents).toBe(3500)
+      expect(campaign?.pay_per_video_cents).toBe(4000)
     })
   })
 
@@ -154,6 +153,43 @@ describe('updating an existing campaign', () => {
       const rules = await adapter.listCampaignRules(INFLOW_CAMPAIGN_ID)
       expect(rules.some((r) => r.body === 'Every video also carries #ad.')).toBe(true)
     })
+    const fields = await adapter.listCampaignFields(INFLOW_CAMPAIGN_ID)
+    // Ticked by default, so Apply accepts it with its quote behind it.
+    expect(fields.find((f) => f.field_key === 'youtube_added')?.source).toBe('documented')
+  })
+
+  it('leaves out a new field he unticks', async () => {
+    const user = userEvent.setup()
+    await renderScreen()
+
+    await user.click(screen.getByLabelText('NEW BRIEF (.md) text'))
+    await user.paste(NEW_BRIEF)
+    await user.click(screen.getByLabelText('Parsed JSON'))
+    await user.paste(
+      pasteResult({
+        fields: {
+          youtube_added: {
+            value: 'YouTube added as a required platform this cycle',
+            source_quote: 'YouTube added as a required platform this cycle',
+          },
+        },
+        rules: ['Every video also carries #ad.'],
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Compare with what is saved' }))
+
+    const row = within(await screen.findByRole('list', { name: 'New fields' })).getByRole('button')
+    expect(row).toHaveAttribute('aria-pressed', 'true')
+    await user.click(row)
+    expect(row).toHaveAttribute('aria-pressed', 'false')
+    await user.click(screen.getByRole('button', { name: 'Apply update' }))
+
+    await waitFor(async () => {
+      const rules = await adapter.listCampaignRules(INFLOW_CAMPAIGN_ID)
+      expect(rules.some((r) => r.body === 'Every video also carries #ad.')).toBe(true)
+    })
+    const fields = await adapter.listCampaignFields(INFLOW_CAMPAIGN_ID)
+    expect(fields.find((f) => f.field_key === 'youtube_added')).toBeUndefined()
   })
 
   it('says plainly when a re-parsed document adds nothing new', async () => {

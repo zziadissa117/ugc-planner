@@ -25,8 +25,8 @@ export interface ParsedField {
    *  confirms it - the document states two different rates, the text around
    *  it is garbled, it only holds under a condition. Written by the parser,
    *  shown beside the field, never stored. Absent means nothing to flag, not
-   *  that the value is certain: every parsed field is still amber until he
-   *  taps it. */
+   *  that the value is certain; a flagged value is listed first on the review
+   *  screen so it is read before the one Save. */
   note?: string | null
 }
 

@@ -207,7 +207,7 @@ via Supabase tooling, never automatically; a schema change needs the owner's OK.
 - Migrations must be re-runnable (`drop policy if exists` before `create policy`).
 - Every write must enqueue to `_outbox`; rows written in a Dexie `upgrade()` bypass it, so use `backfillOutbox`.
 - `phase_events` / `warmup_events` are never updated or deleted.
-- Never invent campaign data; missing renders "not saved yet". Parsed fields are amber until confirmed.
+- Never invent campaign data; missing renders "not saved yet". Quoted values from a contract are accepted by the one Save on review; one he unticks stays amber.
 - Generated text must say it was generated (`campaign_hooks.source`, `model`).
 - Colour is state only; build UI from `components/ui.tsx` + `styles.ts`; no new dependencies.
 - Posting is never gated on filming; ticks never reorder.

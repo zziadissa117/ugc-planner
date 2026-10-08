@@ -7,10 +7,23 @@
 // Picking from a list makes that unrepresentable; a platform not on the list
 // can still be typed, but one at a time.
 //
-// Handle, email and password sit on one line per platform, because that is
-// how they are used: at the moment of posting, together, for that one
-// account. There is no campaign-level login any more - a creator runs a
-// different account per platform.
+// The logins are the point of this block - "all I need is to know the account
+// logins" - so they are large, readable, and each has a Copy button. Most
+// campaigns use one email and one password for every platform, so there are
+// two ways to hold them:
+//
+//   - Same login for all: one email and one password, shown once, and each
+//     platform row shows just its username.
+//   - Different login per account: each row has its own email and password.
+//
+// Either way the login is stored on each account row, as the schema says it
+// belongs to the account: "same for all" simply writes the same values to
+// every row. Which way he looks at it is remembered on this device per
+// campaign; until he picks, it is "same" when every account already shares
+// one login (or none has one yet), "different" otherwise.
+//
+// The rarely touched per-account settings - warm-up state, a platform's own
+// pay rate, bonus-only, remove - sit behind a "More" button on each row.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 
@@ -18,9 +31,9 @@ import { useLoaded } from '../data/useLoaded'
 
 import type { AccountStatus, CampaignAccount, DataAdapter } from '../data'
 import { centsToDollarsInput, parseDollarsToCents } from '../data/campaignFields'
+import { loginsMatch, sharedLogin } from '../data/logins'
 import { KNOWN_PLATFORMS } from './platforms'
 import { INPUT_CLASS, buttonClass } from './styles'
-
 
 const STATUS_LABELS: Record<AccountStatus, string> = {
   new: 'New',
@@ -29,6 +42,27 @@ const STATUS_LABELS: Record<AccountStatus, string> = {
 }
 
 const STATUS_ORDER: AccountStatus[] = ['new', 'warming', 'ready']
+
+type LoginMode = 'shared' | 'separate'
+
+const modeKey = (campaignId: string) => `ugc-planner.login-mode.${campaignId}`
+
+function readMode(campaignId: string): LoginMode | null {
+  try {
+    const value = localStorage.getItem(modeKey(campaignId))
+    return value === 'shared' || value === 'separate' ? value : null
+  } catch {
+    return null
+  }
+}
+
+function writeMode(campaignId: string, mode: LoginMode) {
+  try {
+    localStorage.setItem(modeKey(campaignId), mode)
+  } catch {
+    // Not remembered: it is worked out from the logins next time.
+  }
+}
 
 export function AccountsEditor({
   data,
@@ -45,11 +79,22 @@ export function AccountsEditor({
   const [busy, setBusy] = useState(false)
   const [custom, setCustom] = useState('')
   const [adding, setAdding] = useState(false)
+  const [picked, setPicked] = useState<LoginMode | null>(() => readMode(campaignId))
+  /** Asking before one login overwrites several different ones. */
+  const [confirming, setConfirming] = useState(false)
+
+  const mode: LoginMode = picked ?? (loginsMatch(accounts) ? 'shared' : 'separate')
+  const shared = sharedLogin(accounts)
 
   const refresh = useCallback(async () => {
     await reload()
     onChanged?.()
   }, [onChanged, reload])
+
+  const choose = (next: LoginMode) => {
+    setPicked(next)
+    writeMode(campaignId, next)
+  }
 
   const chosen = useMemo(
     () => new Set(accounts.map((a) => a.platform.toLowerCase())),
@@ -71,8 +116,9 @@ export function AccountsEditor({
           campaign_id: campaignId,
           platform: name,
           handle: null,
-          email: null,
-          password: null,
+          // With one login for all, a new platform gets it too.
+          email: mode === 'shared' && shared.email !== '' ? shared.email : null,
+          password: mode === 'shared' && shared.password !== '' ? shared.password : null,
           // Posting is not gated on warm-up any more, so a new account is
           // immediately usable; the warm-up screen still tracks it.
           status: 'new',
@@ -86,7 +132,7 @@ export function AccountsEditor({
         setBusy(false)
       }
     },
-    [accounts.length, campaignId, chosen, data, refresh],
+    [accounts.length, campaignId, chosen, data, mode, refresh, shared.email, shared.password],
   )
 
   const patch = useCallback(
@@ -97,10 +143,36 @@ export function AccountsEditor({
     [data, refresh],
   )
 
+  /** One value written to every account that does not already hold it. */
+  const setForAll = useCallback(
+    async (key: 'email' | 'password', value: string) => {
+      const next = value.trim() === '' ? null : value
+      for (const account of accounts) {
+        if ((account[key] ?? null) !== next) await data.updateCampaignAccount(account.id, { [key]: next })
+      }
+      await refresh()
+    },
+    [accounts, data, refresh],
+  )
+
+  const applyOneLogin = async () => {
+    for (const account of accounts) {
+      if ((account.email ?? '') !== shared.email || (account.password ?? '') !== shared.password) {
+        await data.updateCampaignAccount(account.id, {
+          email: shared.email === '' ? null : shared.email,
+          password: shared.password === '' ? null : shared.password,
+        })
+      }
+    }
+    setConfirming(false)
+    choose('shared')
+    await refresh()
+  }
+
   return (
-    <div>
+    <div className="flex flex-col gap-4">
       <div className="flex items-center gap-3">
-        <h2 className="label shrink-0 text-state-later">Platforms</h2>
+        <h2 className="label shrink-0 text-state-later">Accounts</h2>
         <span aria-hidden className="h-px flex-1 bg-rule" />
         <button
           type="button"
@@ -112,22 +184,69 @@ export function AccountsEditor({
         </button>
       </div>
 
+      {/* Which way the logins are held. Two plain choices, one pressed. */}
+      <div role="group" aria-label="Login" className="flex flex-wrap gap-2">
+        <ModeButton on={mode === 'shared'} onClick={() => (loginsMatch(accounts) ? choose('shared') : setConfirming(true))}>
+          Same login for all accounts
+        </ModeButton>
+        <ModeButton on={mode === 'separate'} onClick={() => { setConfirming(false); choose('separate') }}>
+          Different login per account
+        </ModeButton>
+      </div>
+
+      {confirming ? (
+        <div className="settle-in flex flex-col gap-2 border-l-2 border-state-waiting pl-3">
+          <p className="text-base text-text">
+            These accounts have different logins. Use the {shared.from?.platform ?? 'first'} login
+            {shared.email ? ` (${shared.email})` : ''} for every account?
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => void applyOneLogin()} className={buttonClass('waiting', 'small')}>
+              Use it for all
+            </button>
+            <button type="button" onClick={() => setConfirming(false)} className={buttonClass('quiet', 'small')}>
+              Keep them different
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {mode === 'shared' && accounts.length > 0 ? (
+        <div className="flex flex-col gap-2 rounded-xl border border-rule p-3">
+          <LoginLine
+            key={`email-${shared.email}`}
+            name="Email"
+            value={shared.email}
+            label="Email for all accounts"
+            placeholder="email"
+            onCommit={(next) => void setForAll('email', next)}
+          />
+          <LoginLine
+            key={`password-${shared.password}`}
+            name="Password"
+            value={shared.password}
+            label="Password for all accounts"
+            placeholder="password"
+            secret
+            onCommit={(next) => void setForAll('password', next)}
+          />
+        </div>
+      ) : null}
+
       {accounts.length === 0 ? (
-        <p className="mt-2 text-base text-state-blocked">
-          None yet - add the platforms this campaign posts to.
-        </p>
+        <p className="text-base text-state-blocked">None yet - add the platforms this campaign posts to.</p>
       ) : (
-        <ul className="mt-2 flex flex-col gap-1.5">
+        <ul className="flex flex-col divide-y divide-rule border-y border-rule">
           {accounts.map((account) => (
-            <li key={account.id}>
-              <AccountRow account={account} onPatch={patch} />
+            <li key={account.id} className="py-3">
+              <AccountRow account={account} separate={mode === 'separate'} onPatch={patch} />
             </li>
           ))}
         </ul>
       )}
 
       {adding ? (
-        <div className="settle-in mt-2 rounded-xl border border-rule p-2.5">
+        <div className="settle-in rounded-xl border border-rule p-2.5">
           <div className="flex flex-wrap gap-1.5">
             {KNOWN_PLATFORMS.map((name) => {
               const already = chosen.has(name.toLowerCase())
@@ -174,6 +293,22 @@ export function AccountsEditor({
   )
 }
 
+function ModeButton({ on, onClick, children }: { on: boolean; onClick: () => void; children: string }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      onClick={onClick}
+      className={[
+        'press min-h-10 rounded-full border px-4 text-sm font-semibold',
+        on ? 'border-state-now/80 bg-surface-raised text-state-now' : 'border-edge text-state-later active:bg-surface',
+      ].join(' ')}
+    >
+      {children}
+    </button>
+  )
+}
+
 /** Whether this browser can hide the characters of a plain text box.
  *
  *  A password has to be masked and still show every character it holds, and an
@@ -186,13 +321,17 @@ const CAN_MASK_TEXT =
   typeof CSS.supports === 'function' &&
   CSS.supports('-webkit-text-security', 'disc')
 
+const BOX_CLASS =
+  'min-h-tap min-w-0 flex-1 rounded-lg border border-edge bg-surface px-3 text-base text-text placeholder:text-state-later focus:border-state-now/80 focus:outline-none'
+
 /** A one-value box that grows to hold everything in it.
  *
  *  A handle or an email longer than the box used to be clipped, and the only
  *  way to read the rest was to tap in and scroll along it - "i can only see
  *  the full username when i click on it". This wraps instead, so the whole
- *  value is on screen at rest, in the same place as the input it replaces. Enter saves rather than adding a line, because none of
- *  these values has one. */
+ *  value is on screen at rest, in the same place as the input it replaces.
+ *  Enter saves rather than adding a line, because none of these values has
+ *  one. */
 function GrowingBox({
   value,
   onCommit,
@@ -248,14 +387,98 @@ function GrowingBox({
       autoCorrect="off"
       spellCheck={false}
       style={mask ? ({ WebkitTextSecurity: 'disc' } as CSSProperties) : undefined}
-      className={`${className} resize-none overflow-hidden py-[1.0625rem] leading-snug [overflow-wrap:anywhere]`}
+      className={`${className} resize-none overflow-hidden py-3 leading-snug [overflow-wrap:anywhere]`}
     />
   )
 }
 
-/** Each box has a minimum width (the flex-basis), so on a narrow column it drops
- *  to its own line inside the card instead of being squeezed to a few
- *  characters wide - which is what made a handle unreadable at a glance. */
+/** Copies one saved value. Says so for a moment, and does nothing for an
+ *  empty one. */
+function CopyButton({ value, label }: { value: string; label: string }) {
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    if (!copied) return
+    const timer = window.setTimeout(() => setCopied(false), 1500)
+    return () => window.clearTimeout(timer)
+  }, [copied])
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      disabled={value === ''}
+      onClick={() => {
+        void navigator.clipboard
+          ?.writeText(value)
+          .then(() => setCopied(true))
+          .catch(() => {})
+      }}
+      className={`press mt-1.5 shrink-0 rounded-full border px-3 py-1.5 text-sm font-semibold active:bg-surface disabled:opacity-40 ${
+        copied ? 'border-state-posted/60 text-state-posted' : 'border-edge text-state-later'
+      }`}
+    >
+      {copied ? 'Copied' : 'Copy'}
+    </button>
+  )
+}
+
+/** One login value - a name on the left, the box, then Show (for a secret)
+ *  and Copy. */
+function LoginLine({
+  name,
+  value,
+  label,
+  placeholder,
+  secret = false,
+  onCommit,
+}: {
+  name: string
+  value: string
+  label: string
+  placeholder: string
+  secret?: boolean
+  onCommit: (next: string) => void
+}) {
+  const [show, setShow] = useState(false)
+  return (
+    <div className="flex min-w-0 items-start gap-2">
+      <span className="label mt-4 w-24 shrink-0 text-state-later">{name}</span>
+      {secret && !CAN_MASK_TEXT ? (
+        <input
+          defaultValue={value}
+          onBlur={(event) => onCommit(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') event.currentTarget.blur()
+          }}
+          type={show ? 'text' : 'password'}
+          aria-label={label}
+          placeholder={placeholder}
+          autoComplete="new-password"
+          className={BOX_CLASS}
+        />
+      ) : (
+        <GrowingBox
+          value={value}
+          onCommit={onCommit}
+          label={label}
+          placeholder={placeholder}
+          autoComplete={secret ? 'new-password' : 'off'}
+          mask={secret && !show}
+          className={BOX_CLASS}
+        />
+      )}
+      {secret ? (
+        <button
+          type="button"
+          onClick={() => setShow((current) => !current)}
+          className="press mt-1.5 shrink-0 rounded-full border border-edge px-3 py-1.5 text-sm font-semibold text-state-later active:bg-surface"
+        >
+          {show ? 'Hide' : 'Show'}
+        </button>
+      ) : null}
+      <CopyButton value={value} label={`Copy ${label.toLowerCase()}`} />
+    </div>
+  )
+}
 
 /** What one post on this platform pays, when it differs from the campaign's
  *  rate. Blank means it has no rate of its own and the campaign's applies -
@@ -271,7 +494,7 @@ function PlatformRate({
   const [invalid, setInvalid] = useState(false)
 
   return (
-    <label className="ml-2 flex items-center gap-1.5">
+    <label className="flex items-center gap-1.5">
       <span className="label text-state-later">Pays</span>
       <input
         key={account.pay_per_post_cents ?? 'none'}
@@ -299,7 +522,7 @@ function PlatformRate({
         aria-label={`${account.platform} pay per post`}
         aria-invalid={invalid}
         placeholder="campaign rate"
-        className={`w-24 rounded-lg border bg-surface px-2 py-1 text-sm text-text placeholder:text-state-later focus:outline-none ${
+        className={`w-28 rounded-lg border bg-surface px-2 py-1.5 text-sm text-text placeholder:text-state-later focus:outline-none ${
           invalid ? 'border-state-blocked' : 'border-edge focus:border-state-now/80'
         }`}
       />
@@ -307,119 +530,106 @@ function PlatformRate({
   )
 }
 
-/** One platform: handle, email and password on one line, then the warm-up
- *  state. The password is masked until asked for - it is looked up in front
- *  of whoever is in the room. */
+/** One platform: its username, and - when each account has its own login -
+ *  its email and password. The password is masked until asked for: it is
+ *  looked up in front of whoever is in the room. */
 function AccountRow({
   account,
+  separate,
   onPatch,
 }: {
   account: CampaignAccount
+  /** Each account has its own email and password on this campaign. */
+  separate: boolean
   onPatch: (id: string, change: Partial<CampaignAccount>) => Promise<void>
 }) {
-  const [show, setShow] = useState(false)
+  const [more, setMore] = useState(false)
 
   const field = (key: 'handle' | 'email' | 'password', value: string) =>
     void onPatch(account.id, { [key]: value.trim() === '' ? null : value })
 
   return (
-    <div className="rounded-xl border border-rule px-2 py-2">
-      <div className="flex flex-wrap items-center gap-1.5">
-        {/* Name only, at its original width: a glyph in this slot cut
-            "Instagram" to "Insta...", and every box on this row has to show
-            its whole value. */}
-        <span className="w-20 shrink-0 truncate text-sm font-semibold text-text">
-          {account.platform}
-        </span>
-
-        <GrowingBox
-          value={account.handle ?? ''}
-          onCommit={(next) => field('handle', next)}
-          label={`${account.platform} handle`}
-          placeholder="@handle"
-          className="min-h-tap min-w-0 flex-[1_1_10rem] rounded-lg border border-edge bg-surface px-2 text-sm text-text placeholder:text-state-later focus:border-state-now/80 focus:outline-none"
-        />
-        <GrowingBox
-          value={account.email ?? ''}
-          onCommit={(next) => field('email', next)}
-          label={`${account.platform} email`}
-          placeholder="email"
-          autoComplete="off"
-          className="min-h-tap min-w-0 flex-[1_1_13rem] rounded-lg border border-edge bg-surface px-2 text-sm text-text placeholder:text-state-later focus:border-state-now/80 focus:outline-none"
-        />
-        {/* The password box and its Show button travel together, so Show never
-            ends up stranded on a line of its own. */}
-        <div className="flex min-w-0 flex-[1_1_11rem] items-start gap-1.5">
-          {CAN_MASK_TEXT ? (
-            <GrowingBox
-              value={account.password ?? ''}
-              onCommit={(next) => field('password', next)}
-              label={`${account.platform} password`}
-              placeholder="password"
-              autoComplete="new-password"
-              mask={!show}
-              className="min-h-tap min-w-0 flex-1 rounded-lg border border-edge bg-surface px-2 text-sm text-text placeholder:text-state-later focus:border-state-now/80 focus:outline-none"
-            />
-          ) : (
-            <input
-              defaultValue={account.password ?? ''}
-              onBlur={(event) => field('password', event.target.value)}
-              type={show ? 'text' : 'password'}
-              aria-label={`${account.platform} password`}
-              placeholder="password"
-              autoComplete="new-password"
-              className="min-h-tap min-w-0 flex-1 rounded-lg border border-edge bg-surface px-2 text-sm text-text placeholder:text-state-later focus:border-state-now/80 focus:outline-none"
-            />
-          )}
-          <button
-            type="button"
-            onClick={() => setShow((current) => !current)}
-            className="press mt-2 shrink-0 rounded-full border border-edge px-2.5 py-1 text-xs font-semibold text-state-later active:bg-surface"
-          >
-            {show ? 'Hide' : 'Show'}
-          </button>
-        </div>
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-3">
+        {/* Name only: a glyph in this slot cut "Instagram" to "Insta...". */}
+        <span className="min-w-0 flex-1 text-lg font-semibold text-text">{account.platform}</span>
+        <button
+          type="button"
+          onClick={() => setMore((open) => !open)}
+          aria-expanded={more}
+          aria-label={`More for ${account.platform}`}
+          className="press shrink-0 rounded-full px-3 py-1 text-sm font-semibold text-state-later active:bg-surface"
+        >
+          {more ? 'Less' : 'More'}
+        </button>
       </div>
 
-      <div className="mt-1.5 flex items-center gap-1">
-        {STATUS_ORDER.map((status) => (
+      <LoginLine
+        name="Username"
+        value={account.handle ?? ''}
+        label={`${account.platform} handle`}
+        placeholder="@handle"
+        onCommit={(next) => field('handle', next)}
+      />
+      {separate ? (
+        <>
+          <LoginLine
+            name="Email"
+            value={account.email ?? ''}
+            label={`${account.platform} email`}
+            placeholder="email"
+            onCommit={(next) => field('email', next)}
+          />
+          <LoginLine
+            name="Password"
+            value={account.password ?? ''}
+            label={`${account.platform} password`}
+            placeholder="password"
+            secret
+            onCommit={(next) => field('password', next)}
+          />
+        </>
+      ) : null}
+
+      {more ? (
+        <div className="settle-in flex flex-wrap items-center gap-2 pl-[6.5rem]">
+          {STATUS_ORDER.map((status) => (
+            <button
+              key={status}
+              type="button"
+              onClick={() => void onPatch(account.id, { status })}
+              aria-pressed={account.status === status}
+              className={[
+                'press rounded-full px-2.5 py-1 label',
+                account.status === status ? 'bg-surface-raised text-state-now' : 'text-state-later active:bg-surface',
+              ].join(' ')}
+            >
+              {STATUS_LABELS[status]}
+            </button>
+          ))}
+          <PlatformRate account={account} onPatch={onPatch} />
+          {/* Paid only through view-milestone bonuses: its ticks on the Post
+              screen earn nothing and are never owed. */}
           <button
-            key={status}
             type="button"
-            onClick={() => void onPatch(account.id, { status })}
-            aria-pressed={account.status === status}
+            onClick={() => void onPatch(account.id, { bonus_only: !account.bonus_only })}
+            aria-pressed={account.bonus_only}
             className={[
               'press rounded-full px-2.5 py-1 label',
-              account.status === status
-                ? 'bg-surface-raised text-state-now'
-                : 'text-state-later active:bg-surface',
+              account.bonus_only ? 'bg-surface-raised text-state-now' : 'text-state-later active:bg-surface',
             ].join(' ')}
           >
-            {STATUS_LABELS[status]}
+            Bonus only
           </button>
-        ))}
-        <PlatformRate account={account} onPatch={onPatch} />
-        {/* Paid only through view-milestone bonuses: its ticks on the Post
-            screen earn nothing and are never owed. */}
-        <button
-          type="button"
-          onClick={() => void onPatch(account.id, { bonus_only: !account.bonus_only })}
-          aria-pressed={account.bonus_only}
-          className={[
-            'press ml-2 rounded-full px-2.5 py-1 label',
-            account.bonus_only ? 'bg-surface-raised text-state-now' : 'text-state-later active:bg-surface',
-          ].join(' ')}
-        >
-          Bonus only
-        </button>
-        <button
-          type="button"
-          onClick={() => void onPatch(account.id, { is_active: false })}
-          className="press ml-auto rounded-full px-2.5 py-1 label text-state-later active:bg-surface"
-        >
-          Remove
-        </button>
-      </div>
+          <button
+            type="button"
+            onClick={() => void onPatch(account.id, { is_active: false })}
+            className="press ml-auto rounded-full px-2.5 py-1 label text-state-later active:bg-surface"
+          >
+            Remove
+          </button>
+        </div>
+      ) : null}
     </div>
   )
 }

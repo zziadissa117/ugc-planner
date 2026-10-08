@@ -252,7 +252,7 @@ describe('applyCampaignUpdate', () => {
     expect(rate?.source).toBe('documented')
   })
 
-  it('writes a conflict as amber, not documented, even when he chooses the new value', async () => {
+  it('accepts a conflict as documented when he chooses the new value, and moves the rate', async () => {
     const { adapter, campaign } = await setUp()
     const result = parseResult({
       fields: { pay_per_video_cents: { value: '4000', source_quote: '$40.00' } },
@@ -272,9 +272,11 @@ describe('applyCampaignUpdate', () => {
     const fields = await adapter.listCampaignFields(campaign.id)
     const rate = fields.find((f) => f.field_key === 'pay_per_video_cents')
     expect(rate?.field_value).toBe('4000')
-    // A second parse deserves the same one-tap confirmation the first did,
-    // even though he already decided he wants this value.
-    expect(rate?.source).toBe('parsed_unreviewed')
+    // "Use new" and Apply are his decision, and the quote is the contract's
+    // word for it - the same one Save a first parse gets.
+    expect(rate?.source).toBe('documented')
+    // The rate the app plans against moves with it, never left disagreeing.
+    expect((await adapter.getCampaign(campaign.id))?.pay_per_video_cents).toBe(4000)
   })
 
   it('writes a brand new field without needing a decision, since nothing is at risk', async () => {

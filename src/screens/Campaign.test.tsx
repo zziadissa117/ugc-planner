@@ -1,11 +1,9 @@
-// The brief page, after it stopped being a metadata dashboard.
+// The campaign page, after it stopped being a brief.
 //
-// What it used to show, and what he asked to be rid of: trial dates, aspect
-// ratios, wider-topic ratios, warm-up prep notes, angle-family alternation,
-// editing style, a setup picker, an angles section with its own editor, and
-// two competing sets of handles. What is left is the four things that answer
-// a question he has while making a video, the material he generates hooks
-// from, the platforms he posts to, and the never-do list.
+// "All I need is to know the account logins." What is left on it: the pay
+// (per post and posts a week), the accounts with their logins, and one folded
+// "More" holding everything other screens still read. The creative brief and
+// hook ideas moved to the FILM console (CreativeBrief.test.tsx).
 
 import 'fake-indexeddb/auto'
 import { render, screen, waitFor, within } from '@testing-library/react'
@@ -46,13 +44,26 @@ async function renderBrief() {
   await screen.findByRole('heading', { name: 'Inflow' })
 }
 
-describe('what the brief shows', () => {
-  it('shows the four things that help make the video', async () => {
+describe('what the page shows', () => {
+  it('leads with the pay and the accounts, and folds everything else', async () => {
     await renderBrief()
 
-    for (const label of ['What it is', 'Who it is for', 'How it sounds', 'How the video goes']) {
-      expect(screen.getByText(label)).toBeInTheDocument()
+    expect(screen.getByText('Accounts')).toBeInTheDocument()
+    expect(screen.getByText('per post')).toBeInTheDocument()
+    expect(screen.getByText('posts/week')).toBeInTheDocument()
+    // The brief fields are not on the page he reads; what the documents said
+    // is kept, inside the one fold.
+    for (const gone of ['What it is', 'Who it is for', 'How it sounds', 'How the video goes']) {
+      expect(screen.queryByText(gone)).toBeNull()
     }
+    expect(screen.getByText('More').closest('details')).not.toHaveAttribute('open')
+  })
+
+  it('has no hook writer or hooks box - those live in FILM', async () => {
+    await renderBrief()
+
+    expect(screen.queryByLabelText('Brief for the hook writer')).toBeNull()
+    expect(screen.queryByLabelText('Hooks and ideas')).toBeNull()
   })
 
   it('does not show the metadata he never needs while filming', async () => {
@@ -89,14 +100,12 @@ describe('what the brief shows', () => {
     expect(screen.queryByText(/hook generation has nothing to rotate/i)).toBeNull()
   })
 
-  it('keeps everything else it parsed, folded into one line', async () => {
+  it('keeps everything else it parsed, inside the fold', async () => {
     await renderBrief()
 
-    const fold = screen.getByText(/everything else from the documents/i)
-    expect(fold).toBeInTheDocument()
-    // Folded: the summary is one line, and the rows are inside a closed
-    // details element.
-    expect(fold.closest('details')).not.toHaveAttribute('open')
+    const list = screen.getByText(/what the documents said/i)
+    expect(list).toBeInTheDocument()
+    expect(list.closest('details')).not.toHaveAttribute('open')
   })
 
   it('keeps the wall of never-do rules folded until asked for', async () => {
@@ -309,115 +318,11 @@ describe('archiving a campaign', () => {
   })
 })
 
-describe('the brief for the hook writer', () => {
-  it('takes a whole pasted document and keeps it in one piece', async () => {
-    // He does not write hooks by hand - he has the brief worked up into a
-    // document and pastes the result in. It must not be shredded into
-    // fragments the way the Hooks & ideas box deliberately is.
-    const doc = [
-      '# Vertus Campaign Brief',
-      '',
-      '## PRODUCT',
-      'Vertus - an AI system at waitlist stage. Never state claims as proven fact.',
-      '',
-      '## VOICE',
-      'Overheard, not pitched.',
-    ].join('\n')
-
-    const user = userEvent.setup()
-    await renderBrief()
-
-    await user.click(screen.getByLabelText('Brief for the hook writer'))
-    await user.paste(doc)
-    await user.click(screen.getByRole('button', { name: 'Save the brief' }))
-
-    await waitFor(async () => {
-      const fields = await adapter.listCampaignFields(INFLOW_CAMPAIGN_ID)
-      expect(fields.find((f) => f.field_key === 'generation_brief')?.field_value).toBe(doc)
-    })
-    // One field, not a pile of hooks.
-    expect(await adapter.listCampaignHooks(INFLOW_CAMPAIGN_ID)).toHaveLength(0)
-  })
-
-  it('stays out of the everything-else fold', async () => {
-    await adapter.setCampaignField({
-      campaign_id: INFLOW_CAMPAIGN_ID,
-      field_key: 'generation_brief',
-      field_value: 'A pasted brief.',
-      source: 'user_entered',
-      source_quote: null,
-      source_document_id: null,
-    })
-
-    await renderBrief()
-    // It has its own box; showing it a second time as a raw field row would be
-    // the metadata dashboard creeping back.
-    expect(screen.queryByText('generation brief')).toBeNull()
-  })
-})
-
-describe('hooks and ideas', () => {
-  it('stays folded, and says how many are in there', async () => {
-    await renderBrief()
-
-    const summary = screen.getByText(/hooks & ideas/i)
-    expect(summary.closest('details')).not.toHaveAttribute('open')
-  })
-
-  it('takes a dump of several ideas at once, split on blank lines', async () => {
-    const user = userEvent.setup()
-    await renderBrief()
-
-    await user.click(screen.getByText(/hooks & ideas/i))
-    await user.type(
-      screen.getByLabelText('Hooks and ideas'),
-      'POV: your payout is frozen{enter}{enter}Format: screen recording, then talk over it',
-    )
-    await user.click(screen.getByRole('button', { name: 'Save to this brief' }))
-
-    await waitFor(async () => {
-      const hooks = await adapter.listCampaignHooks(INFLOW_CAMPAIGN_ID)
-      expect(hooks.map((h) => h.body)).toEqual([
-        'POV: your payout is frozen',
-        'Format: screen recording, then talk over it',
-      ])
-      // His words, never a model's.
-      expect(hooks.every((h) => h.source === 'user_entered' && h.model === null)).toBe(true)
-    })
-  })
-
-  it('deletes one without touching the others', async () => {
-    for (const body of ['Keep this one', 'Delete this one']) {
-      await adapter.addCampaignHook({
-        campaign_id: INFLOW_CAMPAIGN_ID,
-        angle_id: null,
-        body,
-        outline: null,
-        source: 'user_entered',
-        model: null,
-        generated_at: null,
-        used_at: null,
-      })
-    }
-
-    const user = userEvent.setup()
-    await renderBrief()
-    await user.click(screen.getByText(/hooks & ideas/i))
-
-    await user.click(await screen.findByRole('button', { name: /Delete hook: Delete this one/ }))
-
-    await waitFor(async () => {
-      const hooks = await adapter.listCampaignHooks(INFLOW_CAMPAIGN_ID)
-      expect(hooks.map((h) => h.body)).toEqual(['Keep this one'])
-    })
-  })
-})
-
 describe('the platforms it posts to', () => {
   it('replaces the old handle and login fields entirely', async () => {
     await renderBrief()
 
-    expect(screen.getByText('Platforms')).toBeInTheDocument()
+    expect(screen.getByText('Accounts')).toBeInTheDocument()
     // The campaign-level login is gone: a login belongs to one account.
     expect(screen.queryByLabelText(/^Email$/)).toBeNull()
     expect(screen.queryByText(/♪ TikTok/)).toBeNull()
@@ -428,7 +333,7 @@ describe('the platforms it posts to', () => {
     const user = userEvent.setup()
     await renderBrief()
 
-    await user.click(within(screen.getByText('Platforms').closest('div')!).getByRole('button', { name: 'Add' }))
+    await user.click(within(screen.getByText('Accounts').closest('div')!).getByRole('button', { name: 'Add' }))
     await user.click(screen.getByRole('button', { name: 'Facebook' }))
 
     await waitFor(async () => {
@@ -479,6 +384,8 @@ describe('what each platform pays', () => {
   it('lets one platform have a rate of its own, saved as integer cents', async () => {
     const user = userEvent.setup()
     await renderBrief()
+    await user.click(screen.getByText('More'))
+    await user.click(await screen.findByRole('button', { name: 'More for TikTok' }))
 
     const box = await screen.findByLabelText('TikTok pay per post')
     await user.click(box)
@@ -493,12 +400,16 @@ describe('what each platform pays', () => {
     })
     // A rate of its own means each platform is paid separately, so the switch
     // reads on without his having touched it.
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Each platform pays separately' })).toHaveAttribute(
-        'aria-pressed',
-        'true',
-      )
-    })
+    // The page reloads after the save; give that room under a loaded test run.
+    await waitFor(
+      () => {
+        expect(screen.getByRole('button', { name: 'Each platform pays separately' })).toHaveAttribute(
+          'aria-pressed',
+          'true',
+        )
+      },
+      { timeout: 4000 },
+    )
   })
 
   it('clears a platform back to the campaign rate when the box is emptied', async () => {
@@ -509,6 +420,7 @@ describe('what each platform pays', () => {
     // Re-render with the value in place.
     document.body.innerHTML = ''
     await renderBrief()
+    await user.click(await screen.findByRole('button', { name: `More for ${accounts[0].platform}` }))
 
     const box = await screen.findByLabelText(`${accounts[0].platform} pay per post`)
     await user.clear(box)
@@ -522,6 +434,7 @@ describe('what each platform pays', () => {
   it('refuses a rate that is not an amount, and says nothing was saved', async () => {
     const user = userEvent.setup()
     await renderBrief()
+    await user.click(await screen.findByRole('button', { name: 'More for TikTok' }))
     const box = await screen.findByLabelText('TikTok pay per post')
     await user.type(box, 'lots')
     await user.tab()

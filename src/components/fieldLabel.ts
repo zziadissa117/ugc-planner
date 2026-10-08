@@ -2,5 +2,7 @@
  *  underscores become spaces and nothing else changes. Renaming a field for
  *  display risks describing it as something it is not. */
 export function fieldLabel(key: string): string {
-  return key.replace(/_/g, ' ')
+  // "cents" is the storage unit, and every money field is shown in dollars,
+  // so it is the one word dropped: "pay per video", not "pay per video cents".
+  return key.replace(/_cents$/, '').replace(/_/g, ' ')
 }

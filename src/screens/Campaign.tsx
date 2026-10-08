@@ -1,31 +1,30 @@
-// The brief: what this campaign is, where it posts, and what to say.
+// A campaign: what it pays, and the accounts it posts from.
 //
-// This page used to be a metadata dashboard - trial dates, aspect ratios,
-// wider-topic ratios, warm-up prep notes, angle-family alternation, editing
-// style, two competing sets of handles - almost none of which answers a
-// question he has while making a video. It is now built around the only four
-// that do (what the product is, who it is for, how it sounds, how the video is
-// structured), the hooks he works from, the platforms he posts to, and the
-// never-do list. Everything else is still stored and still editable, folded
-// into one line at the bottom.
+// "I don't even use the brief section at all... All I need is to know the
+// account logins." So the page is now three things: the two numbers that set
+// the pay (per post, posts a week), the accounts with their logins - big, with
+// Copy buttons - and one folded "More" holding everything else that other
+// screens still read (pay per platform, payout dates, submission, the cutter
+// link, the never-do list, notes, and what the documents said).
 //
-// Two columns on anything wider than a phone: he reads this on a laptop while
-// filming on his phone, and a single column of full-width cards made him
-// scroll past most of it.
+// The creative brief and hook ideas moved to the FILM console, where hooks are
+// written. The brief fields the contract reader fills (what it is, who it's
+// for, how it sounds...) are still stored - FILM shows them - and sit in the
+// "More" fold here.
 
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
 import { AccountsEditor } from '../components/AccountsEditor'
 import { EditableField } from '../components/EditableField'
-import { CloseIcon, TrashIcon, UploadIcon } from '../components/icons'
+import { PostizChannels } from '../components/PostizChannels'
+import { TrashIcon, UploadIcon } from '../components/icons'
 import { Button, Disclosure, SectionLabel } from '../components/ui'
 import { INPUT_CLASS, buttonClass } from '../components/styles'
 import type {
   Campaign as CampaignRow,
   CampaignAccount,
   CampaignField,
-  CampaignHook,
   CampaignPayout,
   CampaignRule,
   PayoutSchedule,
@@ -46,8 +45,7 @@ import { GENERATION_BRIEF_KEY } from '../hooks/generateHooks'
 import { localToday } from '../data'
 import { formatDay } from '../data/payouts'
 import { useData } from '../data/useData'
-import { useLoaded } from '../data/useLoaded'
-import { dailyEarningsCents, formatCents, payingPlatforms, weeklyEarningsCents } from '../money'
+import { campaignEarnings, formatCents, payingPlatforms } from '../money'
 
 interface Loaded {
   campaign: CampaignRow
@@ -59,34 +57,10 @@ interface Loaded {
   payouts: CampaignPayout[]
 }
 
-/** The four that actually help him make the video. Everything else the parser
- *  found is kept, and kept out of the way. */
-const BRIEF_KEYS = [
-  'product_facts',
-  'talking_points',
-  'audience',
-  'tone',
-  'structure',
-  'notes',
-] as const
-
-const BRIEF_LABELS: Record<string, string> = {
-  product_facts: 'What it is',
-  // One per line. Pinned in the FILM console while he films, so it is the one
-  // field here written to be read aloud from rather than read once.
-  talking_points: 'Say this in the video (one per line)',
-  audience: 'Who it is for',
-  tone: 'How it sounds',
-  structure: 'How the video goes',
-  // His own, about this campaign. No document produces it and no parser writes
-  // it: it is the one field here that is only ever his.
-  notes: 'Notes',
-}
-
-/** Keys that are now shown somewhere better, or are gone from the app
- *  entirely, and must not reappear in the "everything else" fold. The
- *  handles and login moved onto campaign_accounts, one per platform; editing
- *  style was noise he asked to be rid of. */
+/** Keys that are shown somewhere better, or are gone from the app entirely,
+ *  and must not reappear in the "what the documents said" list. The handles
+ *  and login live on campaign_accounts, one per platform; the creative brief
+ *  lives in FILM; the rate is the pay line; notes have their own box. */
 const RETIRED_KEYS = [
   GENERATION_BRIEF_KEY,
   'platforms',
@@ -96,13 +70,14 @@ const RETIRED_KEYS = [
   'account_password',
   'editing_style',
   'pay_per_video_cents',
-  ...BRIEF_KEYS,
+  'notes',
 ]
 
 export function Campaign() {
   const { campaignId } = useParams()
   const data = useData()
   const navigate = useNavigate()
+  const [params, setParams] = useSearchParams()
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [missing, setMissing] = useState(false)
 
@@ -173,11 +148,10 @@ export function Campaign() {
     .filter((f) => !RETIRED_KEYS.includes(f.field_key))
     .sort((a, b) => a.field_key.localeCompare(b.field_key))
 
-  const perDay = dailyEarningsCents(campaign, accounts)
-  const perWeek = weeklyEarningsCents(campaign, accounts)
+  const earnings = campaignEarnings(campaign, accounts)
 
   return (
-    <section className="mx-auto flex max-w-4xl flex-col gap-5">
+    <section className="mx-auto flex max-w-4xl flex-col gap-7">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <CampaignTitle
@@ -191,19 +165,32 @@ export function Campaign() {
         <div className="flex shrink-0 items-center gap-2">
           <Link to={`/campaigns/${campaign.id}/update`} className={buttonClass('quiet', 'small')}>
             <UploadIcon className="h-4 w-4" />
-            Update from a new brief
+            Update from a new contract
           </Link>
           <DeleteCampaign
             name={campaign.name}
             onDelete={async () => {
               await data.archiveCampaign(campaign.id)
-              void navigate('/campaigns')
+              // A campaign the cutter posts still holds its Postiz channels:
+              // land on the list that says which to switch off.
+              void navigate(campaign.cutter_campaign_id ? `/campaigns/archived?free=${campaign.id}` : '/campaigns')
             }}
           />
         </div>
       </header>
 
-      {/* The three numbers that decide what today owes and what it pays. */}
+      {/* Just restored from the archive: the Postiz channels it had switched
+          off, to switch back on. */}
+      {params.get('postiz') === 'restore' ? (
+        <div className="flex flex-col gap-2">
+          <PostizChannels campaign={campaign} mode="restore" />
+          <Button size="small" variant="ghost" className="self-start" onClick={() => setParams({}, { replace: true })}>
+            Done
+          </Button>
+        </div>
+      ) : null}
+
+      {/* The pay: two numbers, and what they come to. */}
       <div className="flex flex-wrap items-center gap-2 border-y border-rule py-3">
         {/* Through the field row rather than straight at the column: the
             provenance row and the column the app plans against have to move
@@ -221,109 +208,90 @@ export function Campaign() {
           value={campaign.posts_per_week}
           onSave={(next) => saveColumn({ posts_per_week: next })}
         />
+        {/* The same figures as the Money screen, monthly override and all. */}
         <div className="ml-auto text-right">
           <p className="label text-state-later">per week</p>
           <p className="numeric mt-1 text-2xl font-semibold leading-none text-text">
-            {perWeek === null ? 'no rate yet' : formatCents(perWeek)}
+            {earnings === null ? 'no rate yet' : formatCents(earnings.weekCents)}
           </p>
-          {perDay === null ? null : (
-            <p className="meta mt-1 text-state-later">about {formatCents(perDay)} a day</p>
+          {earnings === null ? null : (
+            <p className="meta mt-1 text-state-later">about {formatCents(earnings.dayCents)} a day</p>
           )}
         </div>
       </div>
 
-      <CrossPostPay
-        campaign={campaign}
-        accounts={accounts}
-        onToggle={(on) => saveColumn({ pays_per_platform: on })}
-      />
+      <AccountsEditor data={data} campaignId={campaign.id} onChanged={() => void refresh()} />
 
-      <CutterLink campaign={campaign} onSave={saveColumn} />
-
-      <PayoutSection
-        campaign={campaign}
-        payouts={payouts}
-        onSave={saveColumn}
-        onMarkPaid={async (dueDate) => {
-          await data.markPayoutPaid(campaign.id, dueDate)
-          await refresh()
-        }}
-        onMarkPending={async (dueDate) => {
-          await data.unmarkPayoutPaid(campaign.id, dueDate)
-          await refresh()
-        }}
-      />
-
-      <SwitchRow
-        on={campaign.needs_submission}
-        label="Videos need to be submitted"
-        detail={
-          campaign.needs_submission
-            ? 'Ticking a post asks whether you submitted it'
-            : 'Ticking a post is all this campaign needs'
-        }
-        onToggle={(on) => saveColumn({ needs_submission: on })}
-      />
-
-      {campaign.brief_is_incomplete ? (
-        <p className="border-l-2 border-state-waiting pl-3 text-base text-state-waiting">
-          This brief looks incomplete. Some rules may be missing.
-        </p>
-      ) : null}
-
-      <div className="grid gap-x-10 gap-y-6 sm:grid-cols-2">
+      {/* Everything else: set once, read by other screens, not needed day to
+          day. One fold. */}
+      <Disclosure summary="More" trailing="pay per platform, payouts, rules, notes" className="border-t">
         <div className="flex flex-col gap-5">
-          <div>
-            <SectionLabel>The brief</SectionLabel>
-            <div className="mt-2 flex flex-col divide-y divide-rule border-b border-rule">
-              {BRIEF_KEYS.map((key) => (
-                <EditableField
-                  key={key}
-                  field={byKey.get(key) ?? virtualField(campaign.id, key)}
-                  label={BRIEF_LABELS[key]}
-                  multiline={key === 'talking_points'}
-                  onSave={(value) => saveField(key, value)}
-                  onConfirm={
-                    byKey.get(key)?.source === 'parsed_unreviewed'
-                      ? () => confirmField(key)
-                      : undefined
-                  }
-                />
-              ))}
-            </div>
-          </div>
+          {campaign.brief_is_incomplete ? (
+            <p className="border-l-2 border-state-waiting pl-3 text-base text-state-waiting">
+              The documents looked incomplete when they were read. Some rules may be missing.
+            </p>
+          ) : null}
 
-          <GenerationBrief
-            value={byKey.get(GENERATION_BRIEF_KEY)?.field_value ?? ''}
-            unreviewed={byKey.get(GENERATION_BRIEF_KEY)?.source === 'parsed_unreviewed'}
-            onSave={(value) => saveField(GENERATION_BRIEF_KEY, value)}
+          <CrossPostPay
+            campaign={campaign}
+            accounts={accounts}
+            onToggle={(on) => saveColumn({ pays_per_platform: on })}
           />
 
-          <HooksEditor campaignId={campaign.id} />
-        </div>
+          <PayoutSection
+            campaign={campaign}
+            payouts={payouts}
+            onSave={saveColumn}
+            onMarkPaid={async (dueDate) => {
+              await data.markPayoutPaid(campaign.id, dueDate)
+              await refresh()
+            }}
+            onMarkPending={async (dueDate) => {
+              await data.unmarkPayoutPaid(campaign.id, dueDate)
+              await refresh()
+            }}
+          />
 
-        <div className="flex flex-col gap-5">
-          <AccountsEditor data={data} campaignId={campaign.id} onChanged={() => void refresh()} />
+          <SwitchRow
+            on={campaign.needs_submission}
+            label="Videos need to be submitted"
+            detail={
+              campaign.needs_submission
+                ? 'Ticking a post asks whether you submitted it'
+                : 'Ticking a post is all this campaign needs'
+            }
+            onToggle={(on) => saveColumn({ needs_submission: on })}
+          />
+
+          <CutterLink campaign={campaign} onSave={saveColumn} />
 
           {rules.length > 0 ? (
-            <Disclosure summary={`Never do - ${rules.length}`} tone="blocked" className="border-t">
-              <ul className="flex flex-col gap-2.5">
+            <div>
+              <SectionLabel as="h3" tone="blocked">{`Never do - ${rules.length}`}</SectionLabel>
+              <ul className="mt-2 flex flex-col gap-2.5">
                 {rules.map((rule) => (
                   <li key={rule.id} className="border-l border-state-blocked/70 pl-3 text-base text-text">
                     {rule.body}
                   </li>
                 ))}
               </ul>
-            </Disclosure>
+            </div>
           ) : null}
 
+          {/* His own, about this campaign. No document produces it. */}
+          <div className="border-b border-rule">
+            <EditableField
+              field={byKey.get('notes') ?? virtualField(campaign.id, 'notes')}
+              label="Notes"
+              multiline
+              onSave={(value) => saveField('notes', value)}
+            />
+          </div>
+
           {rest.length > 0 ? (
-            <Disclosure
-              summary={`Everything else from the documents - ${rest.length}`}
-              tone="later"
-              className="border-t"
-            >
-              <div className="flex flex-col divide-y divide-rule text-sm">
+            <div>
+              <SectionLabel as="h3">{`What the documents said - ${rest.length}`}</SectionLabel>
+              <div className="mt-2 flex flex-col divide-y divide-rule text-sm">
                 {rest.map((field) => (
                   <EditableField
                     key={field.id}
@@ -337,184 +305,11 @@ export function Campaign() {
                   />
                 ))}
               </div>
-            </Disclosure>
+            </div>
           ) : null}
         </div>
-      </div>
+      </Disclosure>
     </section>
-  )
-}
-
-/** A whole worked-up brief, pasted in as one document.
- *
- *  He does not write hooks by hand. He has the campaign's brief and contract
- *  read and turned into a document - product facts, audience segments, voice
- *  rules, formats, hook banks, angles - and pastes the result in here. It is
- *  stored verbatim as one field and sent to the generator whole, because the
- *  structure is the point: split into fragments it would be a pile of lines,
- *  and the generator would lose which format or segment each belonged to.
- *
- *  Deliberately NOT a list of hooks. Nothing here is ever offered to him as a
- *  line to read to camera - the FILM console shows generated hooks only, which
- *  is exactly what he asked for. */
-function GenerationBrief({
-  value,
-  unreviewed,
-  onSave,
-}: {
-  value: string
-  /** Written by Claude when the documents were read, and not yet saved by
-   *  him. Saving it - as is or edited - is what makes it his. */
-  unreviewed: boolean
-  onSave: (value: string | null) => Promise<void>
-}) {
-  const [draft, setDraft] = useState(value)
-  const [busy, setBusy] = useState(false)
-  const [saved, setSaved] = useState(false)
-  // Held in state, not computed from `value` on every render: derived from the
-  // value it would slam shut the instant he saved, hiding the confirmation he
-  // was waiting for. Open to start when there is nothing in it yet, and his
-  // afterwards.
-  const [open, setOpen] = useState(value.trim() === '')
-
-  const dirty = draft.trim() !== value.trim() || unreviewed
-
-  return (
-    <Disclosure
-      summary={`Brief for the hook writer${
-        value.trim() === '' ? '' : unreviewed ? ' - written by Claude, not checked' : ' - saved'
-      }`}
-     
-      className="border-t"
-      open={open}
-      onToggle={(event) => setOpen(event.currentTarget.open)}
-    >
-      {unreviewed ? (
-        <p className="meta mb-3 text-state-waiting">
-          Claude wrote this from your brief and nothing in it has been checked. Read it, fix what is
-          wrong, then save - saving makes it yours.
-        </p>
-      ) : null}
-      <p className="meta mb-3 text-state-later">
-        Paste the whole thing - product, audience, voice, structure, formats, hook banks, angles. It
-        goes to the hook writer as-is and outranks the short fields above. It is never shown as a
-        hook.
-      </p>
-      <textarea
-        value={draft}
-        onChange={(event) => {
-          setDraft(event.target.value)
-          setSaved(false)
-        }}
-        aria-label="Brief for the hook writer"
-        placeholder="# Campaign brief&#10;&#10;## PRODUCT&#10;...&#10;&#10;## VOICE&#10;..."
-        className={`${INPUT_CLASS} h-64 w-full resize-y py-3 font-mono text-xs`}
-      />
-      <Button
-        onClick={() => {
-          setBusy(true)
-          void onSave(draft.trim() === '' ? null : draft)
-            .then(() => setSaved(true))
-            .finally(() => setBusy(false))
-        }}
-        disabled={busy || !dirty}
-        className="mt-2 w-full"
-      >
-        {busy ? 'Saving...' : saved && !dirty ? 'Saved' : unreviewed ? 'Looks right - save it' : 'Save the brief'}
-      </Button>
-    </Disclosure>
-  )
-}
-
-/** Hooks, ideas, formats - whatever he wants the generator to work from.
- *
- *  Collapsed by default: this list runs long, and it is material he reaches
- *  for while filming rather than something to read past on the way to the
- *  rest of the brief. A blank line starts a new entry, so a whole page of
- *  ideas can be pasted in at once. */
-function HooksEditor({ campaignId }: { campaignId: string }) {
-  const data = useData()
-  const [loaded, reload] = useLoaded(() => data.listCampaignHooks(campaignId), [campaignId, data])
-  const hooks: CampaignHook[] = loaded ?? []
-  const [body, setBody] = useState('')
-  const [busy, setBusy] = useState(false)
-
-  async function add() {
-    // Split on blank lines rather than every newline: a rough idea is often
-    // several lines, and one paste should not become twelve fragments.
-    const entries = body
-      .split(/\n\s*\n/)
-      .map((entry) => entry.trim())
-      .filter((entry) => entry !== '')
-    if (entries.length === 0) return
-
-    setBusy(true)
-    try {
-      for (const entry of entries) {
-        await data.addCampaignHook({
-          campaign_id: campaignId,
-          angle_id: null,
-          body: entry,
-          outline: null,
-          // His words. A model never wrote this, so it must not claim one did.
-          source: 'user_entered',
-          model: null,
-          generated_at: null,
-          used_at: null,
-        })
-      }
-      setBody('')
-      await reload()
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function remove(id: string) {
-    await data.deleteCampaignHook(id)
-    await reload()
-  }
-
-  return (
-    <Disclosure summary={`Hooks & ideas - ${hooks.length}`} className="border-t">
-      {hooks.length > 0 ? (
-        <ul className="flex flex-col divide-y divide-rule border-y border-rule">
-          {hooks.map((hook) => (
-            <li key={hook.id} className="flex items-start gap-2 py-2.5">
-              <span
-                className={`min-w-0 flex-1 whitespace-pre-wrap text-base ${
-                  hook.used_at === null ? 'text-text' : 'text-state-later line-through'
-                }`}
-              >
-                {hook.body}
-                {hook.source === 'generated' ? (
-                  <span className="ml-2 label text-state-later">generated</span>
-                ) : null}
-              </span>
-              <button
-                type="button"
-                onClick={() => void remove(hook.id)}
-                aria-label={`Delete hook: ${hook.body.slice(0, 40)}`}
-                className="press -my-1 flex size-9 shrink-0 items-center justify-center rounded-full text-state-later active:bg-surface"
-              >
-                <CloseIcon className="h-4 w-4" />
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-
-      <textarea
-        value={body}
-        onChange={(event) => setBody(event.target.value)}
-        aria-label="Hooks and ideas"
-        placeholder="Dump hooks, video ideas, formats, concepts. Blank line between each. Generate Hooks builds from these."
-        className={`${INPUT_CLASS} mt-3 h-28 w-full resize-y py-3 text-base`}
-      />
-      <Button onClick={() => void add()} disabled={busy || body.trim() === ''} className="mt-2 w-full">
-        Save to this brief
-      </Button>
-    </Disclosure>
   )
 }
 

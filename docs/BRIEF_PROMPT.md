@@ -2,7 +2,9 @@
 
 He does not write hooks by hand. The workflow is: send this prompt to
 Claude along with the campaign's brief and contract, then paste the whole
-answer into the **Brief for the hook writer** box on the campaign's page.
+answer into the **Creative brief** fold in the FILM console (FILM -> the
+campaign -> set a goal). The contract reader also drafts one from an uploaded
+brief, labelled as Claude's until you save it.
 That box goes to the hook generator verbatim and outranks every other
 section of the request.
 
@@ -137,16 +139,15 @@ Rules for you while writing it:
 
 ## After pasting it
 
-Open the campaign, paste the whole thing into **Brief for the hook
-writer**, Save. That is all of it - the FILM console reads the TALKING
+FILM -> the campaign -> set a goal, open **Creative brief**, paste the
+whole thing in, Save. That is all of it - the console reads the TALKING
 POINTS section straight out of this document and pins it to the top of
 the screen while filming, so there is nothing to copy across twice.
 
-**Say this in the video** on the brief page overrides that section when
-it has anything in it. Use it when a batch wants something the document
-does not say, and leave it empty the rest of the time.
+A `talking_points` field (in the campaign page's More fold, under "What the
+documents said") overrides that section when it has anything in it.
 
-Then FILM -> that campaign -> set a goal -> **Write me some hooks**.
+Then **Write me some hooks**, on the same screen.
 
 The generator is told the working brief outranks the short fields above
 it, so the four brief fields can stay thin if this document is good.

@@ -4,8 +4,10 @@ import { useNavigate } from 'react-router-dom'
 import { KNOWN_PLATFORMS } from '../components/platforms'
 import { DocumentInput, type Upload } from '../components/DocumentInput'
 import { fieldLabel } from '../components/fieldLabel'
+import { CheckIcon } from '../components/icons'
 import { ReadingProgress } from '../components/ReadingProgress'
 import { INPUT_CLASS } from '../components/styles'
+import { Disclosure, SectionLabel, StateDot } from '../components/ui'
 import {
   MONEY_FIELDS,
   centsToDollarsInput,
@@ -134,7 +136,17 @@ export function NewCampaign() {
 
       setReview(verified.result)
       setRejected(verified.rejected)
-      setConfirmed(new Set())
+      // Everything that survived the quote check starts accepted: he pasted
+      // the contract to have it filled in, and a value whose line was found
+      // in the document is the contract's word, not a guess. One Save takes
+      // the lot; unticking one leaves it unchecked on the campaign.
+      setConfirmed(
+        new Set(
+          Object.entries(verified.result.fields)
+            .filter(([, field]) => field.value !== null && field.source_quote !== null)
+            .map(([key]) => key),
+        ),
+      )
       setExcludedRules(new Set())
       setExcludedTiers(new Set())
       // 'platforms' is the one account fact a document sometimes states
@@ -188,12 +200,16 @@ export function NewCampaign() {
         await data.updateCampaign(campaign.id, { posts_per_week: owed })
       }
 
-      // Only when it differs from what the parse produced, so confirming a
+      // Only when it differs from what the parse produced, so accepting a
       // documented rate and leaving the box alone does not rewrite it as
-      // something he typed. Through saveFieldValue, so the provenance row and
-      // the column the app plans against move together.
+      // something he typed - and unticking the rate and leaving the box alone
+      // leaves it unchecked rather than quietly making it his. Through
+      // saveFieldValue, so the provenance row and the column the app plans
+      // against move together.
       const cents = parseDollarsToCents(rate)
-      if (cents !== null && cents !== campaign.pay_per_video_cents) {
+      const parsedRate = review.fields.pay_per_video_cents?.value ?? null
+      const untouchedParsedRate = parsedRate !== null && cents === Number(parsedRate)
+      if (cents !== null && cents !== campaign.pay_per_video_cents && !untouchedParsedRate) {
         await saveFieldValue(data, campaign.id, 'pay_per_video_cents', String(cents))
       }
 
@@ -308,8 +324,8 @@ export function NewCampaign() {
         />
 
         <p className="text-sm text-state-later">
-          The brief - what it is, who it is for, hooks, the never-do list - is on the campaign
-          page once this is saved, and a brief or contract can be read in later.
+          A brief or contract can be read in later from the campaign page, and hooks and the
+          creative brief live in FILM.
         </p>
 
         {error ? <p className="text-state-blocked">{error}</p> : null}
@@ -340,6 +356,7 @@ export function NewCampaign() {
       <Review
         result={review}
         rejected={rejected}
+        documents={briefText !== null && contractText !== null ? 'documents' : briefText !== null ? 'brief' : 'contract'}
         confirmed={confirmed}
         onToggle={(key) =>
           setConfirmed((current) => {
@@ -456,6 +473,7 @@ function kindOf(key: string): 'money' | 'count' | 'text' {
 function Review({
   result,
   rejected,
+  documents,
   confirmed,
   onToggle,
   excludedRules,
@@ -477,6 +495,9 @@ function Review({
 }: {
   result: ParseResult
   rejected: readonly string[]
+  /** What was read, for the two list headings: "From the contract", "Not in
+   *  the brief". */
+  documents: 'brief' | 'contract' | 'documents'
   confirmed: ReadonlySet<string>
   onToggle: (key: string) => void
   excludedRules: ReadonlySet<number>
@@ -499,15 +520,16 @@ function Review({
   const entries = Object.entries(result.fields).sort(([a], [b]) => a.localeCompare(b))
   const blank = entries.filter(([, field]) => field.value === null)
 
-  // Every one of these is amber until he taps it; the order is where his
-  // attention is worth most. A value that can be read straight off its quote
-  // is a glance. One the parser summarised, or flagged with a note, is
-  // something to actually read - so those come first.
+  // Every found value starts ticked and goes in with the one Save. The order
+  // is where his attention is worth most: a value that can be read straight
+  // off its quote is a glance, while one the parser summarised, or flagged
+  // with a note, is something to actually read - so those come first.
   const needsReading = (key: string, field: ParseResult['fields'][string]) =>
     (field.note ?? null) !== null || !valueIsInQuote(field.value, field.source_quote, kindOf(key))
   const found = entries
     .filter(([, field]) => field.value !== null)
     .sort(([ka, a], [kb, b]) => Number(needsReading(kb, b)) - Number(needsReading(ka, a)))
+  const ticked = found.filter(([key]) => confirmed.has(key)).length
 
   return (
     <section className="mx-auto flex max-w-screen-sm flex-col gap-7">
@@ -541,72 +563,60 @@ function Review({
 
       {found.length > 0 ? (
         <div>
-          <h2 className="label text-state-later">
-            Found in the documents
-          </h2>
+          <SectionLabel trailing={`${ticked} of ${found.length} ticked`}>From the {documents}</SectionLabel>
           <p className="meta mt-1 text-state-later">
-            Tap a row to confirm it against the quote. Nothing counts as a documented rate or a
-            verified quota until you do.
+            Each value was checked against the line it came from. Save accepts everything ticked -
+            untick anything wrong and it stays unchecked on the campaign.
           </p>
-          <ul aria-label="Parsed fields" className="mt-3 flex flex-col gap-3">
+          <ul aria-label="Parsed fields" className="mt-1 flex flex-col divide-y divide-rule">
             {found.map(([key, field]) => {
-              const isConfirmed = confirmed.has(key)
+              const isTicked = confirmed.has(key)
+              const value = field.value ?? ''
               return (
                 <li key={key}>
                   <button
                     type="button"
                     onClick={() => onToggle(key)}
-                    aria-pressed={isConfirmed}
-                    className={`press flex min-h-tap w-full flex-col justify-center rounded-xl border px-4 py-3 text-left active:bg-surface ${
-                      isConfirmed
-                        ? 'border-state-posted/50 bg-state-posted/[0.06]'
-                        : 'border-state-waiting/50 bg-state-waiting/[0.06]'
-                    }`}
+                    aria-pressed={isTicked}
+                    className="press flex w-full gap-3 py-3 text-left active:bg-surface"
                   >
-                    <span className="label text-state-later">
-                      {fieldLabel(key)}
-                    </span>
                     <span
-                      className={isConfirmed ? 'text-state-posted' : 'text-state-waiting'}
+                      aria-hidden
+                      className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md border ${
+                        isTicked ? 'border-text text-text' : 'border-edge-lit'
+                      }`}
                     >
-                      {field.value}
+                      {isTicked ? <CheckIcon className="draw-check h-4 w-4" strokeWidth={2.25} /> : null}
                     </span>
-                    <span
-                      className={`label mt-1.5 ${isConfirmed ? 'text-state-posted' : 'text-state-waiting'}`}
-                    >
-                      {isConfirmed ? 'confirmed' : 'from file - unreviewed'}
-                    </span>
-                    {field.note ? (
-                      <span className="mt-1 text-sm text-text">Check: {field.note}</span>
-                    ) : null}
-                    <span className="meta mt-1 text-state-later">
-                      {valueIsInQuote(field.value, field.source_quote, kindOf(key))
-                        ? 'In the quote, word for word: '
-                        : 'Summarised from: '}
-                      "{field.source_quote}"
+                    <span className="flex min-w-0 flex-1 flex-col">
+                      <span className="flex items-baseline justify-between gap-3">
+                        <span className="label text-state-later">{fieldLabel(key)}</span>
+                        <span className="label shrink-0 text-state-later">
+                          {isTicked ? 'accepted' : 'left unchecked'}
+                        </span>
+                      </span>
+                      <span
+                        className={`text-lg leading-snug ${
+                          isTicked ? 'text-text' : 'text-state-later line-through decoration-state-later/60'
+                        }`}
+                      >
+                        {kindOf(key) === 'money' && /^\d+$/.test(value) ? formatCents(Number(value)) : value}
+                      </span>
+                      {field.note ? (
+                        <span className="mt-1 text-sm text-state-waiting">Check: {field.note}</span>
+                      ) : null}
+                      <span className="meta mt-1 text-state-later">
+                        {valueIsInQuote(field.value, field.source_quote, kindOf(key))
+                          ? 'Word for word: '
+                          : 'Summarised from: '}
+                        "{field.source_quote}"
+                      </span>
                     </span>
                   </button>
                 </li>
               )
             })}
           </ul>
-        </div>
-      ) : null}
-
-      {result.hook_brief !== undefined && result.hook_brief !== null ? (
-        <div>
-          <h2 className="label text-state-waiting">Brief for the hook writer - written by Claude</h2>
-          <p className="meta mt-1 text-state-later">
-            Claude wrote this from your documents, so it is not a quote and nothing here is
-            checked. Read it, fix anything wrong, and clear the box to save none. It goes to the
-            hook writer as-is. It ends with what the documents do not say.
-          </p>
-          <textarea
-            value={hookBrief}
-            onChange={(event) => onHookBriefChange(event.target.value)}
-            aria-label="Brief for the hook writer"
-            className={`${INPUT_CLASS} mt-2 h-64 w-full resize-y py-3 font-mono text-xs`}
-          />
         </div>
       ) : null}
 
@@ -675,30 +685,49 @@ function Review({
         </div>
       ) : null}
 
+      {result.hook_brief !== undefined && result.hook_brief !== null ? (
+        // Folded: it is a page of Claude's own writing, not a value from the
+        // contract, and it can be read and fixed later in FILM's Creative
+        // brief just as well as here.
+        <Disclosure summary="Brief for the hook writer" trailing="written by Claude" className="border-t">
+          <p className="meta text-state-later">
+            Claude wrote this from your documents, so it is not a quote and nothing here is
+            checked. It is saved as unchecked and goes to the hook writer as-is - clear the box to
+            save none. It ends with what the documents do not say.
+          </p>
+          <textarea
+            value={hookBrief}
+            onChange={(event) => onHookBriefChange(event.target.value)}
+            aria-label="Brief for the hook writer"
+            className={`${INPUT_CLASS} mt-2 h-64 w-full resize-y py-3 font-mono text-xs`}
+          />
+        </Disclosure>
+      ) : null}
+
       {blank.length > 0 ? (
         <div>
-          <h2 className="label text-state-later">
-            Not found
-          </h2>
-          <ul aria-label="Blank fields" className="mt-2 flex flex-col gap-1 text-sm">
+          <SectionLabel trailing={blank.length}>Not in the {documents}</SectionLabel>
+          <ul aria-label="Blank fields" className="mt-2 flex flex-col gap-1.5 text-base">
             {blank.map(([key]) => (
-              <li key={key} className="flex justify-between gap-4">
-                <span className="text-state-later">{fieldLabel(key)}</span>
-                <span className="text-state-later">
-                  {rejected.includes(key) ? 'quote not in the document' : 'not saved yet'}
-                </span>
+              <li key={key} className="flex items-center gap-3">
+                <StateDot tone="later" />
+                <span className="min-w-0 flex-1 text-state-later">{fieldLabel(key)}</span>
+                {rejected.includes(key) ? (
+                  <span className="meta shrink-0 text-state-later">its quote was not in the document</span>
+                ) : null}
               </li>
             ))}
           </ul>
+          <p className="meta mt-3 text-state-later">
+            Left blank rather than guessed. Logins and handles are never in a contract - they go in
+            Where it posts above.
+          </p>
         </div>
-      ) : null}
-
-      {/* One plain line, so that "it did not fill that in" reads as the app
-          working rather than as a bug. */}
-      <p className="text-sm text-state-later">
-        No document states your handles or logins, setup type, real per-stage times or daily
-        quota, so nothing was guessed for them. Fill them in yourself when you are ready.
-      </p>
+      ) : (
+        <p className="meta text-state-later">
+          Logins and handles are never in a contract - they go in Where it posts above.
+        </p>
+      )}
 
       {error ? <p className="text-state-blocked">{error}</p> : null}
 

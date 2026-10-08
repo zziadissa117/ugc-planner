@@ -236,9 +236,18 @@ Not yet deployed. Stub it behind an interface; make the paste-JSON path work now
 
 ### The review screen
 
-Every parsed field renders `FROM FILE - unreviewed` in amber until confirmed
-with a tap. Everything not found is blank and marked `not saved yet`. Nothing
-counts as a documented rate or verified quota until confirmed.
+Two lists. **From the contract** holds every value that survived the quote
+check, each with the line it came from, and every one starts ticked: one Save
+creates the campaign and makes each ticked value `documented`. He pasted the
+contract to have it filled in, and a value whose quote was found in the
+document is the contract's word, not a guess. Unticking one leaves it
+`parsed_unreviewed` - amber on the campaign, and not planned against.
+**Not in the contract** lists everything the parser did not find, grey, and
+saves it blank. (It used to be amber tap-to-confirm cards, one per field; he
+asked for the contract to fill itself in.)
+
+The update screen does the same for values a re-parse adds: new ones start
+ticked, and a conflict still asks "Keep old / Use new", defaulting to keep.
 
 Fields no document ever contains - **handles, setup type, real per-stage times,
 daily quota** - are left blank with no attempt to infer. Say so on the review

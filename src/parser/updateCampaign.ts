@@ -14,7 +14,7 @@
 // can be lost by adding something that was not there before.
 
 import type { BonusTier, Campaign, CampaignField, CampaignRule, DataAdapter } from '../data'
-import { COLUMN_FIELDS } from '../data/campaignFields'
+import { COLUMN_FIELDS, confirmFieldValue } from '../data/campaignFields'
 import type { ParsedBonusTier, ParseResult } from './types'
 
 export interface FieldDiff {
@@ -146,10 +146,11 @@ export interface ApplyUpdateInput {
  *  Everything additive - new rules, new bonus tiers - is written in full;
  *  nothing about them can conflict with anything saved, so there is nothing
  *  to decide. Fields are the one thing that can disagree with a confirmed
- *  value, so they are written only for the keys explicitly accepted, and
- *  always as `parsed_unreviewed` - amber - even a field he tapped "Use new"
- *  on, because a value from a second parse deserves the same one-tap
- *  confirmation the first one did before it can be `documented`. */
+ *  value, so they are written only for the keys explicitly accepted: the new
+ *  ones he left ticked and the conflicts he tapped "Use new" on. Apply is the
+ *  same one Save a fresh parse gets, so an accepted value with its quote
+ *  found in the new document becomes `documented`, and a rate or cycle size
+ *  moves the campaign's own column with it. */
 export async function applyCampaignUpdate(
   adapter: DataAdapter,
   input: ApplyUpdateInput,
@@ -198,6 +199,9 @@ export async function applyCampaignUpdate(
         source_quote: diff.parsedQuote,
         source_document_id: (diff.parsedFrom && documents.get(diff.parsedFrom)) ?? null,
       })
+      // Only with a quote behind it. Without one, confirming would turn the
+      // parser's value into his own word (`user_entered`), which it is not.
+      if (diff.parsedQuote !== null) await confirmFieldValue(tx, input.campaignId, diff.key)
     }
 
     const existingRuleCount = currentRules.length

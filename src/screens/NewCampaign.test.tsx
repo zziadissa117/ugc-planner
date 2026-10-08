@@ -239,9 +239,7 @@ describe('the review screen', () => {
 
     expect(screen.getByLabelText('Dollars per post')).toHaveValue('35.00')
 
-    // Confirm the parsed row, leave the box alone, save.
-    const list = screen.getByRole('list', { name: 'Parsed fields' })
-    await user.click(within(list).getByRole('button'))
+    // The parsed row is already ticked; leave the box alone and save.
     await user.click(screen.getByRole('button', { name: 'Save campaign' }))
 
     await waitFor(async () => {
@@ -274,30 +272,33 @@ describe('the review screen', () => {
     expect(fields.find((f) => f.field_key === 'pay_per_video_cents')?.source).toBe('user_entered')
   })
 
-  it('renders a parsed field amber and unreviewed until it is tapped', async () => {
+  it('starts every found value ticked, with its quote, and lets him untick one', async () => {
     const user = userEvent.setup()
     await reachReview(user)
 
+    expect(screen.getByRole('heading', { name: 'From the contract' })).toBeInTheDocument()
     const list = screen.getByRole('list', { name: 'Parsed fields' })
     const row = within(list).getByRole('button')
 
-    expect(row).toHaveAttribute('aria-pressed', 'false')
-    expect(within(row).getByText('from file - unreviewed')).toBeInTheDocument()
-    // The quote it came from is shown, so confirming means checking.
+    expect(row).toHaveAttribute('aria-pressed', 'true')
+    expect(within(row).getByText('accepted')).toBeInTheDocument()
+    // Shown as money, not as a count of cents.
+    expect(within(row).getByText('$35.00')).toBeInTheDocument()
+    // The line it came from is shown beside it.
     expect(within(row).getByText(/\$35\.00 per approved deliverable/)).toBeInTheDocument()
 
     await user.click(row)
-    expect(row).toHaveAttribute('aria-pressed', 'true')
-    expect(within(row).getByText('confirmed')).toBeInTheDocument()
+    expect(row).toHaveAttribute('aria-pressed', 'false')
+    expect(within(row).getByText('left unchecked')).toBeInTheDocument()
   })
 
-  it('lists a field the parser did not find as not saved yet', async () => {
+  it('lists a field the parser did not find as not in the contract', async () => {
     const user = userEvent.setup()
     await reachReview(user)
 
+    expect(screen.getByRole('heading', { name: 'Not in the contract' })).toBeInTheDocument()
     const blanks = screen.getByRole('list', { name: 'Blank fields' })
     expect(within(blanks).getByText('submission url')).toBeInTheDocument()
-    expect(within(blanks).getByText('not saved yet')).toBeInTheDocument()
   })
 
   it('drops a field whose quote is not in the document, and says so', async () => {
@@ -319,7 +320,7 @@ describe('the review screen', () => {
 
     const blanks = screen.getByRole('list', { name: 'Blank fields' })
     expect(within(blanks).getByText('cycle size')).toBeInTheDocument()
-    expect(within(blanks).getByText('quote not in the document')).toBeInTheDocument()
+    expect(within(blanks).getByText('its quote was not in the document')).toBeInTheDocument()
     expect(screen.getByText(/1 field was dropped/i)).toBeInTheDocument()
     // And it is not offered for confirmation.
     expect(screen.queryByRole('list', { name: 'Parsed fields' })).toBeNull()
@@ -328,7 +329,7 @@ describe('the review screen', () => {
   it('says in one plain line what no document ever contains', async () => {
     const user = userEvent.setup()
     await reachReview(user)
-    expect(screen.getByText(/nothing was guessed for them/i)).toBeInTheDocument()
+    expect(screen.getByText(/logins and handles are never in a contract/i)).toBeInTheDocument()
   })
 
   it('warns when the brief looks incomplete', async () => {
@@ -343,16 +344,15 @@ describe('the review screen', () => {
     expect(screen.getByText(/this brief looks incomplete/i)).toBeInTheDocument()
   })
 
-  it('saves the campaign with confirmed fields documented and the rest amber', async () => {
+  it('saves every found value as documented with one Save, and the rest blank', async () => {
     const user = userEvent.setup()
     await reachReview(user)
 
-    await user.click(within(screen.getByRole('list', { name: 'Parsed fields' })).getByRole('button'))
     await user.click(screen.getByRole('button', { name: 'Save campaign' }))
 
     // The campaign row appears before its fields do, so waiting on the row
     // alone would read a half-written campaign. Wait for the last thing the
-    // save does instead: promoting the confirmed field.
+    // save does instead: promoting the accepted field.
     await waitFor(async () => {
       const [saved] = await adapter.listCampaigns()
       expect(saved).toBeDefined()
@@ -370,6 +370,27 @@ describe('the review screen', () => {
     // The raw contract text is kept, so the quote can be checked again later.
     const documents = await adapter.listCampaignDocuments(campaign.id)
     expect(documents.find((d) => d.kind === 'contract')?.raw_text).toBe(CONTRACT)
+  })
+
+  it('saves an unticked value as unchecked, and does not plan against it', async () => {
+    const user = userEvent.setup()
+    await reachReview(user)
+
+    await user.click(within(screen.getByRole('list', { name: 'Parsed fields' })).getByRole('button'))
+    // The rate box still shows the contract's number; leaving it alone must
+    // not quietly turn the unticked rate into his own.
+    await user.click(screen.getByRole('button', { name: 'Save campaign' }))
+
+    await waitFor(async () => {
+      const [saved] = await adapter.listCampaigns()
+      expect(saved).toBeDefined()
+      const documents = await adapter.listCampaignDocuments(saved.id)
+      expect(documents).toHaveLength(1)
+    })
+    const [campaign] = await adapter.listCampaigns()
+    expect(campaign.pay_per_video_cents).toBeNull()
+    const fields = await adapter.listCampaignFields(campaign.id)
+    expect(fields.find((f) => f.field_key === 'pay_per_video_cents')?.source).toBe('parsed_unreviewed')
   })
 })
 

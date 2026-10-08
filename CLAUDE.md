@@ -203,7 +203,9 @@ Run these before declaring anything done.
   the brief's Hooks & ideas box.
 - A campaign created from a contract with no brief still saves, with the
   brief-derived fields blank.
-- Every parsed field renders amber until confirmed.
+- Values the contract states, with a verified quote, are accepted by the one
+  Save on the review screen; anything not found reads "not in the contract".
+  One he unticks before saving stays amber on the campaign.
 - A generated hook is never presented as one he wrote.
 - Turn the network off: the app loads, every screen works, every write persists.
 - Sign in: rows actually arrive on the server. Check by querying it, not by

@@ -112,7 +112,8 @@ unreviewed fields; nothing in the app acts on them).
 
 `note` is the model's one-line reason to look twice at a value - two different
 rates, garbled text around it, a condition. It is shown on the review screen
-and never stored. Every parsed field is amber until he taps it regardless.
+and never stored. Values whose quote checks out start ticked on the review
+screen regardless; the note is there so the doubtful ones are read first.
 
 ## Model and request shape
 

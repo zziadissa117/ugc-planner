@@ -7,15 +7,17 @@
 //
 // The rule this screen exists to hold: a field he already confirmed never
 // changes without his tap. New material - a field the campaign never had, a
-// rule, a bonus tier - carries no such risk and is applied straight away.
-// Only a conflict - a confirmed value the new document disagrees with - stops
-// and asks, one field at a time, defaulting to "keep what I have."
+// rule, a bonus tier - carries no such risk: new fields start ticked and are
+// accepted by Apply, rules and tiers are added. Only a conflict - a value the
+// new document disagrees with - stops and asks, one field at a time,
+// defaulting to "keep what I have."
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 
 import { DocumentInput, type Upload } from '../components/DocumentInput'
 import { fieldLabel } from '../components/fieldLabel'
+import { CheckIcon } from '../components/icons'
 import { ReadingProgress } from '../components/ReadingProgress'
 import type { Campaign } from '../data'
 import { useData } from '../data/useData'
@@ -55,6 +57,8 @@ export function UpdateCampaign() {
   // Which conflicts he has chosen "Use new" for. Everything not in this set
   // keeps its current value - that is the default, not an opt-in.
   const [useNew, setUseNew] = useState<Set<string>>(new Set())
+  // New fields he unticked. Everything else new is accepted by Apply.
+  const [leftOut, setLeftOut] = useState<Set<string>>(new Set())
 
   const briefText = brief.text.trim() === '' ? null : brief.text
   const contractText = contract.text.trim() === '' ? null : contract.text
@@ -108,6 +112,7 @@ export function UpdateCampaign() {
       setAddedRules(newRules(currentRules, verified.result))
       setAddedTiers(newBonusTiers(currentTiers, verified.result))
       setUseNew(new Set())
+      setLeftOut(new Set())
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught))
     } finally {
@@ -120,7 +125,7 @@ export function UpdateCampaign() {
     setBusy(true)
     try {
       const newFieldKeys = new Set(
-        fieldDiffs.filter((d) => d.status === 'new').map((d) => d.key),
+        fieldDiffs.filter((d) => d.status === 'new' && !leftOut.has(d.key)).map((d) => d.key),
       )
       await applyCampaignUpdate(data, {
         campaignId,
@@ -138,7 +143,7 @@ export function UpdateCampaign() {
     } finally {
       setBusy(false)
     }
-  }, [brief.filename, briefText, campaignId, contract.filename, contractText, data, fieldDiffs, navigate, result, useNew])
+  }, [brief.filename, briefText, campaignId, contract.filename, contractText, data, fieldDiffs, leftOut, navigate, result, useNew])
 
   if (missing) return <p className="text-state-later">No such campaign.</p>
   if (!campaign) return null
@@ -174,7 +179,8 @@ export function UpdateCampaign() {
               Disagrees with what you already confirmed - {conflicts.length}
             </h2>
             <p className="meta mt-1 text-state-later">
-              Nothing here changes unless you tap "Use new". The default is to keep what you have.
+              Nothing here changes unless you tap "Use new", which accepts the new value. The
+              default is to keep what you have.
             </p>
             <div className="mt-2 flex flex-col gap-3">
               {conflicts.map((diff) => (
@@ -200,19 +206,52 @@ export function UpdateCampaign() {
           <div>
             <h2 className="text-lg font-semibold text-text">New in this document - {newFields.length}</h2>
             <p className="meta mt-1 text-state-later">
-              Nothing here existed before, so all of it will be added - amber until you confirm it,
-              same as a fresh parse.
+              Nothing here existed before. Each value was checked against the line it came from, and
+              Apply accepts everything ticked - untick anything wrong.
             </p>
-            <ul className="mt-2 flex flex-col gap-2">
-              {newFields.map((diff) => (
-                <li key={diff.key} className="rounded-2xl border border-rule p-4">
-                  <p className="text-sm text-state-later">{fieldLabel(diff.key)}</p>
-                  <p className="text-text">{diff.parsedValue}</p>
-                  {diff.parsedQuote ? (
-                    <p className="meta mt-1 text-state-later">"{diff.parsedQuote}"</p>
-                  ) : null}
-                </li>
-              ))}
+            <ul aria-label="New fields" className="mt-1 flex flex-col divide-y divide-rule">
+              {newFields.map((diff) => {
+                const ticked = !leftOut.has(diff.key)
+                return (
+                  <li key={diff.key}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setLeftOut((current) => {
+                          const next = new Set(current)
+                          if (next.has(diff.key)) next.delete(diff.key)
+                          else next.add(diff.key)
+                          return next
+                        })
+                      }
+                      aria-pressed={ticked}
+                      className="press flex w-full gap-3 py-3 text-left active:bg-surface"
+                    >
+                      <span
+                        aria-hidden
+                        className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md border ${
+                          ticked ? 'border-text text-text' : 'border-edge-lit'
+                        }`}
+                      >
+                        {ticked ? <CheckIcon className="draw-check h-4 w-4" strokeWidth={2.25} /> : null}
+                      </span>
+                      <span className="flex min-w-0 flex-1 flex-col">
+                        <span className="label text-state-later">{fieldLabel(diff.key)}</span>
+                        <span
+                          className={
+                            ticked ? 'text-text' : 'text-state-later line-through decoration-state-later/60'
+                          }
+                        >
+                          {diff.parsedValue}
+                        </span>
+                        {diff.parsedQuote ? (
+                          <span className="meta mt-1 text-state-later">"{diff.parsedQuote}"</span>
+                        ) : null}
+                      </span>
+                    </button>
+                  </li>
+                )
+              })}
             </ul>
           </div>
         ) : null}

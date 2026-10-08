@@ -32,7 +32,7 @@ npm run vendor           # after editing src/parser/{types,verify}.ts or src/hoo
 3. **Local-first:** every write lands locally, returns immediately, and enqueues to `_outbox`. Nothing waits on the network.
 4. **Money = integer cents.** No floats, no currency lib.
 5. **`phase_events`, `warmup_events` and `earnings_events` are append-only.** Counts come from them at query time.
-6. **Never invent campaign data** (rates, quotas, handles, URLs, hooks, rules). Missing -> "not saved yet". Parsed fields are amber until confirmed. Generated text names its model.
+6. **Never invent campaign data** (rates, quotas, handles, URLs, hooks, rules). Missing -> "not saved yet". Quoted values from a contract are accepted by the one Save on review; one he unticks stays amber. Generated text names its model.
 7. **`docs/schema.sql` is authoritative.** Change it, add `docs/migrations/00NN_*.sql` (re-runnable), run `npm run generate:types`. **Show the migration to the owner and wait for OK before applying it to Supabase.**
 8. **AI keys never reach the browser.** Bring-your-own-key: each user's key is stored encrypted (Vault) and used only inside Edge Functions in `supabase/functions/`; the browser sees the last 4 characters only. Never add a project-wide model key, never put a key in Dexie/localStorage/outbox/export. Files in `_shared/` other than `claude.ts` are generated; edit the `src/` source and run `npm run vendor`.
 9. **UI:** colour carries state only (green posted, white now, grey later, amber unconfirmed/overdue, red blocked). Use `src/components/ui.tsx` and `styles.ts`. Inline SVG icons only.

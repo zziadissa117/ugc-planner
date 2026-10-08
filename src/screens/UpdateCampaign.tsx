@@ -33,6 +33,7 @@ import {
   type ParseResult,
 } from '../parser'
 import { EdgeFunctionParser } from '../parser/edgeFunction'
+import { usePdfReading } from '../parser/usePdfReading'
 import type { ParsedBonusTier } from '../parser/types'
 
 export function UpdateCampaign() {
@@ -68,6 +69,8 @@ export function UpdateCampaign() {
   const edgeParser = useMemo(() => new EdgeFunctionParser(), [])
   const serverAvailable = edgeParser.isAvailable()
   const useServer = serverAvailable && json.trim() === ''
+  // PDF contracts are the owner's alone; everyone else gets the .md slots.
+  const pdf = usePdfReading(serverAvailable)
 
   useEffect(() => {
     if (!campaignId) return
@@ -326,8 +329,20 @@ export function UpdateCampaign() {
         </p>
       </header>
 
-      <DocumentInput label="NEW BRIEF (.md)" upload={brief} onChange={setBrief} />
-      <DocumentInput label="NEW CONTRACT (.md)" upload={contract} onChange={setContract} />
+      <DocumentInput
+        label={`NEW BRIEF (${pdf.kinds})`}
+        upload={brief}
+        onChange={setBrief}
+        readPdf={pdf.readPdf}
+        onReadingChange={pdf.setBriefReading}
+      />
+      <DocumentInput
+        label={`NEW CONTRACT (${pdf.kinds})`}
+        upload={contract}
+        onChange={setContract}
+        readPdf={pdf.readPdf}
+        onReadingChange={pdf.setContractReading}
+      />
 
       <div>
         <h2 className="label text-state-later">
@@ -354,7 +369,9 @@ export function UpdateCampaign() {
         type="button"
         onClick={() => void runParse()}
         disabled={
-          parsing || (useServer ? briefText === null && contractText === null : json.trim() === '')
+          parsing ||
+          pdf.reading ||
+          (useServer ? briefText === null && contractText === null : json.trim() === '')
         }
         className="min-h-tap rounded-xl border border-state-now/80 bg-surface px-4 font-semibold text-state-now lit press inline-flex items-center justify-center gap-2 active:bg-surface-raised disabled:border-edge disabled:text-state-later disabled:shadow-none"
       >

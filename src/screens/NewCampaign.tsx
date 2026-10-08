@@ -26,6 +26,7 @@ import {
 } from '../parser'
 import { formatCents } from '../money'
 import { EdgeFunctionParser } from '../parser/edgeFunction'
+import { usePdfReading } from '../parser/usePdfReading'
 
 /** One platform this campaign will post to. No document ever states a handle,
  *  an email or a password (NEVER_PARSED_FIELDS), so these are typed here and
@@ -107,6 +108,8 @@ export function NewCampaign() {
   // configured - offline, or a failed server call, falls straight back to it
   // rather than requiring the user to first discover it is missing.
   const useServer = serverAvailable && json.trim() === ''
+  // PDF contracts are the owner's alone; everyone else gets the .md slots.
+  const pdf = usePdfReading(serverAvailable)
 
   const runParse = useCallback(async () => {
     setError(null)
@@ -405,8 +408,20 @@ export function NewCampaign() {
         Or drop the brief and contract below and have them read for you.
       </p>
 
-      <DocumentInput label="BRIEF (.md)" upload={brief} onChange={setBrief} />
-      <DocumentInput label="CONTRACT (.md)" upload={contract} onChange={setContract} />
+      <DocumentInput
+        label={`BRIEF (${pdf.kinds})`}
+        upload={brief}
+        onChange={setBrief}
+        readPdf={pdf.readPdf}
+        onReadingChange={pdf.setBriefReading}
+      />
+      <DocumentInput
+        label={`CONTRACT (${pdf.kinds})`}
+        upload={contract}
+        onChange={setContract}
+        readPdf={pdf.readPdf}
+        onReadingChange={pdf.setContractReading}
+      />
 
       <div>
         <h2 className="label text-state-later">
@@ -435,7 +450,9 @@ export function NewCampaign() {
         type="button"
         onClick={() => void runParse()}
         disabled={
-          parsing || (useServer ? briefText === null && contractText === null : json.trim() === '')
+          parsing ||
+          pdf.reading ||
+          (useServer ? briefText === null && contractText === null : json.trim() === '')
         }
         className="min-h-tap rounded-xl border border-state-now/80 bg-surface px-4 font-semibold text-state-now lit press inline-flex items-center justify-center gap-2 active:bg-surface-raised disabled:border-edge disabled:text-state-later disabled:shadow-none"
       >

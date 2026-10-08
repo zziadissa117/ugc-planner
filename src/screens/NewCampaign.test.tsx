@@ -209,7 +209,33 @@ describe('the drop box', () => {
       await user.click(screen.getByRole('button', { name: 'Review it' }))
 
       await screen.findByRole('heading', { name: 'Review' })
-      expect(invoke).not.toHaveBeenCalled()
+      // The screen does ask whether this account may send PDFs; it must never
+      // send the documents themselves.
+      const parses = invoke.mock.calls.filter(
+        ([, options]) => (options as { body?: { action?: string } }).body?.action !== 'capabilities',
+      )
+      expect(parses).toHaveLength(0)
+    })
+
+    it('offers PDF in the document slots only when the server says this account may', async () => {
+      vi.stubEnv('VITE_PARSE_CAMPAIGN_DEPLOYED', 'true')
+      mockClient = { functions: { invoke } }
+      invoke.mockResolvedValue({ data: { pdf: true }, error: null })
+
+      renderDropBox()
+      expect(await screen.findByLabelText('CONTRACT (.md or .pdf) text')).toBeInTheDocument()
+      expect(invoke).toHaveBeenCalledWith('parse-campaign', { body: { action: 'capabilities' } })
+    })
+
+    it('keeps the slots to Markdown for everyone else', async () => {
+      vi.stubEnv('VITE_PARSE_CAMPAIGN_DEPLOYED', 'true')
+      mockClient = { functions: { invoke } }
+      invoke.mockResolvedValue({ data: { pdf: false }, error: null })
+
+      renderDropBox()
+      await waitFor(() => expect(invoke).toHaveBeenCalled())
+      expect(screen.getByLabelText('CONTRACT (.md) text')).toBeInTheDocument()
+      expect(screen.queryByLabelText('CONTRACT (.md or .pdf) text')).toBeNull()
     })
   })
 

@@ -117,7 +117,8 @@ screen regardless; the note is there so the doubtful ones are read first.
 
 ## Model and request shape
 
-`claude-opus-5` at `effort: medium` (override with `PARSE_CAMPAIGN_MODEL`).
+`claude-opus-5-5` at `effort: medium` (override with `PARSE_CAMPAIGN_MODEL`;
+it was `claude-opus-5`, and 5.5 is newer and cheaper per token).
 Haiku was fast on a clean template and lost fields on the messy PDF
 conversions this app actually gets; it runs a couple of times a month, so
 accuracy is worth far more than the cost.
@@ -134,6 +135,40 @@ if a safety classifier declines, the API reruns the request on its recommended
 fallback model instead of returning a refusal. `stop_reason` is checked before
 the content is read; a refusal or a truncated answer is a 502 with a plain
 reason.
+
+## PDFs - the owner's account only
+
+Two more actions on the same function, both behind `requireUser`:
+
+```
+{ "action": "capabilities" }            -> { "pdf": boolean }
+{ "action": "transcribe", "pdf": b64 }  -> text/event-stream, or 403 / 413
+```
+
+`capabilities` answers `pdf: true` only for an id on the owner list
+(`_shared/owner.ts`: `PLANNER_ADMIN_USER_IDS`, falling back to
+`CUTTER_BRIDGE_USER_IDS`). The browser asks once per screen and only then
+offers `.pdf` in the document slots. `transcribe` checks the same list again
+and answers anyone else **403** "PDF reading is only on for the owner account.
+Paste Markdown instead." A PDF over 15 MB is a 413. Everyone else stays on
+Markdown because a PDF costs many times the tokens.
+
+A PDF is **written out, then parsed** - never parsed straight from the PDF.
+The quote check needs text to hold every value to, and a PDF has none of its
+own, so `_shared/pdf.ts` has Claude transcribe it to Markdown (a document
+block, `effort: low`, instructed to copy every word and number exactly and to
+write `[illegible]` rather than guess). That transcript fills the document box
+in the browser, is labelled amber "Written out from the PDF by Claude", and
+from there takes the ordinary path: parsed as text, stored as the document's
+`raw_text`, every quote checked against it. Claude's citations feature cannot
+be combined with structured output, which is why it is not used instead.
+
+The transcript is its own request and is **streamed** (`data: {"text"}` events,
+then one `{"done", "model"}` or `{"error"}`), because Supabase ends a request
+that sends nothing for 150 seconds and a long contract takes a minute or more
+to write out. A stream that stops without `done` is treated as a failure, never
+as a shorter contract. The parse that follows is a second request with the
+text, so neither comes near the limits.
 
 ## The model prompt
 
@@ -219,9 +254,9 @@ inspection stand alongside.
 
 The function parses and returns. It creates no campaign, no fields, no rows.
 
-Writing is `applyParseResult`'s job, on the client, after the user has confirmed
-each field by tapping it, inside `runTransaction`. That ordering is what keeps
-`documented` meaning "a human looked at this and a quote backs it" - and the
+Writing is `applyParseResult`'s job, on the client, after the review screen's
+one Save, inside `runTransaction`. That ordering is what keeps `documented`
+meaning "he saved it from the review screen and a quote backs it" - and the
 schema enforces it too: `documented_needs_proof` requires both a `confirmed_at`
 and a `source_quote`.
 
@@ -336,5 +371,6 @@ his own hook bank - and Opus holds each hook against his material and the rest
 of the batch while still answering well inside a minute.
 
 Deploy files for each function: `source/index.ts`, `source/deno.json` and every
-`_shared/*.ts` it imports (`claude.ts` for both; `verify.ts` and
-`parserTypes.ts` for parse-campaign; `hookPrompt.ts` for generate-hooks).
+`_shared/*.ts` it imports (`claude.ts` for both; `verify.ts`,
+`parserTypes.ts`, `owner.ts` and `pdf.ts` for parse-campaign; `hookPrompt.ts`
+for generate-hooks).

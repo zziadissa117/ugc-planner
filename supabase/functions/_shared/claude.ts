@@ -152,21 +152,28 @@ export interface JsonAnswer<T> {
   model: string
 }
 
+export const MESSAGES_URL = 'https://api.anthropic.com/v1/messages'
+
+/** The headers every Messages API request here sends. */
+export function messagesHeaders(apiKey: string): Record<string, string> {
+  return {
+    'x-api-key': apiKey,
+    'anthropic-version': '2023-06-01',
+    // A request a safety classifier declines is re-run server-side on the
+    // recommended fallback model rather than coming back as a refusal. These
+    // are campaign briefs and hooks, so that should essentially never
+    // happen - but when a classifier misfires, he gets an answer instead
+    // of a dead button.
+    'anthropic-beta': 'server-side-fallback-2026-07-01',
+    'content-type': 'application/json',
+  }
+}
+
 /** One request, JSON back, or a ModelError saying plainly what went wrong. */
 export async function callForJson<T>(call: JsonCall): Promise<JsonAnswer<T>> {
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  const response = await fetch(MESSAGES_URL, {
     method: 'POST',
-    headers: {
-      'x-api-key': call.apiKey,
-      'anthropic-version': '2023-06-01',
-      // A request a safety classifier declines is re-run server-side on the
-      // recommended fallback model rather than coming back as a refusal. These
-      // are campaign briefs and hooks, so that should essentially never
-      // happen - but when a classifier misfires, he gets an answer instead
-      // of a dead button.
-      'anthropic-beta': 'server-side-fallback-2026-07-01',
-      'content-type': 'application/json',
-    },
+    headers: messagesHeaders(call.apiKey),
     body: JSON.stringify({
       model: call.model,
       max_tokens: call.maxTokens,

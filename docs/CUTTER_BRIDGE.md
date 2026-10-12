@@ -29,9 +29,10 @@ a box still ticks for real only when the post goes out (`posted`). He can tick a
 Nothing reaches a planner campaign until it is linked (`campaigns.cutter_campaign_id`). The Post screen's "Link to
 the Cutter" block (`src/components/CutterLinks.tsx`) and the brief's "Posted by the cutter" picker offer a cutter
 campaign of the same name (`suggestCutterLinks`: case and punctuation ignored, a clear "starts with" only when it is
-the one candidate) as one tap he confirms; "Not this" hides a pairing on that device. The block also names cutter
-campaigns with posts scheduled today that have no planner campaign (`scheduledButUnlinked`), so he knows what to add.
-`scheduled` returns every campaign's posts (no `ids`) for that reason; the grid only paints linked ones.
+the one candidate) as one tap he confirms; "Not this" hides a pairing on that device. Cutter campaigns with no
+planner campaign are not mentioned anywhere: some, like "Temporary lovable", have none on purpose, and a standing
+"not here" line about them was noise he asked to remove. `scheduled` returns every campaign's posts (no `ids`); the
+grid only paints linked ones.
 
 ## Safety properties
 

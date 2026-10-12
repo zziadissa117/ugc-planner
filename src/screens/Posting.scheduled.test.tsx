@@ -122,7 +122,8 @@ describe('linking to the cutter', () => {
     renderScreen()
 
     expect(await screen.findByText('Link to the Cutter')).toBeInTheDocument()
-    expect(screen.getByText(/Scheduled in the Cutter today but not here: Cantina/)).toBeInTheDocument()
+    // Cantina is scheduled today with no planner campaign, and nothing says so.
+    expect(screen.queryByText(/not here/)).toBeNull()
     await user.click(screen.getByRole('button', { name: 'Link' }))
     expect((await adapter.getCampaign(campaign.id))!.cutter_campaign_id).toBe('cut-inflow')
     expect(screen.queryByRole('button', { name: 'Link' })).toBeNull()

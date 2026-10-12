@@ -285,8 +285,6 @@ export function Posting() {
 
       <CutterLinks
         campaigns={loaded?.campaigns ?? []}
-        scheduled={cutterScheduled}
-        today={today}
         onLink={async (campaignId, cutterId) => {
           await data.updateCampaign(campaignId, { cutter_campaign_id: cutterId })
           await reload()

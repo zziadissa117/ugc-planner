@@ -29,7 +29,10 @@ export interface DrainReport {
   notes: string[]
 }
 
-const DEFAULTS = { batchSize: 50, maxAttempts: 5 }
+/** Tries before a write stops being retried on its own. */
+export const MAX_ATTEMPTS = 5
+
+const DEFAULTS = { batchSize: 200, maxAttempts: MAX_ATTEMPTS }
 
 export async function drainOutbox(
   adapter: DataAdapter,
@@ -51,15 +54,20 @@ export async function drainOutbox(
     return report
   }
 
-  const pending = await adapter.listPendingWrites(batchSize)
+  // Stuck entries are counted and stepped over, never allowed to fill the
+  // batch. Taking the oldest N and skipping the stuck ones inside it is how
+  // fifty dead writes at the front once held every later write on a laptop
+  // for a month: each pass read the same fifty, sent nothing, and said
+  // nothing.
+  const queue = await adapter.listPendingWrites()
+  const pending: PendingWrite[] = []
+  for (const write of queue) {
+    // Left in the queue on purpose. It is still a write that happened.
+    if (write.attempts >= maxAttempts) report.stuck++
+    else if (pending.length < batchSize) pending.push(write)
+  }
 
   for (const write of pending) {
-    if (write.attempts >= maxAttempts) {
-      // Left in the queue on purpose. It is still a write that happened.
-      report.stuck++
-      continue
-    }
-
     const outcome = await pushOne(adapter, target, write, report)
 
     // The order writes happened in is the order they mean something in. Once
@@ -85,8 +93,8 @@ async function pushOne(
     outcome = await target.push(write)
   } catch (error) {
     // A target that throws is treated as unavailable rather than as a bad
-    // write: the write is not what failed.
-    await adapter.markWriteFailed(write.id, describe(error))
+    // write: the write is not what failed, so it costs the write no attempt.
+    await adapter.markWriteFailed(write.id, describe(error), false)
     report.deferred++
     return 'offline'
   }
@@ -126,7 +134,7 @@ async function pushOne(
       return 'done'
 
     case 'unavailable':
-      await adapter.markWriteFailed(write.id, outcome.reason)
+      await adapter.markWriteFailed(write.id, outcome.reason, false)
       report.deferred++
       return 'offline'
   }

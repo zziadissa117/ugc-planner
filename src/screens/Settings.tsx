@@ -5,7 +5,7 @@ import { Button, Disclosure, ScreenHeader } from '../components/ui'
 import { INPUT_CLASS } from '../components/styles'
 import { EXPORT_REMINDER_DAYS } from '../data'
 import { useData } from '../data/useData'
-import { useAuth } from '../sync'
+import { MAX_ATTEMPTS, useAuth } from '../sync'
 import { AiKeys } from './AiKeys'
 type Status =
   | { kind: 'idle' }
@@ -149,6 +149,52 @@ function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/** What this device has not told the server yet. Silent unless there is
+ *  something: a queue that quietly stopped moving once kept a month of work
+ *  on one laptop, and nothing on screen said so. A write the server has
+ *  refused for good shows its reason in red, in the server's own words. */
+function Unsent() {
+  const data = useData()
+  const [queue, setQueue] = useState<{ waiting: number; stuck: number; reason: string | null }>()
+
+  useEffect(() => {
+    let cancelled = false
+    const load = () =>
+      void data.listPendingWrites().then((writes) => {
+        if (cancelled) return
+        const stuck = writes.filter((w) => w.attempts >= MAX_ATTEMPTS)
+        setQueue({
+          waiting: writes.length - stuck.length,
+          stuck: stuck.length,
+          reason: stuck[0]?.last_error ?? null,
+        })
+      })
+    load()
+    const timer = window.setInterval(load, 10_000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [data])
+
+  if (!queue || (queue.waiting === 0 && queue.stuck === 0)) return null
+  return (
+    <div className="flex flex-col gap-1 text-base">
+      {queue.waiting > 0 && (
+        <p className="text-state-later">
+          {queue.waiting} {queue.waiting === 1 ? 'change' : 'changes'} on this device not on the server yet.
+        </p>
+      )}
+      {queue.stuck > 0 && (
+        <p className="text-state-blocked">
+          {queue.stuck} {queue.stuck === 1 ? 'change' : 'changes'} the server refused
+          {queue.reason ? `: ${queue.reason}` : '.'} They stay here, kept, until it is fixed.
+        </p>
+      )}
+    </div>
+  )
+}
+
 /** Sign-in, and the only place in the app that ever calls it.
  *
  *  Nothing here is required - the app is local-first and works completely
@@ -169,6 +215,7 @@ function Account() {
         <p className="text-base text-text-dim">
           Signed in as <span className="text-text">{auth.email}</span>.
         </p>
+        <Unsent />
         <Button onClick={() => void auth.signOut()} className="self-start">
           Sign out
         </Button>

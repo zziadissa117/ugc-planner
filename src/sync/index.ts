@@ -14,6 +14,7 @@ export {
 export { resolveConflict, type Resolution, type Winner } from './conflict'
 export {
   drainOutbox,
+  MAX_ATTEMPTS,
   pullChanges,
   type DrainOptions,
   type DrainReport,

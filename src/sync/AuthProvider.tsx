@@ -32,6 +32,14 @@ const SYNC_CURSOR_KEY = 'ugc-planner.sync_cursor'
  *  upsert by id and the history tables deduplicate on client_id. */
 const OUTBOX_BACKFILL_KEY = 'ugc-planner.outbox_backfilled_at_v2'
 
+/** Set once the device has given its stuck writes another go. Until the drain
+ *  stepped over stuck entries, fifty of them at the front held everything
+ *  behind them, and an outage counted against whichever write was first - so
+ *  most of what is stuck on a device that lived through that never had a
+ *  real refusal. Ones the server really refuses are stuck again after five
+ *  tries, and no longer hold anything up. */
+const OUTBOX_RETRY_KEY = 'ugc-planner.outbox_retried_at_v1'
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const data = useData()
   const client = useMemo(() => getSupabaseClient(), [])
@@ -70,6 +78,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!localStorage.getItem(OUTBOX_BACKFILL_KEY)) {
           await data.backfillOutbox()
           localStorage.setItem(OUTBOX_BACKFILL_KEY, new Date().toISOString())
+        }
+
+        if (!localStorage.getItem(OUTBOX_RETRY_KEY)) {
+          await data.retryStuckWrites()
+          localStorage.setItem(OUTBOX_RETRY_KEY, new Date().toISOString())
         }
 
         await drainOutbox(data, target)

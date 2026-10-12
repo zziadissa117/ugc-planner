@@ -114,7 +114,8 @@ describe('draining', () => {
 
     expect(report.deferred).toBe(1)
     const [pending] = await adapter.listPendingWrites()
-    expect(pending.attempts).toBe(1)
+    // An outage says nothing about the write, so it costs it no attempt.
+    expect(pending.attempts).toBe(0)
     expect(pending.last_error).toBe('offline')
   })
 
@@ -126,10 +127,63 @@ describe('draining', () => {
     const target = fakeTarget(() => ({ status: 'unavailable', reason: 'offline' }))
     await drainOutbox(adapter, target)
 
-    // One attempt, not three, against the same outage.
+    // One push, not three, against the same outage - and no attempt spent.
     expect(target.push).toHaveBeenCalledTimes(1)
     const pending = await adapter.listPendingWrites()
-    expect(pending.map((w) => w.attempts)).toEqual([1, 0, 0])
+    expect(pending.map((w) => w.attempts)).toEqual([0, 0, 0])
+  })
+
+  it('never makes a write stuck just because the server was out of reach', async () => {
+    await makeCampaign()
+    const target = fakeTarget(() => ({ status: 'unavailable', reason: 'Load failed' }))
+
+    for (let i = 0; i < 20; i++) await drainOutbox(adapter, target)
+
+    const report = await drainOutbox(adapter, fakeTarget(() => ({ status: 'applied' })))
+    expect(report.applied).toBe(1)
+    expect(report.stuck).toBe(0)
+  })
+
+  it('sends what is behind a wall of stuck writes', async () => {
+    // Sixty refusals at the front of the queue, then the write he just made.
+    for (let i = 0; i < 60; i++) await makeCampaign(`Old ${i}`)
+    const refuse = fakeTarget(() => ({ status: 'rejected', reason: '42501: RLS' }))
+    for (let i = 0; i < 5; i++) await drainOutbox(adapter, refuse)
+    await makeCampaign('Linked today')
+
+    const seen: string[] = []
+    const report = await drainOutbox(
+      adapter,
+      fakeTarget((write) => {
+        seen.push((write.payload as { name: string }).name)
+        return { status: 'applied' }
+      }),
+    )
+
+    expect(seen).toEqual(['Linked today'])
+    expect(report.stuck).toBe(60)
+    expect(await adapter.listPendingWrites()).toHaveLength(60)
+  })
+
+  it('gives stuck writes another full set of tries when asked', async () => {
+    await makeCampaign('A')
+    await makeCampaign('B')
+    const refuse = fakeTarget(() => ({ status: 'rejected', reason: 'nope' }))
+    for (let i = 0; i < 5; i++) await drainOutbox(adapter, refuse)
+
+    expect(await adapter.retryStuckWrites()).toBe(2)
+
+    const seen: string[] = []
+    await drainOutbox(
+      adapter,
+      fakeTarget((write) => {
+        seen.push((write.payload as { name: string }).name)
+        return { status: 'applied' }
+      }),
+    )
+    // Still in the order they happened.
+    expect(seen).toEqual(['A', 'B'])
+    expect(await adapter.listPendingWrites()).toHaveLength(0)
   })
 
   it('treats a throwing target as an outage, not as a bad write', async () => {
@@ -161,7 +215,7 @@ describe('draining', () => {
 
   it('stops retrying a stuck write but leaves it visible', async () => {
     await makeCampaign()
-    const target = fakeTarget(() => ({ status: 'unavailable', reason: 'nope' }))
+    const target = fakeTarget(() => ({ status: 'rejected', reason: 'nope' }))
 
     for (let i = 0; i < 6; i++) await drainOutbox(adapter, target, { maxAttempts: 3 })
 

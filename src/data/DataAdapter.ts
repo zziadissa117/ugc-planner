@@ -418,9 +418,15 @@ export interface DataAdapter {
   /** The server has it. Drop it from the queue. */
   markWriteSynced(id: number): Promise<void>
 
-  /** Push failed. Records the reason and counts the attempt, leaving the entry
-   *  queued so the next drain tries again. */
-  markWriteFailed(id: number, reason: string): Promise<void>
+  /** Push failed. Records the reason, leaving the entry queued so the next
+   *  drain tries again. Counts the attempt unless `countAttempt` is false: a
+   *  server that could not be reached says nothing about the write, and a
+   *  laptop waking before its Wi-Fi must not use up a write's tries. */
+  markWriteFailed(id: number, reason: string, countAttempt?: boolean): Promise<void>
+
+  /** Gives every write that stopped being retried another full set of tries.
+   *  Returns how many there were. */
+  retryStuckWrites(): Promise<number>
 
   /** Replaces a local row with the server's version, without enqueuing the
    *  change - the server already has it, and echoing it back would loop. */

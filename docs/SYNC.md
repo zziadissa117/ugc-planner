@@ -10,10 +10,17 @@ investigation.
   `markWriteSynced`, `markWriteFailed` and `applyRemoteRow` are on
   `DataAdapter` and implemented in `LocalAdapter`.
 - **The drain** (`src/sync/engine.ts`). Sends oldest-first, stops the batch at
-  the first outage instead of burning every entry's attempt count on the same
-  failure, keeps permanently-rejected writes in the queue with the reason
-  attached rather than discarding them, and stops retrying a stuck write while
-  leaving it visible.
+  the first outage, and an outage costs a write no attempt at all - only a
+  real answer from the server counts toward the five tries. Keeps
+  permanently-rejected writes in the queue with the reason attached rather
+  than discarding them, and stops retrying a stuck write while leaving it
+  visible: Settings says how many changes are not on the server and why the
+  first stuck one was refused. A stuck write is stepped over, never left to
+  fill the batch. Until October 2026 the drain took the oldest fifty and
+  skipped the stuck ones inside them, so fifty dead entries at the front held
+  every later write on one laptop from Sep 9 to Oct 12 while each pass
+  reported nothing wrong. Each device retries what was stuck once
+  (`outbox_retried_at_v1` in `AuthProvider.tsx`).
 - **Conflict rules** (`src/sync/conflict.ts`). Last-write-wins on `updated_at`,
   with two exceptions: history is never rewritten, and a locked-in
   `rate_snapshot_cents` survives the merge whichever side wins the row.

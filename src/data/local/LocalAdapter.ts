@@ -1664,12 +1664,21 @@ export class LocalAdapter implements DataAdapter {
     await this.db._outbox.delete(id)
   }
 
-  async markWriteFailed(id: number, reason: string): Promise<void> {
+  async markWriteFailed(id: number, reason: string, countAttempt = true): Promise<void> {
     const entry = await this.db._outbox.get(id)
     if (!entry) return
     // Stays queued. A failed push is a thing the server has not been told yet,
     // which is exactly what the queue is for.
-    await this.db._outbox.put({ ...entry, attempts: entry.attempts + 1, last_error: reason })
+    const attempts = countAttempt ? entry.attempts + 1 : entry.attempts
+    await this.db._outbox.put({ ...entry, attempts, last_error: reason })
+  }
+
+  async retryStuckWrites(): Promise<number> {
+    return this.db._outbox
+      .filter((entry) => entry.attempts > 0)
+      .modify((entry) => {
+        entry.attempts = 0
+      })
   }
 
   async applyRemoteRow(table: TableName, row: unknown): Promise<void> {

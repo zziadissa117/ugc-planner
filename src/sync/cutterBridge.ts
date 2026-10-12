@@ -4,9 +4,9 @@
 // the function does, and only for the user listed in its allow-list. For
 // anyone else it answers `enabled: false` and everything here stays quiet.
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
-import { applyCutterPosts, type CutterPost } from '../data/cutterBridge'
+import { applyCutterPosts, type CutterPost, type CutterScheduled } from '../data/cutterBridge'
 import type { DataAdapter } from '../data'
 import { getSupabaseClient } from './auth'
 
@@ -60,6 +60,43 @@ export async function syncCutterPosts(data: DataAdapter): Promise<number> {
     // Next pass looks back the default few days; ticking stays idempotent.
   }
   return ticked
+}
+
+/** What the cutter has scheduled in the next two days for the linked
+ *  campaigns; null when the bridge is off for this user or unreachable. */
+export async function fetchCutterScheduled(data: DataAdapter): Promise<CutterScheduled[] | null> {
+  const campaigns = await data.listCampaigns()
+  const ids = campaigns.map((c) => c.cutter_campaign_id).filter((id): id is string => Boolean(id))
+  if (ids.length === 0) return []
+  const result = await call<{ enabled: boolean; posts: CutterScheduled[] }>({ action: 'scheduled', ids })
+  return result?.enabled && Array.isArray(result.posts) ? result.posts : null
+}
+
+/** The cutter's scheduled posts, kept fresh while the screen is open: on
+ *  opening, on coming back to it, and every few minutes. Empty when the
+ *  bridge is off - the grid then simply has no blue boxes. */
+export function useCutterScheduled(data: DataAdapter): CutterScheduled[] {
+  const [posts, setPosts] = useState<CutterScheduled[]>([])
+  useEffect(() => {
+    let stopped = false
+    const run = () => {
+      if (stopped || document.visibilityState !== 'visible') return
+      void fetchCutterScheduled(data)
+        .then((found) => {
+          if (!stopped && found) setPosts(found)
+        })
+        .catch(() => {})
+    }
+    run()
+    const timer = window.setInterval(run, EVERY_MS)
+    document.addEventListener('visibilitychange', run)
+    return () => {
+      stopped = true
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', run)
+    }
+  }, [data])
+  return posts
 }
 
 /** Runs a pass when the app opens, when it comes back, and every few minutes. */

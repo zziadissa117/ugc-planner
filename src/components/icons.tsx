@@ -148,6 +148,18 @@ export function CheckIcon(props: IconProps) {
   )
 }
 
+/** Scheduled: waiting for its time and will go out by itself. The long
+ *  hand ticks round (.sched-clock in index.css). */
+export function ClockIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <circle cx="12" cy="12" r="8.25" />
+      <path d="M12 12h3.25" />
+      <path d="M12 12V6.5" className="sched-hand" />
+    </Icon>
+  )
+}
+
 export function CloseIcon(props: IconProps) {
   return (
     <Icon {...props}>

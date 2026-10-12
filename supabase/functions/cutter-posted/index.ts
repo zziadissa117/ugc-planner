@@ -3,6 +3,7 @@
 //
 //   POST { action: 'campaigns' }                        -> { enabled, campaigns: [{ id, name }] }
 //   POST { action: 'posted', since?: ISO, ids?: [id] }  -> { enabled, posts: [...] }
+//   POST { action: 'scheduled', ids?: [id] }             -> { enabled, posts: [{ id, campaignId, platforms, postAt }] }
 //
 // The cutter's tables are server-only on purpose, so the browser never reads
 // them: this function does, with the service role, and only for the planner
@@ -13,6 +14,10 @@
 // A post is reported only when the cutter's own status is 'posted' (Postiz
 // confirmed it went out). Scheduled is not posted. A repost of an earlier
 // video (repost_of set) is left out so one deliverable is never paid twice.
+//
+// 'scheduled' is only ever shown, never ticked: the posts waiting in Postiz
+// for a time in the next two days, so the Post grid can paint their boxes
+// blue ("it will go out by itself") until 'posted' ticks them for real.
 
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { jsonResponse, requireUser, serviceClient } from '../_shared/claude.ts'
@@ -77,6 +82,32 @@ Deno.serve(async (req: Request) => {
           .map((a) => ({ name: a.name, platform: a.platform })),
         links: p.release_urls ?? {},
         postedAt: p.post_at ?? p.updated_at,
+      })),
+    })
+  }
+
+  if (body.action === 'scheduled') {
+    const ids = Array.isArray(body.ids) ? body.ids.filter((id): id is string => typeof id === 'string').slice(0, 100) : []
+    const now = Date.now()
+    let query = db
+      .from('cutter_posts')
+      .select('id, campaign_id, accounts, post_at')
+      .eq('status', 'scheduled')
+      .is('repost_of', null)
+      .gt('post_at', new Date(now).toISOString())
+      .lt('post_at', new Date(now + 2 * DAY_MS).toISOString())
+      .order('post_at', { ascending: true })
+      .limit(500)
+    if (ids.length > 0) query = query.in('campaign_id', ids)
+    const { data, error } = await query
+    if (error) return jsonResponse({ error: 'Could not read the scheduled videos.' }, 502)
+    return jsonResponse({
+      enabled: true,
+      posts: (data ?? []).map((p) => ({
+        id: p.id,
+        campaignId: p.campaign_id,
+        platforms: ((p.accounts ?? []) as { platform: string; held?: string }[]).filter((a) => !a.held).map((a) => a.platform),
+        postAt: p.post_at,
       })),
     })
   }

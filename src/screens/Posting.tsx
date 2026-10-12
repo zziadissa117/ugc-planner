@@ -16,6 +16,7 @@ import { Link } from 'react-router-dom'
 
 import {
   CheckIcon,
+  ClockIcon,
   ChevronDownIcon,
   ListIcon,
   MutedIcon,
@@ -38,6 +39,8 @@ import {
   type PostingBoard,
 } from '../data/posting'
 import { ensureTodaysQuota } from '../data/today'
+import { platformRoot, scheduledCounts } from '../data/cutterBridge'
+import { useCutterScheduled } from '../sync/cutterBridge'
 import { useData } from '../data/useData'
 import { useLoaded } from '../data/useLoaded'
 import { formatCents, hasOwnPostOrder, inPostOrder, toCadCents } from '../money'
@@ -118,6 +121,14 @@ export function Posting() {
           )
         : [],
     [loaded, today],
+  )
+
+  // What the cutter has waiting in Postiz today: those boxes show blue until
+  // the post goes out and ticks them for real.
+  const cutterScheduled = useCutterScheduled(data)
+  const scheduled = useMemo(
+    () => scheduledCounts(cutterScheduled, loaded?.campaigns ?? [], today),
+    [cutterScheduled, loaded, today],
   )
 
   // Off the earnings history, not recomputed from the posts: what each tick
@@ -281,6 +292,7 @@ export function Posting() {
               <CampaignBoard
                 board={board}
                 busy={busy}
+                scheduled={scheduled.get(board.campaign.id)}
                 onToggle={(account, slot, post) => void toggle(board, account, slot, post)}
               />
             </div>
@@ -793,10 +805,13 @@ function NeuralView({
 function CampaignBoard({
   board,
   busy,
+  scheduled,
   onToggle,
 }: {
   board: PostingBoard
   busy: string | null
+  /** Per platform, how many of today's posts the cutter has scheduled. */
+  scheduled?: ReadonlyMap<string, number>
   onToggle: (account: CampaignAccount, slot: number, post: VideoPost | null) => void
 }) {
   const { campaign, rows, slots, quota, doneToday } = board
@@ -842,6 +857,11 @@ function CampaignBoard({
                 {row.cells.map((cell) => {
                   const key = `${row.account.id}:${cell.slot}`
                   const done = cell.post !== null
+                  // The first open boxes, as many as the cutter has waiting
+                  // for today on this platform: blue, going out by itself.
+                  const waiting = scheduled?.get(platformRoot(row.account.platform)) ?? 0
+                  const openBefore = row.cells.filter((c) => c.post === null && c.slot < cell.slot).length
+                  const isScheduled = !done && openBefore < waiting
                   // Dashed, like a box beyond the quota: a bonus-only account
                   // is never owed, so none of its boxes is either.
                   const extra = cell.slot >= quota || row.account.bonus_only
@@ -851,7 +871,7 @@ function CampaignBoard({
                       type="button"
                       disabled={busy === key}
                       aria-pressed={done}
-                      aria-label={`${row.account.platform} post ${cell.slot + 1} of ${slots}`}
+                      aria-label={`${row.account.platform} post ${cell.slot + 1} of ${slots}${isScheduled ? ' - scheduled' : ''}`}
                       onClick={() => onToggle(row.account, cell.slot, cell.post)}
                       className={[
                         'press relative flex size-11 items-center justify-center rounded-xl border',
@@ -860,7 +880,10 @@ function CampaignBoard({
                           ? // Lit, because green here is the whole point of the
                             // screen: the day's work, proved, from across a room.
                             'lit border-state-posted bg-state-posted/15 text-state-posted'
-                          : extra
+                          : isScheduled
+                            ? // Blue: waiting in Postiz, it will post itself.
+                              'border-state-scheduled bg-state-scheduled/15 text-state-scheduled'
+                            : extra
                             ? 'border-dashed border-edge-lit text-state-later active:bg-surface'
                             : 'border-edge-lit text-state-later active:bg-surface',
                       ].join(' ')}
@@ -873,6 +896,8 @@ function CampaignBoard({
                         <span key={cell.post?.id} className="pop-in draw-check flex">
                           <CheckIcon className="h-6 w-6" strokeWidth={2.25} />
                         </span>
+                      ) : isScheduled ? (
+                        <ClockIcon className="h-5 w-5" strokeWidth={2} />
                       ) : null}
                     </button>
                   )

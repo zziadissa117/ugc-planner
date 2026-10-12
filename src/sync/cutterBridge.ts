@@ -62,26 +62,24 @@ export async function syncCutterPosts(data: DataAdapter): Promise<number> {
   return ticked
 }
 
-/** What the cutter has scheduled in the next two days for the linked
- *  campaigns; null when the bridge is off for this user or unreachable. */
-export async function fetchCutterScheduled(data: DataAdapter): Promise<CutterScheduled[] | null> {
-  const campaigns = await data.listCampaigns()
-  const ids = campaigns.map((c) => c.cutter_campaign_id).filter((id): id is string => Boolean(id))
-  if (ids.length === 0) return []
-  const result = await call<{ enabled: boolean; posts: CutterScheduled[] }>({ action: 'scheduled', ids })
+/** What the cutter has scheduled in the next two days, every campaign - the
+ *  grid keeps the linked ones, and names the rest so he can add them. Null
+ *  when the bridge is off for this user or unreachable. */
+export async function fetchCutterScheduled(): Promise<CutterScheduled[] | null> {
+  const result = await call<{ enabled: boolean; posts: CutterScheduled[] }>({ action: 'scheduled' })
   return result?.enabled && Array.isArray(result.posts) ? result.posts : null
 }
 
 /** The cutter's scheduled posts, kept fresh while the screen is open: on
  *  opening, on coming back to it, and every few minutes. Empty when the
  *  bridge is off - the grid then simply has no blue boxes. */
-export function useCutterScheduled(data: DataAdapter): CutterScheduled[] {
+export function useCutterScheduled(refresh = 0): CutterScheduled[] {
   const [posts, setPosts] = useState<CutterScheduled[]>([])
   useEffect(() => {
     let stopped = false
     const run = () => {
       if (stopped || document.visibilityState !== 'visible') return
-      void fetchCutterScheduled(data)
+      void fetchCutterScheduled()
         .then((found) => {
           if (!stopped && found) setPosts(found)
         })
@@ -95,7 +93,7 @@ export function useCutterScheduled(data: DataAdapter): CutterScheduled[] {
       window.clearInterval(timer)
       document.removeEventListener('visibilitychange', run)
     }
-  }, [data])
+  }, [refresh])
   return posts
 }
 

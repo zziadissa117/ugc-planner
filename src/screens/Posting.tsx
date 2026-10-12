@@ -25,6 +25,7 @@ import {
   PlusIcon,
   SoundIcon,
 } from '../components/icons'
+import { CutterLinks } from '../components/CutterLinks'
 import { ScreenHeader } from '../components/ui'
 import { SPRINGS, useSpring } from '../motion'
 
@@ -125,7 +126,8 @@ export function Posting() {
 
   // What the cutter has waiting in Postiz today: those boxes show blue until
   // the post goes out and ticks them for real.
-  const cutterScheduled = useCutterScheduled(data)
+  const [linked, setLinked] = useState(0)
+  const cutterScheduled = useCutterScheduled(linked)
   const scheduled = useMemo(
     () => scheduledCounts(cutterScheduled, loaded?.campaigns ?? [], today),
     [cutterScheduled, loaded, today],
@@ -280,6 +282,17 @@ export function Posting() {
       />
 
       <MadeToday cents={earned} />
+
+      <CutterLinks
+        campaigns={loaded?.campaigns ?? []}
+        scheduled={cutterScheduled}
+        today={today}
+        onLink={async (campaignId, cutterId) => {
+          await data.updateCampaign(campaignId, { cutter_campaign_id: cutterId })
+          await reload()
+          setLinked((n) => n + 1)
+        }}
+      />
 
       {boards.length === 0 ? (
         <p className="text-base text-state-later">

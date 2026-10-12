@@ -24,6 +24,15 @@ and platform (`scheduledCounts` in `src/data/cutterBridge.ts`) and paints that m
 clock (`useCutterScheduled`, refreshed every 5 minutes and on return). It is display only: nothing is written, and
 a box still ticks for real only when the post goes out (`posted`). He can tick a blue box by hand as before.
 
+## Linking: suggested, never automatic
+
+Nothing reaches a planner campaign until it is linked (`campaigns.cutter_campaign_id`). The Post screen's "Link to
+the Cutter" block (`src/components/CutterLinks.tsx`) and the brief's "Posted by the cutter" picker offer a cutter
+campaign of the same name (`suggestCutterLinks`: case and punctuation ignored, a clear "starts with" only when it is
+the one candidate) as one tap he confirms; "Not this" hides a pairing on that device. The block also names cutter
+campaigns with posts scheduled today that have no planner campaign (`scheduledButUnlinked`), so he knows what to add.
+`scheduled` returns every campaign's posts (no `ids`) for that reason; the grid only paints linked ones.
+
 ## Safety properties
 
 - Only cutter posts with status `posted` count. Scheduled is not posted.

@@ -3,7 +3,7 @@ import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { DataAdapter } from '.'
-import { applyCutterPosts, platformRoot, type CutterPost } from './cutterBridge'
+import { applyCutterPosts, platformRoot, type CutterPost, suggestCutterLinks, scheduledButUnlinked } from './cutterBridge'
 import { LocalDatabase } from './local/db'
 import { LocalAdapter } from './local/LocalAdapter'
 
@@ -98,5 +98,67 @@ describe('applyCutterPosts', () => {
     await linked(['Instagram'])
     expect(await applyCutterPosts(adapter, [post()])).toBe(0)
     expect(await adapter.listAllVideoPosts()).toHaveLength(0)
+  })
+})
+
+describe('suggesting cutter links', () => {
+  const planner = (id: string, name: string, extra: { cutter_campaign_id?: string | null; archived_at?: string | null } = {}) => ({
+    id,
+    name,
+    cutter_campaign_id: extra.cutter_campaign_id ?? null,
+    archived_at: extra.archived_at ?? null,
+  })
+  const cutter = [
+    { id: 'c-inflow', name: 'Inflow' },
+    { id: 'c-pump', name: 'Pump.fun' },
+    { id: 'c-lock', name: 'Lock in' },
+    { id: 'c-polsia', name: 'Polsia' },
+    { id: 'c-polsia-r', name: 'POLSIA REACTION' },
+    { id: 'c-vertus', name: 'Vertus' },
+  ]
+
+  it('matches the same name, ignoring case and punctuation, and a clear "starts with"', () => {
+    const got = suggestCutterLinks([planner('p1', 'Inflow'), planner('p2', 'Pump.Fun'), planner('p3', 'Lock in App'), planner('p4', 'Polsia')], cutter)
+    expect(got.map((s) => [s.campaignName, s.cutterName])).toEqual([
+      ['Inflow', 'Inflow'],
+      ['Pump.Fun', 'Pump.fun'],
+      ['Lock in App', 'Lock in'],
+      ['Polsia', 'Polsia'],
+    ])
+  })
+
+  it('suggests nothing when a near match is ambiguous', () => {
+    expect(suggestCutterLinks([planner('p1', 'Pol')], cutter)).toEqual([])
+    expect(suggestCutterLinks([planner('p1', 'Polsia Videos')], [{ id: 'a', name: 'Polsia' }, { id: 'b', name: 'Polsia V' }])).toEqual([])
+  })
+
+  it('leaves out what is linked, archived, already taken, or dismissed', () => {
+    const got = suggestCutterLinks(
+      [
+        planner('p1', 'Inflow', { cutter_campaign_id: 'c-inflow' }),
+        planner('p2', 'Vertus', { archived_at: '2026-10-01T00:00:00Z' }),
+        planner('p3', 'Inflow'),
+        planner('p4', 'Pump.Fun'),
+      ],
+      cutter,
+      new Set(['p4:c-pump']),
+    )
+    expect(got).toEqual([])
+  })
+})
+
+describe('scheduled in the cutter but not in the planner', () => {
+  it('names the cutter campaigns with posts today that no planner campaign is linked to', () => {
+    const now = new Date()
+    now.setHours(23, 0, 0, 0)
+    const today = now.toLocaleDateString('en-CA')
+    const tomorrow = new Date(now.getTime() + 24 * 3_600_000).toISOString()
+    const posts = [
+      { id: '1', campaignId: 'c-cantina', campaignName: 'Cantina', platforms: ['tiktok'], postAt: now.toISOString() },
+      { id: '2', campaignId: 'c-cantina', campaignName: 'Cantina', platforms: ['tiktok'], postAt: now.toISOString() },
+      { id: '3', campaignId: 'c-inflow', campaignName: 'Inflow', platforms: ['tiktok'], postAt: now.toISOString() },
+      { id: '4', campaignId: 'c-money', campaignName: 'Money pilot', platforms: ['tiktok'], postAt: tomorrow },
+    ]
+    expect(scheduledButUnlinked(posts, [{ cutter_campaign_id: 'c-inflow' }], today)).toEqual(['Cantina'])
   })
 })

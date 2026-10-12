@@ -108,7 +108,8 @@ wrote it.
 
 **Colour carries state only.** green = posted, bright white = do this now,
 grey = later, amber = past the window you set or an unconfirmed parsed field,
-red = blocked with the reason in plain words. No decorative colour, no badges
+red = blocked with the reason in plain words, blue = scheduled in the cutter
+and going out by itself (a Post box, until the post goes out and ticks it). No decorative colour, no badges
 for anything that is not a state.
 
 ## Look and motion

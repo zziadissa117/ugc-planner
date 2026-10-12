@@ -26,6 +26,16 @@ import { warmupMinutesFor, type CampaignAccount } from './data'
 import { useData } from './data/useData'
 import { playWarmupDone, unlockAudio } from './sound'
 import {
+  advance,
+  current,
+  readSession,
+  setPaused,
+  startSession as beginSession,
+  writeSession,
+  type SessionItem,
+  type WarmupSession,
+} from './warmupSession'
+import {
   formatClock,
   isFinished,
   readTimers,
@@ -54,6 +64,19 @@ interface WarmupTimersValue {
   /** The account whose full-size timer is on screen, if any - the widget
    *  hides that one rather than showing it twice. */
   setViewing: (accountId: string | null) => void
+  /** The warm-up session running, if any: one account after another, each
+   *  marked warmed and the next started when its time runs out
+   *  (warmupSession.ts). */
+  session: WarmupSession | null
+  /** Starts a session with these accounts, and the first one's timer. */
+  startSession: (items: readonly SessionItem[]) => void
+  /** Moves past the current account without recording it. */
+  skip: () => void
+  /** Paused: nothing new starts; resumed: the current one starts again if
+   *  its timer is gone. */
+  pauseSession: (paused: boolean) => void
+  /** Ends the session and stops the current account's timer. */
+  endSession: () => void
 }
 
 const Context = createContext<WarmupTimersValue | null>(null)
@@ -70,6 +93,11 @@ export function WarmupTimersProvider({ children }: { children: ReactNode }) {
   const [now, setNow] = useState(() => Date.now())
   const [completions, setCompletions] = useState(0)
   const [viewing, setViewingState] = useState<string | null>(null)
+  const [session, setSession] = useState<WarmupSession | null>(readSession)
+
+  useEffect(() => {
+    writeSession(session)
+  }, [session])
 
   // Written on every change, so what is stored is always what is running.
   useEffect(() => {
@@ -168,8 +196,27 @@ export function WarmupTimersProvider({ children }: { children: ReactNode }) {
     setNow(Date.now())
   }, [])
 
+  /** A session account's timer, from the snapshot the session took. */
+  const startItem = useCallback((item: SessionItem) => {
+    setTimers((list) =>
+      list.some((t) => t.accountId === item.accountId) ? list : [...list, startTimer(item, Date.now())],
+    )
+    setNow(Date.now())
+  }, [])
+
+  /** The session moves on: the next account's timer starts unless paused. */
+  const moveOn = useCallback(
+    (from: WarmupSession, warmed: boolean) => {
+      const next = advance(from, warmed)
+      setSession(next)
+      const item = current(next)
+      if (next && item && !next.paused) startItem(item)
+    },
+    [startItem],
+  )
+
   const cancel = useCallback((accountId: string) => {
-    setTimers((current) => current.filter((t) => t.accountId !== accountId))
+    setTimers((list) => list.filter((t) => t.accountId !== accountId))
   }, [])
 
   const complete = useCallback(
@@ -177,15 +224,82 @@ export function WarmupTimersProvider({ children }: { children: ReactNode }) {
       const timer = timers.find((t) => t.accountId === accountId)
       if (!timer) return
       await data.recordWarmupEvent(accountId, timer.minutes)
-      setTimers((current) => current.filter((t) => t.accountId !== accountId))
+      setTimers((list) => list.filter((t) => t.accountId !== accountId))
       setCompletions((count) => count + 1)
+      // Marked warmed - by itself when the time ran out, or by his tap - so a
+      // session goes straight on to the next account.
+      if (session && current(session)?.accountId === accountId) moveOn(session, true)
     },
-    [data, timers],
+    [data, timers, session, moveOn],
   )
 
+  // A session's timer that has run out is marked warmed by itself, once.
+  // Paused, it waits for his tap like any other timer.
+  const autoDone = useRef(new Set<string>())
+  useEffect(() => {
+    const item = current(session)
+    if (!session || session.paused || !item) return
+    const timer = timers.find((t) => t.accountId === item.accountId)
+    if (!timer || !isFinished(timer, now)) return
+    const key = `${timer.accountId}:${timer.startedAt}`
+    if (autoDone.current.has(key)) return
+    autoDone.current.add(key)
+    void complete(timer.accountId)
+  }, [session, timers, now, complete])
+
+  const startSession = useCallback(
+    (items: readonly SessionItem[]) => {
+      unlockAudio()
+      const next = beginSession(items)
+      setSession(next)
+      const item = current(next)
+      if (item) startItem(item)
+    },
+    [startItem],
+  )
+
+  const skip = useCallback(() => {
+    if (!session) return
+    const item = current(session)
+    if (item) cancel(item.accountId)
+    moveOn(session, false)
+  }, [session, cancel, moveOn])
+
+  const pauseSession = useCallback(
+    (paused: boolean) => {
+      if (!session) return
+      setSession(setPaused(session, paused))
+      const item = current(session)
+      if (!paused && item) {
+        unlockAudio()
+        startItem(item)
+      }
+    },
+    [session, startItem],
+  )
+
+  const endSession = useCallback(() => {
+    const item = current(session)
+    if (item) cancel(item.accountId)
+    setSession(null)
+  }, [session, cancel])
+
   const value = useMemo<WarmupTimersValue>(
-    () => ({ timers, now, start, cancel, complete, completions, setViewing: setViewingState }),
-    [timers, now, start, cancel, complete, completions],
+    () => ({
+      timers,
+      now,
+      start,
+      cancel,
+      complete,
+      completions,
+      setViewing: setViewingState,
+      session,
+      startSession,
+      skip,
+      pauseSession,
+      endSession,
+    }),
+    [timers, now, start, cancel, complete, completions, session, startSession, skip, pauseSession, endSession],
   )
 
   return (
@@ -202,7 +316,8 @@ export function WarmupTimersProvider({ children }: { children: ReactNode }) {
  *  running is plain, done is done. Tapping the row goes back to the full
  *  timer; when it has finished the row carries the one-tap "Mark warmed". */
 function WarmupBar({ viewing }: { viewing: string | null }) {
-  const { timers, now, complete, cancel } = useWarmupTimers()
+  const { timers, now, complete, cancel, session, skip } = useWarmupTimers()
+  const inSession = current(session)?.accountId
   const navigate = useNavigate()
   const [busy, setBusy] = useState<string | null>(null)
 
@@ -241,7 +356,11 @@ function WarmupBar({ viewing }: { viewing: string | null }) {
                     </span>
                   </span>
                   <span className="meta block text-state-later">
-                    {done ? "Time's up - warm-up done" : 'Warm-up running'}
+                    {session && timer.accountId === inSession
+                      ? `Warm-up session · ${session.at + 1} of ${session.items.length}${session.paused ? ' · paused' : ''}`
+                      : done
+                        ? "Time's up - warm-up done"
+                        : 'Warm-up running'}
                   </span>
                 </span>
               </span>
@@ -267,11 +386,13 @@ function WarmupBar({ viewing }: { viewing: string | null }) {
             ) : (
               <button
                 type="button"
-                onClick={() => cancel(timer.accountId)}
-                aria-label={`Cancel the ${timer.platform} timer`}
+                // In a session, cancelling one account moves on to the next
+                // rather than leaving the session waiting on a timer that is gone.
+                onClick={() => (timer.accountId === inSession ? skip() : cancel(timer.accountId))}
+                aria-label={timer.accountId === inSession ? `Skip ${timer.platform} in the session` : `Cancel the ${timer.platform} timer`}
                 className="press min-h-tap shrink-0 rounded-xl px-2 text-base text-state-later active:bg-surface"
               >
-                Cancel
+                {timer.accountId === inSession ? 'Skip' : 'Cancel'}
               </button>
             )}
             {/* How much of the sitting is left, as a hairline along the

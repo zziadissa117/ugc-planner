@@ -7,6 +7,7 @@ import {
   forToday,
   loadDayList,
   move,
+  orderedSteps,
   replaceWith,
   tick,
   tickStep,
@@ -75,14 +76,41 @@ describe('ticking', () => {
     expect(tuesday.items[1].done).toBe(true)
   })
 
-  it("keeps a row in place when it's ticked today, and moves finished one-offs under Done the next day", () => {
+  it('drops a ticked item below the open ones, keeping both in order, and puts it back when unticked', () => {
     let list = fresh()
     list = tick(list, list.items[1].id, true, MON)
-    expect(view(list, MON).open.map((i) => i.text)).toEqual(['Apply for campaigns on every app', 'Warm up Vaza accounts', 'Clean my room'])
-    expect(view(list, MON)).toMatchObject({ doneToday: 1, total: 3 })
+    const monday = view(list, MON)
+    expect(monday.open.map((i) => i.text)).toEqual(['Apply for campaigns on every app', 'Clean my room'])
+    expect(monday.done.map((i) => i.text)).toEqual(['Warm up Vaza accounts'])
+    expect(monday).toMatchObject({ doneCount: 1, total: 3 })
+
+    list = tick(list, list.items[2].id, true, MON)
+    list = tick(list, list.items[0].id, true, MON)
+    // In the list's order, not the order ticked.
+    expect(view(list, MON).done.map((i) => i.text)).toEqual(['Apply for campaigns on every app', 'Warm up Vaza accounts', 'Clean my room'])
+
+    list = tick(list, list.items[1].id, false, MON)
+    expect(view(list, MON).open.map((i) => i.text)).toEqual(['Warm up Vaza accounts'])
+  })
+
+  it('moves finished one-offs under Done the next day, and brings every-day ones back to the top', () => {
+    let list = fresh()
+    list = tick(list, list.items[0].id, true, MON)
+    list = tick(list, list.items[1].id, true, MON)
     const tuesday = view(forToday(list, TUE), TUE)
     expect(tuesday.open.map((i) => i.text)).toEqual(['Apply for campaigns on every app', 'Clean my room'])
+    expect(tuesday.done).toEqual([])
     expect(tuesday.finished.map((i) => i.text)).toEqual(['Warm up Vaza accounts'])
+  })
+
+  it('lists ticked steps below the open ones, keeping where each one is stored', () => {
+    let list = fresh()
+    list = tickStep(list, list.items[0].id, 0, true, MON)
+    expect(orderedSteps(list.items[0]).map(({ step, index }) => [step.text, index])).toEqual([
+      ['Gimi', 1],
+      ['Reddit', 2],
+      ['SideShift', 0],
+    ])
   })
 })
 

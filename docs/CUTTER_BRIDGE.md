@@ -16,6 +16,14 @@ A video the cutter app posts ticks the planner's Post grid by itself.
    (`markPosted`), so the rate snapshot, earnings history and one-deliverable-many-platforms
    rule are unchanged.
 
+## Scheduled boxes (blue)
+
+`cutter-posted` also answers `{ action: 'scheduled', ids }` with the linked campaigns' posts waiting in Postiz
+for a time in the next two days (`status = 'scheduled'`, not reposts). The Post screen counts today's per campaign
+and platform (`scheduledCounts` in `src/data/cutterBridge.ts`) and paints that many open boxes blue with a ticking
+clock (`useCutterScheduled`, refreshed every 5 minutes and on return). It is display only: nothing is written, and
+a box still ticks for real only when the post goes out (`posted`). He can tick a blue box by hand as before.
+
 ## Safety properties
 
 - Only cutter posts with status `posted` count. Scheduled is not posted.

@@ -42,6 +42,8 @@
   --color-state-later: #8c9aaf;
   --color-state-waiting: #f0a83c;
   --color-state-blocked: #f2564c;
+  /* Scheduled in the cutter: it will go out by itself. Nothing else is blue. */
+  --color-state-scheduled: #4da3ff;
 
   --color-text: #eaeff7;
   --color-text-dim: #a4b1c3;
@@ -375,5 +377,22 @@ body {
     /* Kill the grey flash Android paints over taps; components own their own
        pressed state. */
     -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/* The scheduled clock's long hand ticks round, twelve steps a turn. */
+.sched-hand {
+  transform-origin: 12px 12px;
+  transform-box: view-box;
+  animation: sched-tick 4s steps(12) infinite;
+}
+@keyframes sched-tick {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sched-hand {
+    animation: none;
   }
 }

@@ -74,3 +74,32 @@ export async function applyCutterPosts(data: DataAdapter, posts: readonly Cutter
   }
   return ticked
 }
+
+/** A video waiting in Postiz for its time, as the cutter reports it. */
+export interface CutterScheduled {
+  id: string
+  campaignId: string
+  platforms: string[]
+  postAt: string
+}
+
+/** How many of a day's boxes are scheduled in the cutter, per planner
+ *  campaign and platform: "Inflow, TikTok: 2". Only ever painted, never
+ *  ticked - the box ticks itself when the post actually goes out
+ *  (applyCutterPosts). Only linked campaigns, only that day's posts. */
+export function scheduledCounts(
+  posts: readonly CutterScheduled[],
+  campaigns: readonly { id: string; cutter_campaign_id: string | null }[],
+  date: string,
+): Map<string, Map<string, number>> {
+  const counts = new Map<string, Map<string, number>>()
+  for (const post of posts) {
+    if (localDay(post.postAt) !== date) continue
+    const campaign = campaigns.find((c) => c.cutter_campaign_id === post.campaignId)
+    if (!campaign) continue
+    const byPlatform = counts.get(campaign.id) ?? new Map<string, number>()
+    for (const root of new Set(post.platforms.map(platformRoot))) byPlatform.set(root, (byPlatform.get(root) ?? 0) + 1)
+    counts.set(campaign.id, byPlatform)
+  }
+  return counts
+}

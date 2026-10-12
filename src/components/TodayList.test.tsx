@@ -55,13 +55,28 @@ describe("today's list", () => {
     expect(screen.getByText(/Sorted by Claude \(claude-sonnet-5-5\)/)).toBeInTheDocument()
   })
 
-  it('ticks in one tap and the row stays where it is', async () => {
+  it('ticks in one tap and drops the item under Done today, out of the way', async () => {
     sortDay.mockResolvedValue(ANSWER)
     const user = await pasteAndSort()
-    await user.click(screen.getByRole('button', { name: 'Mark Warm up Vaza accounts done' }))
+    await user.click(screen.getByRole('button', { name: 'Mark Apply for campaigns on every app done' }))
     expect(screen.getByText('1 of 2 done')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Mark Warm up Vaza accounts not done' })).toBeInTheDocument()
-    expect(screen.getByText('Warm up Vaza accounts')).toBeInTheDocument()
+    const open = within(screen.getByRole('list', { name: 'To do' }))
+    expect(open.getByText('Warm up Vaza accounts')).toBeInTheDocument()
+    expect(open.queryByText('Apply for campaigns on every app')).toBeNull()
+    const done = within(screen.getByRole('list', { name: 'Done today' }))
+    expect(done.getByText('Apply for campaigns on every app')).toBeInTheDocument()
+
+    // Unticked, it goes back on top.
+    await user.click(done.getByRole('button', { name: 'Mark Apply for campaigns on every app not done' }))
+    expect(screen.queryByRole('list', { name: 'Done today' })).toBeNull()
+  })
+
+  it('says so when everything is done', async () => {
+    sortDay.mockResolvedValue(ANSWER)
+    const user = await pasteAndSort()
+    await user.click(screen.getByRole('button', { name: 'Mark Apply for campaigns on every app done' }))
+    await user.click(screen.getByRole('button', { name: 'Mark Warm up Vaza accounts done' }))
+    expect(screen.getByText('All done for today')).toBeInTheDocument()
   })
 
   it('ticks an item off when its last step is ticked', async () => {

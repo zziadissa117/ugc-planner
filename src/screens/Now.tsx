@@ -8,7 +8,7 @@
 // What is left is: the day's count, one tap to mark a filmed video edited,
 // FILM against a goal, and warm-up.
 
-import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 
 import {
@@ -28,6 +28,7 @@ import { KNOWN_PLATFORMS } from '../components/platforms'
 import { byBestPay } from '../money'
 import { formatClock, secondsLeft } from '../warmupTimer'
 import { useWarmupTimers } from '../warmupTimers'
+import { current, remainingAfter, sessionItem, sessionMinutes, warmupQueue, type QueuedAccount } from '../warmupSession'
 import type {
   Campaign,
   CampaignAccount,
@@ -196,6 +197,25 @@ export function Now() {
     [campaigns],
   )
 
+  // A session moving on while its timer is on screen: follow it to the next
+  // account, or home once the last one is done.
+  const sessionAccount = current(timers.session)?.accountId ?? null
+  const followed = useRef<string | null>(null)
+  useEffect(() => {
+    if (stage.kind !== 'warmup_timer') {
+      followed.current = null
+      return
+    }
+    if (sessionAccount === stage.account.id) {
+      followed.current = stage.account.id
+      return
+    }
+    if (followed.current !== stage.account.id) return
+    const next = sessionAccount ? accounts.find((a) => a.id === sessionAccount) : undefined
+    if (next) openTimer(next)
+    else setStage({ kind: 'home' })
+  }, [sessionAccount, stage, accounts, openTimer])
+
   // Arriving from the strip at the top of another screen: open that timer.
   const wantedTimer = (location.state as { openTimer?: string } | null)?.openTimer ?? null
   useEffect(() => {
@@ -254,7 +274,7 @@ export function Now() {
             />
             <ActionTile icon={<PostIcon className="h-6 w-6" />} label="POST" to="/post" />
           </div>
-          <WarmupList
+          <WarmupNext
             accounts={warmupAccounts}
             campaigns={campaigns}
             warmupEvents={warmupEvents}
@@ -299,8 +319,10 @@ export function Now() {
           account={stage.account}
           campaign={stage.campaign}
           onDone={async () => {
+            // In a session this also starts the next account; the effect
+            // above then follows it onto this screen.
             await timers.complete(stage.account.id)
-            setStage({ kind: 'home' })
+            if (current(timers.session)?.accountId !== stage.account.id) setStage({ kind: 'home' })
           }}
           onCancel={() => {
             timers.cancel(stage.account.id)
@@ -658,6 +680,138 @@ function Briefing({
  *  row still stands on its own - a state dot, the platform large, the reason
  *  in its state colour, generous room above and below - so a run of them does
  *  not read as one block of text, which is what the old shared box did. */
+/** The warm-up block on the home screen: the one account to warm next, and a
+ *  session that takes them one after another (warmupSession.ts). The full
+ *  list is folded under it - he asked not to have ten accounts in front of
+ *  him, all red after a week away. */
+function WarmupNext({
+  accounts,
+  campaigns,
+  warmupEvents,
+  onPick,
+  payRank,
+}: {
+  accounts: CampaignAccount[]
+  campaigns: Campaign[]
+  warmupEvents: WarmupEvent[]
+  onPick: (account: CampaignAccount) => void
+  payRank: ReadonlyMap<string, number>
+}) {
+  const { session, timers, now, startSession, skip, pauseSession, endSession } = useWarmupTimers()
+  const [opened] = useState(() => Date.now())
+  if (accounts.length === 0) return null
+
+  const nameById = new Map(campaigns.map((c) => [c.id, c.name]))
+  const queue = warmupQueue(accounts, campaigns, warmupEvents, payRank, opened)
+  const item = current(session)
+  const running = item ? accounts.find((a) => a.id === item.accountId) : undefined
+  const timer = item ? timers.find((t) => t.accountId === item.accountId) : undefined
+
+  const all = (
+    <details className="group/disclosure border-b border-rule">
+      <summary className="flex min-h-tap cursor-pointer list-none items-center gap-3 [&::-webkit-details-marker]:hidden">
+        <span className="min-w-0 flex-1 text-base font-semibold text-text-dim">All accounts</span>
+        <span className="meta shrink-0 text-state-later">{accounts.length}</span>
+      </summary>
+      <div className="pb-4" role="region" aria-label="All accounts">
+        <WarmupList accounts={accounts} campaigns={campaigns} warmupEvents={warmupEvents} onPick={onPick} payRank={payRank} />
+      </div>
+    </details>
+  )
+
+  if (session && item) {
+    const after = remainingAfter(session)
+    return (
+      <div className="flex flex-col gap-3">
+        <SectionLabel trailing={`${session.at + 1} of ${session.items.length}`}>Warm-up session</SectionLabel>
+        <button
+          type="button"
+          onClick={() => running && onPick(running)}
+          className="press flex flex-col gap-1.5 rounded-2xl border border-state-now/80 px-4 py-4 text-left active:bg-surface"
+        >
+          <span className="flex items-start justify-between gap-3">
+            <span className="min-w-0 truncate text-2xl font-bold leading-tight text-state-now">{item.campaignName}</span>
+            <span className="numeric shrink-0 text-2xl font-semibold text-text">
+              {timer ? formatClock(secondsLeft(timer, now)) : session.paused ? 'paused' : ''}
+            </span>
+          </span>
+          <span className="flex items-center gap-2">
+            <PlatformGlyph platform={item.platform} className="h-5 w-5 shrink-0 text-text-dim" />
+            <span className="shrink-0 text-lg font-semibold text-text-dim">{item.platform}</span>
+            <span className="min-w-0 break-all text-lg text-text-dim">{item.handle ?? 'no handle saved'}</span>
+          </span>
+          <span className="meta text-state-later">
+            {session.paused
+              ? 'Paused - nothing starts until you resume.'
+              : after === 0
+                ? 'The last one. Marked warmed by itself when the time is up.'
+                : `${after} more after this - each starts by itself when this one's time is up.`}
+          </span>
+        </button>
+        <div className="flex gap-2">
+          <Button variant="ghost" size="small" onClick={skip}>
+            Skip
+          </Button>
+          <Button variant="ghost" size="small" onClick={() => pauseSession(!session.paused)}>
+            {session.paused ? 'Resume' : 'Pause session'}
+          </Button>
+          <Button variant="ghost" size="small" onClick={endSession}>
+            End session
+          </Button>
+        </div>
+        {all}
+      </div>
+    )
+  }
+
+  if (queue.length === 0) {
+    return (
+      <div className="flex flex-col gap-3">
+        <SectionLabel tone="posted">Warm-ups</SectionLabel>
+        <p className="flex items-center gap-2 text-lg font-semibold text-state-posted">
+          <CheckIcon className="h-5 w-5" strokeWidth={2} /> All warmed up today
+        </p>
+        {all}
+      </div>
+    )
+  }
+
+  const first = queue[0]
+  const items = queue.map((q) => sessionItem(q.account, nameById.get(q.account.campaign_id) ?? 'unknown campaign'))
+  return (
+    <div className="flex flex-col gap-3">
+      <SectionLabel trailing={`${queue.length} to warm today`}>Warm up next</SectionLabel>
+      <div className="flex flex-col gap-1.5">
+        <span className="min-w-0 truncate text-2xl font-bold leading-tight text-state-now">
+          {nameById.get(first.account.campaign_id) ?? 'unknown campaign'}
+        </span>
+        <span className="flex items-center gap-2">
+          <PlatformGlyph platform={first.account.platform} className="h-5 w-5 shrink-0 text-text-dim" />
+          <span className="shrink-0 text-lg font-semibold text-text-dim">{first.account.platform}</span>
+          <span className="min-w-0 break-all text-lg text-text-dim">{first.account.handle ?? 'no handle saved'}</span>
+        </span>
+        <span className="meta text-state-later">{whyNext(first, opened)}</span>
+      </div>
+      <Button variant="now" size="big" onClick={() => startSession(items)}>
+        {queue.length === 1
+          ? `Start warm-up - ${items[0].minutes} min`
+          : `Start warm-up session - ${queue.length} accounts, about ${sessionMinutes(items)} min`}
+      </Button>
+      {all}
+    </div>
+  )
+}
+
+/** Why this account is the one to warm next, in words - no red. */
+function whyNext(next: QueuedAccount, now: number): string {
+  if (next.tier === 'urgent') return 'New - not warmed yet'
+  if (next.last === null) return 'Never warmed'
+  const days = daysSince(next.last, now)
+  if (next.tier === 'overdue') return `${days} days since the last one`
+  if (next.tier === 'building') return `Still warming up - last one ${sinceLabel(next.last, now)}`
+  return `Keeping it fresh - last one ${sinceLabel(next.last, now)}`
+}
+
 function WarmupList({
   accounts,
   campaigns,
@@ -1000,7 +1154,8 @@ function WarmupTimer({
   onCancel: () => void
   onBack: () => void
 }) {
-  const { timers, now, setViewing, start } = useWarmupTimers()
+  const { timers, now, setViewing, start, session, skip, endSession } = useWarmupTimers()
+  const inSession = session !== null && current(session)?.accountId === account.id
   const [busy, setBusy] = useState(false)
   const usual = warmupMinutesFor(account)
   const [minutes, setMinutes] = useState(usual)
@@ -1092,6 +1247,9 @@ function WarmupTimer({
   return (
     <div className="flex flex-col gap-6">
       <BackButton onClick={onBack}>Back - the timer keeps running</BackButton>
+      {inSession ? (
+        <SectionLabel trailing={`${session.at + 1} of ${session.items.length}`}>Warm-up session</SectionLabel>
+      ) : null}
       <WarmupWho account={account} campaign={campaign} />
 
       <CountdownRing left={left} total={timer.minutes * 60}>
@@ -1122,7 +1280,16 @@ function WarmupTimer({
         Mark warmed up
       </Button>
 
-      {finished ? null : (
+      {inSession ? (
+        <div className="grid grid-cols-2 gap-2">
+          <Button variant="ghost" onClick={skip}>
+            Skip this one
+          </Button>
+          <Button variant="ghost" onClick={endSession}>
+            End session
+          </Button>
+        </div>
+      ) : finished ? null : (
         <Button variant="ghost" onClick={onCancel}>
           Cancel this timer
         </Button>

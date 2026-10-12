@@ -31,6 +31,7 @@ import type {
 } from '../data'
 import { PAYOUT_SCHEDULE_VALUES } from '../data'
 import { listCutterCampaigns, type CutterCampaign } from '../sync/cutterBridge'
+import { suggestCutterLinks } from '../data/cutterBridge'
 import { deliverableCents, paysPerPlatform } from '../data/earnings'
 import { PAYOUT_SCHEDULE_LABELS, payoutStatus } from '../data/payouts'
 import {
@@ -431,9 +432,25 @@ function CutterLink({ campaign, onSave }: { campaign: CampaignRow; onSave: (patc
     }
   }, [])
   if (options === null) return null
+  // A cutter campaign of the same name, offered as one tap - never linked
+  // on the name by itself.
+  const suggestion = campaign.cutter_campaign_id ? null : (suggestCutterLinks([campaign], options)[0] ?? null)
   return (
     <label className="flex flex-col gap-1 border-b border-rule pb-3">
       <span className="label text-state-later">Posted by the cutter</span>
+      {suggestion ? (
+        <Button
+          size="small"
+          variant="now"
+          className="self-start"
+          onClick={(e) => {
+            e.preventDefault()
+            void onSave({ cutter_campaign_id: suggestion.cutterId })
+          }}
+        >
+          Link to the Cutter's {suggestion.cutterName}
+        </Button>
+      ) : null}
       <select
         className={INPUT_CLASS}
         value={campaign.cutter_campaign_id ?? ''}

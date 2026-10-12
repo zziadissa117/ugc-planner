@@ -79,6 +79,8 @@ export async function applyCutterPosts(data: DataAdapter, posts: readonly Cutter
 export interface CutterScheduled {
   id: string
   campaignId: string
+  /** Absent from a function deployed before it was added. */
+  campaignName?: string
   platforms: string[]
   postAt: string
 }
@@ -102,4 +104,65 @@ export function scheduledCounts(
     counts.set(campaign.id, byPlatform)
   }
   return counts
+}
+
+/** "Pump.Fun" and "pump.fun" alike: lowercase, letters and digits only. */
+function nameKey(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
+export interface LinkSuggestion {
+  campaignId: string
+  campaignName: string
+  cutterId: string
+  cutterName: string
+}
+
+/** Planner campaigns the cutter has one with the same name: a suggestion
+ *  only, which he confirms with a tap - the bridge never links on a name by
+ *  itself. Exact names first; otherwise one name starting with the other
+ *  ("Lock in App", "Lock in"), and only when that is the one candidate.
+ *  Leaves out what is already linked, archived, or he said is not a match. */
+export function suggestCutterLinks(
+  campaigns: readonly { id: string; name: string; cutter_campaign_id: string | null; archived_at?: string | null }[],
+  cutter: readonly { id: string; name: string }[],
+  dismissed: ReadonlySet<string> = new Set(),
+): LinkSuggestion[] {
+  const taken = new Set(campaigns.map((c) => c.cutter_campaign_id).filter(Boolean))
+  const free = cutter.filter((c) => !taken.has(c.id))
+  const out: LinkSuggestion[] = []
+  const used = new Set<string>()
+  for (const campaign of campaigns) {
+    if (campaign.cutter_campaign_id || campaign.archived_at) continue
+    const key = nameKey(campaign.name)
+    if (key.length === 0) continue
+    const open = free.filter((c) => !used.has(c.id) && !dismissed.has(`${campaign.id}:${c.id}`))
+    const exact = open.filter((c) => nameKey(c.name) === key)
+    const near = open.filter((c) => {
+      const other = nameKey(c.name)
+      const shorter = Math.min(other.length, key.length)
+      return other !== key && shorter >= 4 && (other.startsWith(key) || key.startsWith(other))
+    })
+    const pick = exact.length === 1 ? exact[0] : exact.length === 0 && near.length === 1 ? near[0] : null
+    if (!pick) continue
+    used.add(pick.id)
+    out.push({ campaignId: campaign.id, campaignName: campaign.name, cutterId: pick.id, cutterName: pick.name })
+  }
+  return out
+}
+
+/** The cutter campaigns with something scheduled on `date` that no planner
+ *  campaign is linked to - what to add on BRIEFS to see them on the grid. */
+export function scheduledButUnlinked(
+  posts: readonly CutterScheduled[],
+  campaigns: readonly { cutter_campaign_id: string | null }[],
+  date: string,
+): string[] {
+  const linked = new Set(campaigns.map((c) => c.cutter_campaign_id).filter(Boolean))
+  const names = new Map<string, string>()
+  for (const post of posts) {
+    if (linked.has(post.campaignId) || localDay(post.postAt) !== date) continue
+    names.set(post.campaignId, post.campaignName ?? 'a cutter campaign')
+  }
+  return [...new Set(names.values())]
 }

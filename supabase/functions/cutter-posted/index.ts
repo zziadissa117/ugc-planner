@@ -3,7 +3,7 @@
 //
 //   POST { action: 'campaigns' }                        -> { enabled, campaigns: [{ id, name }] }
 //   POST { action: 'posted', since?: ISO, ids?: [id] }  -> { enabled, posts: [...] }
-//   POST { action: 'scheduled', ids?: [id] }             -> { enabled, posts: [{ id, campaignId, platforms, postAt }] }
+//   POST { action: 'scheduled', ids?: [id] }             -> { enabled, posts: [{ id, campaignId, campaignName, platforms, postAt }] }
 //
 // The cutter's tables are server-only on purpose, so the browser never reads
 // them: this function does, with the service role, and only for the planner
@@ -91,7 +91,7 @@ Deno.serve(async (req: Request) => {
     const now = Date.now()
     let query = db
       .from('cutter_posts')
-      .select('id, campaign_id, accounts, post_at')
+      .select('id, campaign_id, campaign_name, accounts, post_at')
       .eq('status', 'scheduled')
       .is('repost_of', null)
       .gt('post_at', new Date(now).toISOString())
@@ -106,6 +106,7 @@ Deno.serve(async (req: Request) => {
       posts: (data ?? []).map((p) => ({
         id: p.id,
         campaignId: p.campaign_id,
+        campaignName: p.campaign_name,
         platforms: ((p.accounts ?? []) as { platform: string; held?: string }[]).filter((a) => !a.held).map((a) => a.platform),
         postAt: p.post_at,
       })),

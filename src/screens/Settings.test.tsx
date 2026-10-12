@@ -104,4 +104,38 @@ describe('the account section', () => {
     await user.click(screen.getByRole('button', { name: 'Sign out' }))
     expect(signOutFn).toHaveBeenCalled()
   })
+
+  it('says when changes on this device have not reached the server, and why one was refused', async () => {
+    mockClient = fakeClient()
+    getSession.mockResolvedValue({
+      data: { session: { user: { id: USER, email: 'creator@example.com' } } },
+    })
+    const campaign = await adapter.createCampaign({
+      name: 'Inflow',
+      company: null,
+      default_setup: 'face',
+      approval_mode: 'none',
+      pay_per_video_cents: 3500,
+      cycle_size: null,
+    })
+    await adapter.updateCampaign(campaign.id, { name: 'Inflow 2' })
+    const [first] = await adapter.listPendingWrites()
+    for (let i = 0; i < 5; i++) await adapter.markWriteFailed(first.id, '42501: RLS refused it')
+
+    renderSettings()
+
+    expect(await screen.findByText(/\d+ changes? on this device not on the server yet/)).toBeInTheDocument()
+    expect(screen.getByText(/1 change the server refused: 42501: RLS refused it/)).toBeInTheDocument()
+  })
+
+  it('says nothing about the queue when everything is on the server', async () => {
+    mockClient = fakeClient()
+    getSession.mockResolvedValue({
+      data: { session: { user: { id: USER, email: 'creator@example.com' } } },
+    })
+    renderSettings()
+
+    expect(await screen.findAllByText('creator@example.com')).not.toHaveLength(0)
+    expect(screen.queryByText(/not on the server yet|the server refused/)).toBeNull()
+  })
 })

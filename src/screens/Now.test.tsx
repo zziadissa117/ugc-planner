@@ -4,7 +4,7 @@
 // is left.
 
 import 'fake-indexeddb/auto'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { IDBFactory } from 'fake-indexeddb'
 import { MemoryRouter } from 'react-router-dom'
@@ -24,6 +24,7 @@ let database: LocalDatabase
 
 beforeEach(async () => {
   localStorage.removeItem('ugc-planner.warmup_timers')
+  localStorage.removeItem('ugc-planner.warmup_session')
   indexedDB = new IDBFactory()
   const db = new LocalDatabase(`now-${crypto.randomUUID()}`)
   database = db
@@ -43,6 +44,9 @@ function renderScreen() {
     </DataContext.Provider>,
   )
 }
+
+/** The full warm-up list, folded under the one account to warm next. */
+const all = () => within(screen.getByRole('region', { name: 'All accounts', hidden: true }))
 
 async function filmOne(campaignId = INFLOW_CAMPAIGN_ID) {
   const video = await adapter.createVideo({
@@ -226,13 +230,13 @@ describe('the warm-up list, in order of priority', () => {
     renderScreen()
     await screen.findByText(/Keep them warm/)
 
-    const fresh = screen.getByText('New - not warmed yet')
+    const fresh = all().getByText('New - not warmed yet')
     expect(fresh).toHaveClass('text-state-blocked')
-    const stale = screen.getByText('Overdue - 20 days, limit 2')
+    const stale = all().getByText('Overdue - 20 days, limit 2')
     expect(stale).toHaveClass('text-state-blocked')
     // Overdue and new are separate sections, both red.
-    expect(screen.getByText(/Warm up urgently - 2/)).toHaveClass('text-state-blocked')
-    expect(screen.getByText(/Warm these first - 1/)).toHaveClass('text-state-blocked')
+    expect(all().getByText(/Warm up urgently - 2/)).toHaveClass('text-state-blocked')
+    expect(all().getByText(/Warm these first - 1/)).toHaveClass('text-state-blocked')
   })
 
   it('treats a ready account that was never warmed as neglected, not as fine', async () => {
@@ -240,9 +244,9 @@ describe('the warm-up list, in order of priority', () => {
     await screen.findByText(/Keep them warm/)
 
     // The seed's two ready accounts have no sessions on record.
-    expect(screen.getAllByText('Never warmed')).toHaveLength(2)
-    expect(screen.getByText(/Warm up urgently - 2/)).toBeInTheDocument()
-    expect(screen.queryByText(/Ready - keeping them fresh/)).toBeNull()
+    expect(all().getAllByText('Never warmed')).toHaveLength(2)
+    expect(all().getByText(/Warm up urgently - 2/)).toBeInTheDocument()
+    expect(all().queryByText(/Ready - keeping them fresh/)).toBeNull()
   })
 
   it('leaves a ready account that was warmed recently at the bottom, in grey', async () => {
@@ -573,13 +577,13 @@ describe('warming up an account', () => {
     // fresh and remember". The seed's two are ready, and both belong here.
     renderScreen()
     expect(await screen.findByText(/Keep them warm/)).toBeInTheDocument()
-    expect(screen.getByText('TikTok')).toBeInTheDocument()
-    expect(screen.getByText('Instagram')).toBeInTheDocument()
+    expect(all().getByText('TikTok')).toBeInTheDocument()
+    expect(all().getByText('Instagram')).toBeInTheDocument()
     // Never warmed, so neglected - but still a shorter sitting than an
     // account being built.
-    expect(screen.getAllByText('Never warmed')).toHaveLength(2)
+    expect(all().getAllByText('Never warmed')).toHaveLength(2)
     // Nothing done yet, so there is no done group at all.
-    expect(screen.queryByText('Warmed today')).toBeNull()
+    expect(all().queryByText('Warmed today')).toBeNull()
   })
 
   it('names the accounts that are not ready, and puts them first', async () => {
@@ -589,11 +593,11 @@ describe('warming up an account', () => {
 
     renderScreen()
     expect(await screen.findByText(/Keep them warm/)).toBeInTheDocument()
-    expect(screen.getByText(/@brandnew/)).toBeInTheDocument()
+    expect(all().getByText(/@brandnew/)).toBeInTheDocument()
 
     // In the same red group as the two never-warmed Inflow accounts. Inflow
     // ($35) pays more than this campaign ($10), so it is listed first.
-    const rows = screen.getAllByRole('listitem')
+    const rows = all().getAllByRole('listitem')
     expect(rows).toHaveLength(3)
     expect(rows[2]).toHaveTextContent('Facebook')
   })
@@ -788,5 +792,38 @@ describe('warming up an account', () => {
 
     const accounts = await adapter.listCampaignAccounts()
     expect(accounts.find((a) => a.id === account.id)?.status).toBe('ready')
+  })
+})
+
+describe('the warm-up session', () => {
+  it('shows one account to warm next - a new one first - with the rest folded away', async () => {
+    const campaign = await adapter.createCampaign({
+      name: 'Vaza',
+      company: null,
+      default_setup: 'face',
+      approval_mode: 'none',
+      pay_per_video_cents: 1000,
+      cycle_size: null,
+    })
+    await adapter.addCampaignAccount({ campaign_id: campaign.id, platform: 'TikTok', handle: '@vaza.new', status: 'new' })
+    renderScreen()
+
+    expect(await screen.findByText('Warm up next')).toBeInTheDocument()
+    // On the card, not only inside the folded list.
+    const outside = (el: HTMLElement) => el.closest('[aria-label="All accounts"]') === null
+    expect(screen.getAllByText('@vaza.new').filter(outside)).toHaveLength(1)
+    expect(screen.getAllByText('New - not warmed yet').filter(outside)).toHaveLength(1)
+    expect(screen.getByRole('button', { name: /Start warm-up session - 3 accounts, about \d+ min/ })).toBeInTheDocument()
+    expect(screen.getByText('All accounts')).toBeInTheDocument()
+  })
+
+  it('starts the first timer with one tap and shows where the session is', async () => {
+    const user = userEvent.setup()
+    renderScreen()
+    await user.click(await screen.findByRole('button', { name: /Start warm-up session/ }))
+    expect(await screen.findByText('Warm-up session')).toBeInTheDocument()
+    expect(screen.getByText('1 of 2')).toBeInTheDocument()
+    expect(screen.getByText(/1 more after this/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Skip' })).toBeInTheDocument()
   })
 })

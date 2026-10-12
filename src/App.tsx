@@ -1,8 +1,10 @@
-import { useEffect, useState, type ComponentType } from 'react'
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { useContext, useEffect, useState, type ComponentType } from 'react'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 
 import { BriefsIcon, MoneyIcon, NowIcon, PostIcon, SetupIcon } from './components/icons'
 import { useData } from './data/useData'
+import { Button } from './components/ui'
+import { AuthContext } from './sync/AuthContext'
 import { useCutterBridge } from './sync/cutterBridge'
 import { WarmupTimersProvider } from './warmupTimers'
 
@@ -53,13 +55,20 @@ export function App() {
     }
   }, [data])
 
-  useCutterBridge(data, ready)
+  // Read directly rather than through useAuth: the shell also renders in
+  // tests with no sign-in at all, and then there is nothing to warn about.
+  const auth = useContext(AuthContext)
+  const sessionLost = auth?.sessionLost ?? false
+
+  // While the sign-in is dead every call would be refused; wait for him.
+  useCutterBridge(data, ready && !sessionLost)
 
   return (
     <div className="flex min-h-dvh flex-col text-text">
       {/* Above the routes, so a running warm-up timer outlives every screen
           change. It renders its own strip at the top of the page. */}
       <WarmupTimersProvider>
+        {sessionLost && auth ? <SignedOut email={auth.email} onSignIn={auth.signOut} /> : null}
         <main key={ready ? `ready:${section}` : 'loading'} className="rise-in flex-1 px-4 pb-6 pt-5">
           {ready ? <Outlet /> : null}
         </main>
@@ -114,6 +123,33 @@ export function App() {
           </ul>
         </nav>
       </WarmupTimersProvider>
+    </div>
+  )
+}
+
+/** The sign-in stopped working while the app still looked signed in - the
+ *  server refused to renew it. Everything on this device is kept; nothing
+ *  goes up, and the cutter cannot tick posts, until he signs in again. Red:
+ *  blocked, with the reason in plain words. */
+export function SignedOut({ email, onSignIn }: { email: string | null; onSignIn: () => Promise<void> }) {
+  const navigate = useNavigate()
+  return (
+    <div role="alert" className="border-b border-state-blocked/60 px-4 py-3">
+      <div className="mx-auto flex max-w-4xl flex-wrap items-center gap-x-4 gap-y-2">
+        <p className="min-w-0 flex-1 text-base text-state-blocked">
+          Signed out{email ? ` (${email})` : ''} - nothing is syncing and the cutter can't tick posts. Your work on
+          this computer is kept.
+        </p>
+        <Button
+          variant="blocked"
+          size="small"
+          onClick={() => {
+            void onSignIn().finally(() => navigate('/settings'))
+          }}
+        >
+          Sign in again
+        </Button>
+      </div>
     </div>
   )
 }

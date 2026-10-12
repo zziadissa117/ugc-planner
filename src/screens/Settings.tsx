@@ -4,11 +4,9 @@ import { CopyIcon, UploadIcon } from '../components/icons'
 import { Button, Disclosure, ScreenHeader } from '../components/ui'
 import { INPUT_CLASS } from '../components/styles'
 import { EXPORT_REMINDER_DAYS } from '../data'
-import type { Campaign } from '../data'
 import { useData } from '../data/useData'
 import { useAuth } from '../sync'
 import { AiKeys } from './AiKeys'
-import { Priorities } from './Priorities'
 type Status =
   | { kind: 'idle' }
   | { kind: 'busy' }
@@ -26,12 +24,6 @@ export function Settings() {
   const data = useData()
   const [json, setJson] = useState('')
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
-  // For the priorities list below: which line mentions which campaign, so a
-  // note he writes about a campaign can jump straight to its brief.
-  const [campaigns, setCampaigns] = useState<Campaign[]>([])
-  useEffect(() => {
-    void data.listCampaigns().then(setCampaigns)
-  }, [data])
   const [exportIsStale, setExportIsStale] = useState(false)
 
   useEffect(() => {
@@ -93,9 +85,8 @@ export function Settings() {
         </p>
       ) : null}
 
-      {/* The work first, and big. Everything below it is set once and folded. */}
-      <Priorities campaigns={campaigns} />
-
+      {/* Everything here is set once and folded. The day's list moved to the
+          home screen (src/components/TodayList.tsx). */}
       <div className="flex flex-col border-t border-rule">
         <AccountAndKeys />
 

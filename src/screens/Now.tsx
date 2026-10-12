@@ -19,6 +19,7 @@ import {
   PlatformGlyph,
   PostIcon,
 } from '../components/icons'
+import { TodayList } from '../components/TodayList'
 import { ActionTile, Button, SectionLabel, StateDot } from '../components/ui'
 import { INPUT_CLASS, TONE_TEXT, type Tone } from '../components/styles'
 
@@ -241,6 +242,7 @@ export function Now() {
             onOpenWork={() => setStage({ kind: 'work' })}
           />
           <EditBacklog count={summary.editBacklog} busy={editBusy} onMarkEdited={markOneEdited} />
+          <TodayList />
           <div className="grid grid-cols-2 gap-3">
             {/* FILM is the one thing on this screen that starts work, so it is
                 the only lit thing on it. */}

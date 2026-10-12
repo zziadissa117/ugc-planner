@@ -56,7 +56,7 @@ describe('what the page shows', () => {
     for (const gone of ['What it is', 'Who it is for', 'How it sounds', 'How the video goes']) {
       expect(screen.queryByText(gone)).toBeNull()
     }
-    expect(screen.getByText('More').closest('details')).not.toHaveAttribute('open')
+    expect(screen.getByText('More', { selector: 'summary span' }).closest('details')).not.toHaveAttribute('open')
   })
 
   it('has no hook writer or hooks box - those live in FILM', async () => {
@@ -384,7 +384,7 @@ describe('what each platform pays', () => {
   it('lets one platform have a rate of its own, saved as integer cents', async () => {
     const user = userEvent.setup()
     await renderBrief()
-    await user.click(screen.getByText('More'))
+    await user.click(screen.getByText('More', { selector: 'summary span' }))
     await user.click(await screen.findByRole('button', { name: 'More for TikTok' }))
 
     const box = await screen.findByLabelText('TikTok pay per post')

@@ -87,3 +87,29 @@ gate - and only after the same check that no live campaign uses the account.
 
 Deploy: `source/index.ts`, `source/deno.json`, `_shared/claude.ts`,
 `_shared/owner.ts`, `verify_jwt: true`.
+
+## sort-day
+
+```
+POST { text, today } -> { items[], skipped[], model }
+```
+
+His dictation - everything he has to do today or this week, said out loud -
+sorted into one to-do list, most important first, for the home screen
+(`src/components/TodayList.tsx`, rules in `src/dayList.ts`). Each item:
+`text` (short, his words), `why` (one line), `repeat` (`daily` or `once`),
+`steps` (the parts he listed under it - each app to apply on), `deadline`
+(only one he said). `skipped` is what he said that needs nothing doing, shown
+under "Left out" so he can see nothing was lost.
+
+Not owner-only: like `generate-hooks` it runs on the signed-in user's own
+Anthropic key (`_shared/claude.ts`), so it costs nobody else anything. It writes
+nothing to the database - the list lives on his device only
+(`ugc-planner.day-list` in localStorage), never synced. The prompt and schema
+are `_shared/dayPrompt.ts`, plain TypeScript tested under vitest
+(`src/dayPrompt.test.ts`): only tasks he said, money-moving work first.
+
+Env: `SORT_DAY_MODEL` (optional, defaults to `claude-sonnet-5-5`).
+
+Deploy: `source/index.ts`, `source/deno.json`, `_shared/claude.ts`,
+`_shared/dayPrompt.ts`, `verify_jwt: true`.

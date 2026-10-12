@@ -46,10 +46,13 @@ campaigns with posts scheduled today that have no planner campaign (`scheduledBu
 ## To switch it on
 
 ```
-npx supabase secrets set CUTTER_BRIDGE_USER_IDS=0cd83d67-c455-46bf-8fa8-8075fa5148c1 --project-ref uykuoibqdxmpbbrsmyad
+npx supabase secrets set CUTTER_BRIDGE_USER_IDS=00cf1d16-ffb1-4bb8-b3d8-2882f52e8c9c --project-ref uykuoibqdxmpbbrsmyad
 ```
 
-(That id is the zziadissa117@gmail.com account. Add more ids separated by commas.)
+(That id is ugcacc1ziad@gmail.com - the planner account his campaigns are in, and the only one he wants to see
+cutter posts. It was first set to zziadissa117@gmail.com, which has no campaigns, and so the bridge stayed silent
+for the account he actually uses. Add more ids separated by commas. The PDF owner gate falls back to this list
+while `PLANNER_ADMIN_USER_IDS` is unset.)
 With the secret unset the bridge is off for everyone.
 
 ## Deployed notes

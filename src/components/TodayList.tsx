@@ -16,6 +16,7 @@ import {
   forToday,
   loadDayList,
   move,
+  orderedSteps,
   remove,
   replaceWith,
   saveDayList,
@@ -96,14 +97,14 @@ export function TodayList() {
   }
 
   const shown = view(list)
-  const firstOpen = shown.open.find((i) => !i.done)?.id
+  const firstOpen = shown.open[0]?.id
   const nothing = list.items.length === 0
 
   return (
     <section className="flex flex-col gap-2" aria-label="Today's list">
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
-          <SectionLabel trailing={nothing ? undefined : `${shown.doneToday} of ${shown.total} done`}>Today</SectionLabel>
+          <SectionLabel trailing={nothing ? undefined : `${shown.doneCount} of ${shown.total} done`}>Today</SectionLabel>
         </div>
         {nothing ? null : (
           <Button variant="ghost" size="small" aria-pressed={editing} onClick={() => setEditing((on) => !on)}>
@@ -111,6 +112,12 @@ export function TodayList() {
           </Button>
         )}
       </div>
+
+      {shown.open.length === 0 && shown.done.length > 0 ? (
+        <p className="flex items-center gap-2 text-lg font-semibold text-state-posted">
+          <CheckIcon className="h-5 w-5" strokeWidth={2} /> All done for today
+        </p>
+      ) : null}
 
       {shown.open.length > 0 ? (
         <ul className="flex flex-col divide-y divide-rule" aria-label="To do">
@@ -126,6 +133,19 @@ export function TodayList() {
             />
           ))}
         </ul>
+      ) : null}
+
+      {shown.done.length > 0 ? (
+        <div className="flex flex-col gap-1">
+          <SectionLabel tone="posted" as="h3" trailing={String(shown.done.length)}>
+            Done today
+          </SectionLabel>
+          <ul className="flex flex-col divide-y divide-rule opacity-70" aria-label="Done today">
+            {shown.done.map((item) => (
+              <Row key={item.id} item={item} now={false} editing={false} first last onChange={setList} />
+            ))}
+          </ul>
+        </div>
       ) : null}
 
       {editing ? (
@@ -238,7 +258,7 @@ function Row({
   const [text, setText] = useState(item.text)
   const tone = item.done ? 'text-state-posted' : now ? 'text-state-now' : 'text-state-later'
   return (
-    <li className="flex flex-col gap-1 py-2">
+    <li className="settle-in flex flex-col gap-1 py-2">
       <div className="flex items-start gap-3">
         <Tick done={item.done} big={now} label={item.text} onClick={() => onChange((c) => tick(c, item.id, !item.done))} />
         <div className="min-w-0 flex-1 pt-1.5">
@@ -273,8 +293,8 @@ function Row({
       </div>
       {item.steps.length > 0 ? (
         <ul className="ml-12 flex flex-col">
-          {item.steps.map((step, i) => (
-            <li key={`${step.text}-${i}`} className="flex min-h-tap items-center gap-3">
+          {orderedSteps(item).map(({ step, index: i }) => (
+            <li key={`${step.text}-${i}`} className="settle-in flex min-h-tap items-center gap-3">
               <Tick small done={step.done} label={step.text} onClick={() => onChange((c) => tickStep(c, item.id, i, !step.done))} />
               <span className={`min-w-0 flex-1 text-base ${step.done ? 'text-state-posted line-through' : 'text-text'}`}>{step.text}</span>
             </li>

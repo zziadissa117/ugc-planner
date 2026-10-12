@@ -143,37 +143,50 @@ export function editText(list: DayList, id: string, text: string): DayList {
   return clean ? update(list, id, (item) => ({ ...item, text: clean })) : list
 }
 
-/** One place up (-1) or down (+1) among the open items. */
+/** One place up (-1) or down (+1) among the items not done yet - the ones
+ *  he sees in order at the top. */
 export function move(list: DayList, id: string, by: -1 | 1): DayList {
-  const open = list.items.filter((i) => !(i.repeat === 'once' && i.done))
-  const done = list.items.filter((i) => i.repeat === 'once' && i.done)
-  const at = open.findIndex((i) => i.id === id)
+  const open = list.items.map((item, index) => ({ item, index })).filter(({ item }) => !item.done)
+  const at = open.findIndex(({ item }) => item.id === id)
   const to = at + by
   if (at < 0 || to < 0 || to >= open.length) return list
-  const next = [...open]
-  ;[next[at], next[to]] = [next[to], next[at]]
-  return { ...list, items: [...next, ...done] }
+  const items = [...list.items]
+  const [a, b] = [open[at].index, open[to].index]
+  ;[items[a], items[b]] = [items[b], items[a]]
+  return { ...list, items }
 }
 
 export interface DayView {
-  /** In order; every-day items and open one-offs. */
+  /** Not done yet, in the list's order: the first is "do this now". */
   open: DayItem[]
-  /** Ticked off - every-day ones today, one-offs whenever. */
-  doneToday: number
+  /** Ticked today, below the open ones - in the list's order, not the order
+   *  ticked, so the bottom stays organised and an untick puts one back where
+   *  it was. */
+  done: DayItem[]
+  /** How many of today's are ticked, and of how many. */
+  doneCount: number
   total: number
-  /** One-offs he finished, newest first. */
+  /** One-offs finished on an earlier day, newest first. */
   finished: DayItem[]
 }
 
-/** What the home screen shows: the list in its order with done ones kept in
- *  place (rows never jump under his thumb), and the count. */
+/** What the home screen shows. A ticked item drops below the open ones - he
+ *  asked for it, so the top of the list is only what is left to do. The list
+ *  itself never reorders: only the view splits it. */
 export function view(list: DayList, now = new Date()): DayView {
   const today = dayOf(now)
-  const current = list.items.filter((i) => !(i.repeat === 'once' && i.done && i.doneAt && dayOf(new Date(i.doneAt)) !== today))
-  const finished = list.items
-    .filter((i) => i.repeat === 'once' && i.done && i.doneAt && dayOf(new Date(i.doneAt)) !== today)
-    .sort((a, b) => (b.doneAt ?? '').localeCompare(a.doneAt ?? ''))
-  return { open: current, doneToday: current.filter((i) => i.done).length, total: current.length, finished }
+  const earlier = (i: DayItem) => i.repeat === 'once' && i.done && i.doneAt !== undefined && dayOf(new Date(i.doneAt)) !== today
+  const current = list.items.filter((i) => !earlier(i))
+  const finished = list.items.filter(earlier).sort((a, b) => (b.doneAt ?? '').localeCompare(a.doneAt ?? ''))
+  const done = current.filter((i) => i.done)
+  return { open: current.filter((i) => !i.done), done, doneCount: done.length, total: current.length, finished }
+}
+
+/** An item's steps for the screen: not done first, then done, each in their
+ *  own order, with the stored index kept for ticking. */
+export function orderedSteps(item: DayItem): { step: DayStep; index: number }[] {
+  const all = item.steps.map((step, index) => ({ step, index }))
+  return [...all.filter((s) => !s.step.done), ...all.filter((s) => s.step.done)]
 }
 
 /** The open lines of the old Priorities list, carried over once at the

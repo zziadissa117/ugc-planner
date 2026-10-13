@@ -3,7 +3,7 @@ import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { DataAdapter } from '.'
-import { applyCutterPosts, platformRoot, type CutterPost, suggestCutterLinks, scheduledButUnlinked } from './cutterBridge'
+import { applyCutterPosts, platformRoot, type CutterPost, suggestCutterLinks } from './cutterBridge'
 import { LocalDatabase } from './local/db'
 import { LocalAdapter } from './local/LocalAdapter'
 
@@ -144,21 +144,5 @@ describe('suggesting cutter links', () => {
       new Set(['p4:c-pump']),
     )
     expect(got).toEqual([])
-  })
-})
-
-describe('scheduled in the cutter but not in the planner', () => {
-  it('names the cutter campaigns with posts today that no planner campaign is linked to', () => {
-    const now = new Date()
-    now.setHours(23, 0, 0, 0)
-    const today = now.toLocaleDateString('en-CA')
-    const tomorrow = new Date(now.getTime() + 24 * 3_600_000).toISOString()
-    const posts = [
-      { id: '1', campaignId: 'c-cantina', campaignName: 'Cantina', platforms: ['tiktok'], postAt: now.toISOString() },
-      { id: '2', campaignId: 'c-cantina', campaignName: 'Cantina', platforms: ['tiktok'], postAt: now.toISOString() },
-      { id: '3', campaignId: 'c-inflow', campaignName: 'Inflow', platforms: ['tiktok'], postAt: now.toISOString() },
-      { id: '4', campaignId: 'c-money', campaignName: 'Money pilot', platforms: ['tiktok'], postAt: tomorrow },
-    ]
-    expect(scheduledButUnlinked(posts, [{ cutter_campaign_id: 'c-inflow' }], today)).toEqual(['Cantina'])
   })
 })

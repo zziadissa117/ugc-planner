@@ -35,7 +35,7 @@ export function ArchivedCampaigns() {
         <ul className="flex flex-col divide-y divide-rule border-y border-rule">
           {archived.map((campaign) => (
             <li key={campaign.id} className="flex flex-col gap-2 py-4">
-              <span className="script block break-words text-[1.75rem] leading-tight text-text">{campaign.name}</span>
+              <span className="display block break-words text-2xl leading-tight text-text">{campaign.name}</span>
               <span className="meta text-state-later">
                 Archived {campaign.archived_at ? new Date(campaign.archived_at).toLocaleDateString() : ''}
               </span>

@@ -150,19 +150,3 @@ export function suggestCutterLinks(
   }
   return out
 }
-
-/** The cutter campaigns with something scheduled on `date` that no planner
- *  campaign is linked to - what to add on BRIEFS to see them on the grid. */
-export function scheduledButUnlinked(
-  posts: readonly CutterScheduled[],
-  campaigns: readonly { cutter_campaign_id: string | null }[],
-  date: string,
-): string[] {
-  const linked = new Set(campaigns.map((c) => c.cutter_campaign_id).filter(Boolean))
-  const names = new Map<string, string>()
-  for (const post of posts) {
-    if (linked.has(post.campaignId) || localDay(post.postAt) !== date) continue
-    names.set(post.campaignId, post.campaignName ?? 'a cutter campaign')
-  }
-  return [...new Set(names.values())]
-}

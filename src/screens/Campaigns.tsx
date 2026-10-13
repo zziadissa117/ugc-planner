@@ -72,7 +72,7 @@ export function Campaigns() {
               >
                 <div className="min-w-0 flex-1">
                   <Link to={`/campaigns/${campaign.id}`} className="press block min-w-0 active:opacity-70">
-                    <span className="script block break-words text-[2.125rem] leading-tight text-text">
+                    <span className="display block break-words text-[1.75rem] leading-tight text-text">
                       {campaign.name}
                     </span>
                     <span className="mt-1.5 flex min-w-0 items-center gap-2 text-state-later">

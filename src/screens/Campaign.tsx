@@ -622,7 +622,7 @@ function CampaignTitle({
   // Still a real heading: it is what every screen and every test finds the
   // campaign by, and making it editable must not cost it that.
   return (
-    <h1 className="script min-w-0 text-4xl text-text">
+    <h1 className="display min-w-0 text-3xl text-text">
       <button
         type="button"
         aria-label={`Rename ${name}`}

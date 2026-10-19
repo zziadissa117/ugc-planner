@@ -266,6 +266,26 @@ export class LocalDatabase extends Dexie {
           console.error('v8 upgrade could not fill the new campaign columns; continuing.', error)
         }
       })
+
+    // v9 fills in `min_views` on campaigns saved before the views tracker.
+    // Without it the field is undefined rather than null, every screen's
+    // `min_views === null` check reads it as a minimum, and formatting that
+    // took the whole app down ("undefined is not an object (evaluating
+    // 'e.toLocaleString')"). Null is "no minimum", the column's own default.
+    this.version(9)
+      .stores({})
+      .upgrade(async (tx) => {
+        try {
+          await tx
+            .table('campaigns')
+            .toCollection()
+            .modify((row: { min_views?: number | null }) => {
+              if (row.min_views === undefined) row.min_views = null
+            })
+        } catch (error) {
+          console.error('v9 upgrade could not fill min_views; continuing.', error)
+        }
+      })
   }
 }
 

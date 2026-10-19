@@ -25,6 +25,14 @@ and paints that many open boxes blue with a ticking
 clock (`useCutterScheduled`, refreshed every 5 minutes and on return). It is display only: nothing is written, and
 a box still ticks for real only when the post goes out (`posted`). He can tick a blue box by hand as before.
 
+## Views (the views tracker)
+
+The cutter reads each posted video's views from Postiz, per account, a day, three days and a week after it went
+out (its `postiz/postViews.ts`), into `cutter_posts.views` (by account name). `posted` returns them as `views`;
+reading them moves the cutter post's `updated_at`, so the next pass picks them up and `applyCutterPosts` writes each
+account's number onto its tick (`setViewCount`) - also on a tick made before. A campaign with `min_views` (migration
+0019) shows how many of its posted videos reached it on any one account (`src/data/viewsTracker.ts`).
+
 ## Linking: suggested, never automatic
 
 Nothing reaches a planner campaign until it is linked (`campaigns.cutter_campaign_id`). The Post screen's "Link to

@@ -46,6 +46,7 @@ function campaign(overrides: Partial<Campaign> = {}): Campaign {
     post_position: null,
     cutter_campaign_id: null,
     archived_at: null,
+    min_views: null,
     payout_schedule: 'none',
     payout_date: null,
     opening_post_count: 0,

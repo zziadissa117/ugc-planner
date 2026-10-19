@@ -191,6 +191,7 @@ export function assertCampaign(row: Campaign): void {
   integer(t, 'opening_post_count', row.opening_post_count, { min: 0, nullable: false })
   boolean(t, 'brief_is_incomplete', row.brief_is_incomplete)
   timestamp(t, 'archived_at', row.archived_at, { nullable: true })
+  integer(t, 'min_views', row.min_views, { exclusiveMin: 0, nullable: true })
   timestamp(t, 'created_at', row.created_at, { nullable: false })
   timestamp(t, 'updated_at', row.updated_at, { nullable: false })
 }

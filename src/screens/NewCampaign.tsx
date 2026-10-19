@@ -15,6 +15,7 @@ import {
   saveFieldValue,
 } from '../data/campaignFields'
 import { useData } from '../data/useData'
+import { parseViews } from '../data/viewsTracker'
 import {
   PASTE_SCHEMA_EXAMPLE,
   PastedJsonParser,
@@ -79,6 +80,8 @@ export function NewCampaign() {
    *  one a day (seven) as the starting point rather than a guess at his
    *  contract. */
   const [quota, setQuota] = useState('7')
+  // The views a posted video needs to count; empty for none (viewsTracker.ts).
+  const [minViews, setMinViews] = useState('')
   /** What one deliverable pays, in dollars as typed. Seeded from the contract
    *  when it states a rate, and blank when it does not - a campaign whose rate
    *  no document mentions had no way to get one at creation, so it landed on
@@ -202,6 +205,8 @@ export function NewCampaign() {
       if (Number.isInteger(owed) && owed >= 0) {
         await data.updateCampaign(campaign.id, { posts_per_week: owed })
       }
+      const minimum = parseViews(minViews)
+      if (minimum !== null) await data.updateCampaign(campaign.id, { min_views: minimum })
 
       // Only when it differs from what the parse produced, so accepting a
       // documented rate and leaving the box alone does not rewrite it as
@@ -247,6 +252,7 @@ export function NewCampaign() {
     excludedRules,
     excludedTiers,
     hookBrief,
+    minViews,
     navigate,
     platforms,
     quota,
@@ -269,6 +275,7 @@ export function NewCampaign() {
         posts_per_week: Number.isInteger(owed) && owed >= 0 ? owed : 0,
         pay_per_video_cents: null,
         cycle_size: null,
+        min_views: parseViews(minViews),
       })
 
       // Through the field row as well as the column, so the brief shows his
@@ -297,7 +304,7 @@ export function NewCampaign() {
     } finally {
       setBusy(false)
     }
-  }, [data, name, navigate, platforms, quota, rate])
+  }, [data, minViews, name, navigate, platforms, quota, rate])
 
   if (manual) {
     return (
@@ -322,6 +329,8 @@ export function NewCampaign() {
           onChange={setPlatforms}
           quota={quota}
           onQuotaChange={setQuota}
+          minViews={minViews}
+          onMinViewsChange={setMinViews}
           rate={rate}
           onRateChange={setRate}
         />
@@ -381,6 +390,8 @@ export function NewCampaign() {
         onPlatformsChange={setPlatforms}
         quota={quota}
         onQuotaChange={setQuota}
+        minViews={minViews}
+        onMinViewsChange={setMinViews}
         rate={rate}
         onRateChange={setRate}
         hookBrief={hookBrief}
@@ -505,6 +516,8 @@ function Review({
   onPlatformsChange,
   quota,
   onQuotaChange,
+  minViews,
+  onMinViewsChange,
   rate,
   onRateChange,
   hookBrief,
@@ -529,6 +542,8 @@ function Review({
   onPlatformsChange: (next: PlatformDraft[]) => void
   quota: string
   onQuotaChange: (next: string) => void
+  minViews: string
+  onMinViewsChange: (next: string) => void
   rate: string
   onRateChange: (next: string) => void
   hookBrief: string
@@ -560,6 +575,8 @@ function Review({
         onChange={onPlatformsChange}
         quota={quota}
         onQuotaChange={onQuotaChange}
+        minViews={minViews}
+        onMinViewsChange={onMinViewsChange}
         rate={rate}
         onRateChange={onRateChange}
       />
@@ -780,6 +797,8 @@ function PlatformEntry({
   onChange,
   quota,
   onQuotaChange,
+  minViews,
+  onMinViewsChange,
   rate,
   onRateChange,
 }: {
@@ -787,6 +806,8 @@ function PlatformEntry({
   onChange: (next: PlatformDraft[]) => void
   quota: string
   onQuotaChange: (next: string) => void
+  minViews: string
+  onMinViewsChange: (next: string) => void
   rate: string
   onRateChange: (next: string) => void
 }) {
@@ -833,6 +854,20 @@ function PlatformEntry({
               aria-label="Posts owed per week"
               inputMode="numeric"
               className="min-h-tap rounded-xl border border-edge bg-surface text-text placeholder:text-state-later/80 transition-colors focus:border-state-now/80 focus:outline-none focus-visible:outline-none w-16 px-2"
+            />
+          </label>
+          {/* The views a posted video needs before it counts toward the
+              campaign - the views tracker on its page. Optional: empty
+              tracks nothing. */}
+          <label className="flex items-center gap-2 text-sm text-state-later">
+            min views
+            <input
+              value={minViews}
+              onChange={(event) => onMinViewsChange(event.target.value)}
+              aria-label="Minimum views per video"
+              inputMode="numeric"
+              placeholder="none"
+              className="min-h-tap rounded-xl border border-edge bg-surface text-text placeholder:text-state-later/80 transition-colors focus:border-state-now/80 focus:outline-none focus-visible:outline-none w-20 px-2"
             />
           </label>
         </div>

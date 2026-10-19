@@ -123,6 +123,18 @@ describe('typing a campaign in by hand', () => {
     expect(accounts[0].handle).toBe('@vertus.creator')
   })
 
+  it('saves a minimum views per video when he gives one, and none when he does not', async () => {
+    const user = userEvent.setup()
+    await reachManual(user)
+    await user.type(screen.getByLabelText('Campaign name'), 'Lovable')
+    await user.type(screen.getByLabelText('Minimum views per video'), '1k')
+    await user.click(screen.getByRole('button', { name: 'Save campaign' }))
+    await waitFor(async () => {
+      const [row] = await adapter.listCampaigns()
+      expect(row?.min_views).toBe(1000)
+    })
+  })
+
   it('needs only a name - everything else can wait for the brief page', async () => {
     const user = userEvent.setup()
     await reachManual(user)

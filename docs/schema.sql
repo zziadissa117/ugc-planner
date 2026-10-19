@@ -146,6 +146,14 @@ create table campaigns (
   -- campaign, including ones deleted for good (is_active false, this null).
   archived_at timestamptz default null,
 
+  -- The views a posted video needs before it counts toward the campaign
+  -- ("8 of 12 posted reached 1,000 views") - read from the platforms through
+  -- the cutter (cutter_posts.views) into video_posts.view_count. A video
+  -- counts once ANY one account it went to reaches it. It changes the count
+  -- only, never what a video earns. Null: no minimum, nothing tracked. Set by
+  -- him, never guessed.
+  min_views integer default null check (min_views is null or min_views > 0),
+
   -- Posts the campaign owes per WEEK. The money side reads this: a week pays
   -- rate x posts_per_week, a day is a seventh of that and a month is 30/7 of
   -- it. daily_post_quota stays beside it as what the Post grid owes on a given

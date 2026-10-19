@@ -48,7 +48,8 @@ npm run vendor           # after editing src/parser/{types,verify}.ts or src/hoo
 - The Supabase project is shared with the cutter/editor app (`cutter_*` tables/functions). Leave those alone.
 - Archive: `archiveCampaign` / `restoreCampaign` / `listArchivedCampaigns` (`campaigns.archived_at`, migration 0018); Archived view `src/screens/ArchivedCampaigns.tsx` at `/campaigns/archived`. Restore reactivates the accounts changed at or after the archive. The old `deleteCampaign` stays as "Delete for good", only from that view.
 - No seeding: the app no longer creates the Inflow campaign on first launch (it handed one person's private deal to every new user and shipped it in the bundle). `src/data/seed/` is imported by tests only; keep it out of app code.
-- Cutter bridge: `docs/CUTTER_BRIDGE.md` (migration 0017, `supabase/functions/cutter-posted`, `src/sync/cutterBridge.ts`).
+- Cutter bridge: `docs/CUTTER_BRIDGE.md` (migration 0017, `supabase/functions/cutter-posted`, `src/sync/cutterBridge.ts`; ticks the account a post went to by its handle - `accountFor`).
+- Views tracker: `campaigns.min_views` (migration 0019), `src/data/viewsTracker.ts` (`viewsTally`: a posted video counts once any one account reaches the minimum; count only, never pay). Views come from the cutter (its `cutter_posts.views`) through the bridge onto `video_posts.view_count`. Shown on the campaign page (`ViewsTracker`) and each Post board.
 - Schema + migrations: `docs/schema.sql`, `docs/migrations/`
 
 ## Workflow

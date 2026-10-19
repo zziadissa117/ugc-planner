@@ -39,6 +39,9 @@ export interface CutterPost {
   postedAt: string
   /** When the cutter last changed it - where the next pass starts from. */
   updatedAt?: string
+  /** Its views by account name, as the cutter last read them (a day, three
+   *  days and a week after it went out) - for the views tracker. */
+  views?: Record<string, number>
 }
 
 const ROOTS = ['tiktok', 'instagram', 'youtube', 'facebook', 'twitter', 'linkedin', 'threads', 'pinterest']
@@ -147,8 +150,14 @@ export async function applyCutterPosts(
     for (const sent of post.accounts) {
       const marker = markerFor(post.id, sent.platform)
       const link = videoLink(post, sent)
+      const views = post.views?.[sent.name]
       const existing = await data.listAllVideoPosts()
-      if (existing.some((p) => p.url === marker || (link !== null && p.url === link))) continue
+      const done = existing.find((p) => p.url === marker || (link !== null && p.url === link))
+      if (done) {
+        // Ticked already: its views, as they come in.
+        if (typeof views === 'number' && done.view_count !== views) await data.setViewCount(done.id, views)
+        continue
+      }
       const board = await boardNow()
       if (!board) break
       const here = board.rows.map((r) => r.account)
@@ -169,6 +178,10 @@ export async function applyCutterPosts(
       const slot = held >= 0 ? held : (open ?? board.slots)
       await markPosted(data, board, account, slot, await data.listVideos(), date, link ?? marker, post.postedAt)
       ticked++
+      if (typeof views === 'number') {
+        const made = (await data.listAllVideoPosts()).find((p) => p.url === (link ?? marker))
+        if (made) await data.setViewCount(made.id, views)
+      }
     }
   }
   return { ticked, unmatched }

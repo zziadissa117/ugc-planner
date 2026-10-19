@@ -190,6 +190,19 @@ describe('ticking what went out', () => {
   })
 })
 
+describe('views from the cutter', () => {
+  it('puts each account\'s views on its tick, and keeps them up to date', async () => {
+    await linked(['TikTok'])
+    await applyCutterPosts(adapter, [post({ views: { 'Me | Creator': 700 } })])
+    expect((await adapter.listAllVideoPosts())[0].view_count).toBe(700)
+    // Read again later: the same tick, its new number.
+    await applyCutterPosts(adapter, [post({ views: { 'Me | Creator': 2400 } })])
+    const posts = await adapter.listAllVideoPosts()
+    expect(posts).toHaveLength(1)
+    expect(posts[0].view_count).toBe(2400)
+  })
+})
+
 describe('suggesting cutter links', () => {
   const planner = (id: string, name: string, extra: { cutter_campaign_id?: string | null; archived_at?: string | null } = {}) => ({
     id,

@@ -2,7 +2,7 @@
 // itself. Design: the cutter repo's docs/PLANNER_BRIDGE_PROPOSAL.md.
 //
 //   POST { action: 'campaigns' }                        -> { enabled, campaigns: [{ id, name }] }
-//   POST { action: 'posted', since?: ISO, ids?: [id] }  -> { enabled, posts: [{ ..., accounts: [{ name, platform, profile }], updatedAt }] }
+//   POST { action: 'posted', since?: ISO, ids?: [id] }  -> { enabled, posts: [{ ..., accounts: [{ name, platform, profile }], updatedAt, views }] }
 //   POST { action: 'scheduled', ids?: [id] }             -> { enabled, posts: [{ id, campaignId, campaignName, platforms, accounts, postAt }] }
 //
 // Each account carries its handle (`profile`): the planner ticks the account
@@ -65,7 +65,7 @@ Deno.serve(async (req: Request) => {
     const ids = Array.isArray(body.ids) ? body.ids.filter((id): id is string => typeof id === 'string').slice(0, 100) : []
     let query = db
       .from('cutter_posts')
-      .select('id, campaign_id, campaign_name, accounts, release_urls, post_at, updated_at')
+      .select('id, campaign_id, campaign_name, accounts, release_urls, post_at, updated_at, views')
       .eq('status', 'posted')
       .is('repost_of', null)
       .gte('updated_at', since)
@@ -86,6 +86,9 @@ Deno.serve(async (req: Request) => {
         links: p.release_urls ?? {},
         postedAt: p.post_at ?? p.updated_at,
         updatedAt: p.updated_at,
+        // By account name, as the cutter last read them (its postViews.ts);
+        // reading them moves updated_at, so a pass picks them up.
+        views: p.views ?? {},
       })),
     })
   }

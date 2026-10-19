@@ -170,6 +170,7 @@ export interface Campaign {
   post_position: number | null
   cutter_campaign_id: string | null
   archived_at: string | null
+  min_views: number | null
   posts_per_week: number
   payout_schedule: PayoutSchedule
   payout_date: string | null
@@ -181,8 +182,8 @@ export interface Campaign {
 
 /** `campaigns` as supplied by a caller: user_id comes from the session, and
  *  columns the database defaults are optional. */
-export type NewCampaign = Omit<Campaign, 'user_id' | 'id' | 'is_active' | 'approval_mode' | 'daily_post_quota' | 'monthly_pay_override_cents' | 'pays_per_platform' | 'needs_submission' | 'post_position' | 'cutter_campaign_id' | 'archived_at' | 'posts_per_week' | 'payout_schedule' | 'payout_date' | 'opening_post_count' | 'brief_is_incomplete' | 'created_at' | 'updated_at'> &
-  Partial<Pick<Campaign, 'id' | 'is_active' | 'approval_mode' | 'daily_post_quota' | 'monthly_pay_override_cents' | 'pays_per_platform' | 'needs_submission' | 'post_position' | 'cutter_campaign_id' | 'archived_at' | 'posts_per_week' | 'payout_schedule' | 'payout_date' | 'opening_post_count' | 'brief_is_incomplete' | 'created_at' | 'updated_at'>>
+export type NewCampaign = Omit<Campaign, 'user_id' | 'id' | 'is_active' | 'approval_mode' | 'daily_post_quota' | 'monthly_pay_override_cents' | 'pays_per_platform' | 'needs_submission' | 'post_position' | 'cutter_campaign_id' | 'archived_at' | 'min_views' | 'posts_per_week' | 'payout_schedule' | 'payout_date' | 'opening_post_count' | 'brief_is_incomplete' | 'created_at' | 'updated_at'> &
+  Partial<Pick<Campaign, 'id' | 'is_active' | 'approval_mode' | 'daily_post_quota' | 'monthly_pay_override_cents' | 'pays_per_platform' | 'needs_submission' | 'post_position' | 'cutter_campaign_id' | 'archived_at' | 'min_views' | 'posts_per_week' | 'payout_schedule' | 'payout_date' | 'opening_post_count' | 'brief_is_incomplete' | 'created_at' | 'updated_at'>>
 
 /** Mirrors `campaign_accounts`. */
 export interface CampaignAccount {
@@ -607,6 +608,7 @@ export const SQL_COLUMN_CHECKS: Readonly<Record<string, Readonly<Record<string, 
     cycle_size: ["check (cycle_size > 0)"],
     monthly_pay_override_cents: ["check (monthly_pay_override_cents >= 0)"],
     post_position: ["check (post_position >= 0)"],
+    min_views: ["check (min_views is null or min_views > 0)"],
     posts_per_week: ["check (posts_per_week >= 0)"],
     opening_post_count: ["check (opening_post_count >= 0)"],
   },

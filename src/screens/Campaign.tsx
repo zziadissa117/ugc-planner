@@ -28,6 +28,8 @@ import type {
   CampaignPayout,
   CampaignRule,
   PayoutSchedule,
+  Video,
+  VideoPost,
 } from '../data'
 import { PAYOUT_SCHEDULE_VALUES } from '../data'
 import { listCutterCampaigns, type CutterCampaign } from '../sync/cutterBridge'
@@ -46,6 +48,7 @@ import { GENERATION_BRIEF_KEY } from '../hooks/generateHooks'
 import { localToday } from '../data'
 import { formatDay } from '../data/payouts'
 import { useData } from '../data/useData'
+import { formatViews, parseViews, viewsTally } from '../data/viewsTracker'
 import { campaignEarnings, formatCents, payingPlatforms } from '../money'
 
 interface Loaded {
@@ -56,6 +59,9 @@ interface Loaded {
    *  what a day is worth depends on how many he can post from. */
   accounts: CampaignAccount[]
   payouts: CampaignPayout[]
+  /** For the views tracker: the campaign's videos and every tick's views. */
+  videos: Video[]
+  posts: VideoPost[]
 }
 
 /** Keys that are shown somewhere better, or are gone from the app entirely,
@@ -87,13 +93,15 @@ export function Campaign() {
     const campaign = await data.getCampaign(campaignId)
     if (!campaign) return null
 
-    const [fields, rules, accounts, payouts] = await Promise.all([
+    const [fields, rules, accounts, payouts, videos, posts] = await Promise.all([
       data.listCampaignFields(campaignId),
       data.listCampaignRules(campaignId),
       data.listCampaignAccounts(campaignId),
       data.listCampaignPayouts(campaignId),
+      data.listVideos({ campaignId }),
+      data.listAllVideoPosts(),
     ])
-    return { campaign, fields, rules, accounts, payouts }
+    return { campaign, fields, rules, accounts, payouts, videos, posts }
   }, [campaignId, data])
 
   useEffect(() => {
@@ -143,7 +151,7 @@ export function Campaign() {
   if (missing) return <p className="text-state-later">No such campaign.</p>
   if (!loaded) return null
 
-  const { campaign, fields, rules, accounts, payouts } = loaded
+  const { campaign, fields, rules, accounts, payouts, videos, posts } = loaded
   const byKey = new Map(fields.map((f) => [f.field_key, f]))
   const rest = fields
     .filter((f) => !RETIRED_KEYS.includes(f.field_key))
@@ -209,6 +217,14 @@ export function Campaign() {
           value={campaign.posts_per_week}
           onSave={(next) => saveColumn({ posts_per_week: next })}
         />
+        <InlineEdit
+          label="min views"
+          display={campaign.min_views === null ? 'none' : formatViews(campaign.min_views)}
+          initial={campaign.min_views === null ? '' : String(campaign.min_views)}
+          parse={parseViews}
+          invalid="Enter a number of views, like 1000 or 1k - or leave it empty for none."
+          onSave={(next) => saveColumn({ min_views: next })}
+        />
         {/* The same figures as the Money screen, monthly override and all. */}
         <div className="ml-auto text-right">
           <p className="label text-state-later">per week</p>
@@ -220,6 +236,8 @@ export function Campaign() {
           )}
         </div>
       </div>
+
+      {campaign.min_views === null ? null : <ViewsTracker campaignId={campaign.id} minViews={campaign.min_views} videos={videos} posts={posts} />}
 
       <AccountsEditor data={data} campaignId={campaign.id} onChanged={() => void refresh()} />
 
@@ -826,5 +844,34 @@ function InlineEdit({
       <span className="block label text-state-later">{label}</span>
       <span className="numeric mt-1 block text-lg font-semibold leading-none text-text">{display}</span>
     </button>
+  )
+}
+
+/** The views tracker: how many of the campaign's posted videos reached its
+ *  minimum on at least one account (viewsTracker.ts). Read by the cutter a
+ *  day, three days and a week after each video went out. */
+function ViewsTracker({
+  campaignId,
+  minViews,
+  videos,
+  posts,
+}: {
+  campaignId: string
+  minViews: number
+  videos: readonly Video[]
+  posts: readonly VideoPost[]
+}) {
+  const ids = new Set(videos.map((v) => v.id))
+  const tally = viewsTally(campaignId, minViews, videos, posts.filter((p) => ids.has(p.video_id)))
+  return (
+    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-rule pb-3">
+      <p className="text-base text-text">
+        <span className="numeric text-2xl font-semibold text-state-posted">{tally.reached}</span>
+        <span className="text-state-later"> of {tally.posted} posted reached {formatViews(minViews)} views</span>
+      </p>
+      <p className="meta text-state-later">
+        {tally.under} under{tally.unread > 0 ? ` · ${tally.unread} not read yet` : ''} · read a day, 3 days and a week after posting
+      </p>
+    </div>
   )
 }

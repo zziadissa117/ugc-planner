@@ -41,6 +41,7 @@ import {
 } from '../data/posting'
 import { ensureTodaysQuota } from '../data/today'
 import { accountFor, scheduledByAccount, unmatchedLabels } from '../data/cutterBridge'
+import { formatViews, viewsTally, type ViewsTally } from '../data/viewsTracker'
 import { lastUnmatched, useCutterScheduled } from '../sync/cutterBridge'
 import { useData } from '../data/useData'
 import { useLoaded } from '../data/useLoaded'
@@ -312,6 +313,11 @@ export function Posting() {
                 busy={busy}
                 scheduled={scheduled.counts}
                 missing={missing.get(board.campaign.id) ?? []}
+                views={
+                  board.campaign.min_views === null || !loaded
+                    ? undefined
+                    : viewsTally(board.campaign.id, board.campaign.min_views, loaded.videos, loaded.posts)
+                }
                 onToggle={(account, slot, post) => void toggle(board, account, slot, post)}
               />
             </div>
@@ -826,6 +832,7 @@ function CampaignBoard({
   busy,
   scheduled,
   missing = [],
+  views,
   onToggle,
 }: {
   board: PostingBoard
@@ -834,6 +841,8 @@ function CampaignBoard({
   scheduled?: ReadonlyMap<string, number>
   /** Accounts the cutter posts this campaign to that it doesn't have. */
   missing?: string[]
+  /** Its views tracker, when it has a minimum (viewsTracker.ts). */
+  views?: ViewsTally
   onToggle: (account: CampaignAccount, slot: number, post: VideoPost | null) => void
 }) {
   const { campaign, rows, slots, quota, doneToday } = board
@@ -849,6 +858,12 @@ function CampaignBoard({
             {doneToday} of {quota} today
           </span>
           {rate === null ? null : <span> · {formatCents(rate)} each</span>}
+          {views && campaign.min_views !== null ? (
+            <span>
+              {' '}
+              · <span className="text-state-posted">{views.reached}</span> of {views.posted} reached {formatViews(campaign.min_views)}
+            </span>
+          ) : null}
         </p>
       </div>
 

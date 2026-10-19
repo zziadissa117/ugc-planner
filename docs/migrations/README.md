@@ -45,6 +45,8 @@ synced, exported, locally mirrored table. A fresh project needs `schema.sql`
 and 0015. The project is shared with the cutter app, so `list_migrations` also
 shows `cutter_*` entries that have no file here.
 
+0019 (`campaign_min_views`, the views tracker's minimum) was applied on 2026-10-19 after the owner approved it.
+
 0016 (`weekly_pay_payouts_earnings`) is a DRAFT, not yet applied: weekly posting
 rate, per-account pay, payout schedule, `campaign_payouts`, `earnings_events`.
 `src/data/schema.sql.test.ts` runs it against the pre-0016 schema in

@@ -40,8 +40,8 @@ import {
   type PostingBoard,
 } from '../data/posting'
 import { ensureTodaysQuota } from '../data/today'
-import { platformRoot, scheduledCounts } from '../data/cutterBridge'
-import { useCutterScheduled } from '../sync/cutterBridge'
+import { accountFor, scheduledByAccount, unmatchedLabels } from '../data/cutterBridge'
+import { lastUnmatched, useCutterScheduled } from '../sync/cutterBridge'
 import { useData } from '../data/useData'
 import { useLoaded } from '../data/useLoaded'
 import { formatCents, hasOwnPostOrder, inPostOrder, toCadCents } from '../money'
@@ -128,10 +128,17 @@ export function Posting() {
   // the post goes out and ticks them for real.
   const [linked, setLinked] = useState(0)
   const cutterScheduled = useCutterScheduled(linked)
-  const scheduled = useMemo(
-    () => scheduledCounts(cutterScheduled, loaded?.campaigns ?? [], today),
-    [cutterScheduled, loaded, today],
-  )
+  const scheduled = useMemo(() => scheduledByAccount(cutterScheduled, boards, today), [cutterScheduled, boards, today])
+  // Accounts the cutter posts a campaign to that it doesn't have here - named
+  // under the campaign instead of being ticked on another of its accounts.
+  // One he has since added is matched again and drops off.
+  const missing = useMemo(() => {
+    const stillMissing = [...lastUnmatched(), ...scheduled.unmatched].filter((u) => {
+      const board = boards.find((b) => b.campaign.id === u.campaignId)
+      return board !== undefined && accountFor(board.rows.map((r) => r.account), { name: u.handle, platform: u.platform }) === null
+    })
+    return new Map(boards.map((b) => [b.campaign.id, unmatchedLabels(stillMissing, b.campaign.id)]))
+  }, [boards, scheduled])
 
   // Off the earnings history, not recomputed from the posts: what each tick
   // paid was written when he ticked it, so the figure cannot move because a
@@ -303,7 +310,8 @@ export function Posting() {
               <CampaignBoard
                 board={board}
                 busy={busy}
-                scheduled={scheduled.get(board.campaign.id)}
+                scheduled={scheduled.counts}
+                missing={missing.get(board.campaign.id) ?? []}
                 onToggle={(account, slot, post) => void toggle(board, account, slot, post)}
               />
             </div>
@@ -817,12 +825,15 @@ function CampaignBoard({
   board,
   busy,
   scheduled,
+  missing = [],
   onToggle,
 }: {
   board: PostingBoard
   busy: string | null
-  /** Per platform, how many of today's posts the cutter has scheduled. */
+  /** Per account id, how many of today's posts the cutter has scheduled. */
   scheduled?: ReadonlyMap<string, number>
+  /** Accounts the cutter posts this campaign to that it doesn't have. */
+  missing?: string[]
   onToggle: (account: CampaignAccount, slot: number, post: VideoPost | null) => void
 }) {
   const { campaign, rows, slots, quota, doneToday } = board
@@ -870,7 +881,7 @@ function CampaignBoard({
                   const done = cell.post !== null
                   // The first open boxes, as many as the cutter has waiting
                   // for today on this platform: blue, going out by itself.
-                  const waiting = scheduled?.get(platformRoot(row.account.platform)) ?? 0
+                  const waiting = scheduled?.get(row.account.id) ?? 0
                   const openBefore = row.cells.filter((c) => c.post === null && c.slot < cell.slot).length
                   const isScheduled = !done && openBefore < waiting
                   // Dashed, like a box beyond the quota: a bonus-only account
@@ -930,6 +941,14 @@ function CampaignBoard({
           ))}
         </ul>
       )}
+      {missing.length > 0 ? (
+        // Amber: not ticked here, and he can fix it - instead of the cutter's
+        // posts being ticked on another of the campaign's accounts.
+        <p className="meta text-state-waiting">
+          The Cutter also posts this campaign to {missing.join(', ')} - not one of its accounts here, so those aren&apos;t
+          ticked. Add {missing.length === 1 ? 'it' : 'them'} on the brief to have them ticked.
+        </p>
+      ) : null}
     </div>
   )
 }

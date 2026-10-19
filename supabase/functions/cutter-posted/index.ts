@@ -2,8 +2,11 @@
 // itself. Design: the cutter repo's docs/PLANNER_BRIDGE_PROPOSAL.md.
 //
 //   POST { action: 'campaigns' }                        -> { enabled, campaigns: [{ id, name }] }
-//   POST { action: 'posted', since?: ISO, ids?: [id] }  -> { enabled, posts: [...] }
-//   POST { action: 'scheduled', ids?: [id] }             -> { enabled, posts: [{ id, campaignId, campaignName, platforms, postAt }] }
+//   POST { action: 'posted', since?: ISO, ids?: [id] }  -> { enabled, posts: [{ ..., accounts: [{ name, platform, profile }], updatedAt }] }
+//   POST { action: 'scheduled', ids?: [id] }             -> { enabled, posts: [{ id, campaignId, campaignName, platforms, accounts, postAt }] }
+//
+// Each account carries its handle (`profile`): the planner ticks the account
+// with that handle, never just the first on the platform.
 //
 // The cutter's tables are server-only on purpose, so the browser never reads
 // them: this function does, with the service role, and only for the planner
@@ -77,11 +80,12 @@ Deno.serve(async (req: Request) => {
         id: p.id,
         campaignId: p.campaign_id,
         campaignName: p.campaign_name,
-        accounts: ((p.accounts ?? []) as { name: string; platform: string; held?: string }[])
+        accounts: ((p.accounts ?? []) as { name: string; platform: string; profile?: string; held?: string }[])
           .filter((a) => !a.held)
-          .map((a) => ({ name: a.name, platform: a.platform })),
+          .map((a) => ({ name: a.name, platform: a.platform, profile: a.profile ?? '' })),
         links: p.release_urls ?? {},
         postedAt: p.post_at ?? p.updated_at,
+        updatedAt: p.updated_at,
       })),
     })
   }
@@ -108,6 +112,9 @@ Deno.serve(async (req: Request) => {
         campaignId: p.campaign_id,
         campaignName: p.campaign_name,
         platforms: ((p.accounts ?? []) as { platform: string; held?: string }[]).filter((a) => !a.held).map((a) => a.platform),
+        accounts: ((p.accounts ?? []) as { name: string; platform: string; profile?: string; held?: string }[])
+          .filter((a) => !a.held)
+          .map((a) => ({ name: a.name, platform: a.platform, profile: a.profile ?? '' })),
         postAt: p.post_at,
       })),
     })

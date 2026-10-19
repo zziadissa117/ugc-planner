@@ -6,11 +6,14 @@
 
 import { useEffect, useState } from 'react'
 
-import { applyCutterPosts, type CutterPost, type CutterScheduled } from '../data/cutterBridge'
+import { applyCutterPosts, type CutterPost, type CutterScheduled, type UnmatchedAccount } from '../data/cutterBridge'
 import type { DataAdapter } from '../data'
 import { getSupabaseClient } from './auth'
 
 const SINCE_KEY = 'cutter-bridge-since'
+const UNMATCHED_KEY = 'cutter-bridge-unmatched'
+/** As many posts as the function returns in one go (its own limit). */
+const PAGE = 200
 const EVERY_MS = 5 * 60 * 1000
 /** Overlap between passes: a pass can be a little late, and ticking is
  *  idempotent, so looking back a bit more costs nothing. */
@@ -44,6 +47,17 @@ function savedSince(): string | undefined {
   }
 }
 
+/** The cutter's accounts the last passes couldn't find in their campaigns,
+ *  for the Post screen to name. */
+export function lastUnmatched(): UnmatchedAccount[] {
+  try {
+    const stored = JSON.parse(localStorage.getItem(UNMATCHED_KEY) ?? '[]') as unknown
+    return Array.isArray(stored) ? (stored as UnmatchedAccount[]) : []
+  } catch {
+    return []
+  }
+}
+
 /** One pass: fetch what was posted since the last, tick it. Returns how many
  *  boxes were ticked; 0 when the bridge is off or offline. */
 export async function syncCutterPosts(data: DataAdapter): Promise<number> {
@@ -53,9 +67,16 @@ export async function syncCutterPosts(data: DataAdapter): Promise<number> {
   if (ids.length === 0) return 0
   const result = await call<{ enabled: boolean; posts: CutterPost[] }>({ action: 'posted', since: savedSince(), ids })
   if (!result?.enabled) return 0
-  const ticked = await applyCutterPosts(data, result.posts)
+  const { ticked, unmatched } = await applyCutterPosts(data, result.posts)
+  // A full page means more are waiting: the next pass goes on from the last
+  // one here, rather than from now and skipping them.
+  const last = result.posts.at(-1)?.updatedAt
+  const next = result.posts.length >= PAGE && last ? last : new Date(started - OVERLAP_MS).toISOString()
   try {
-    localStorage.setItem(SINCE_KEY, new Date(started - OVERLAP_MS).toISOString())
+    localStorage.setItem(SINCE_KEY, next)
+    const seen = [...lastUnmatched(), ...unmatched]
+    const key = (u: UnmatchedAccount) => `${u.campaignId}|${u.platform}|${u.handle}`
+    localStorage.setItem(UNMATCHED_KEY, JSON.stringify(seen.filter((u, i) => seen.findIndex((o) => key(o) === key(u)) === i).slice(-50)))
   } catch {
     // Next pass looks back the default few days; ticking stays idempotent.
   }

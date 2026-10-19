@@ -268,6 +268,9 @@ export async function markPosted(
   date: string = localToday(),
   /** Where it went out, when something else (the cutter) already knows. */
   url: string | null = null,
+  /** When it went out, when that is known and not now (the cutter's post
+   *  from last night, ticked this morning, belongs to last night). */
+  postedAt: string | null = null,
 ): Promise<void> {
   let videoId = board.videoIdBySlot[slot] ?? null
 
@@ -299,6 +302,7 @@ export async function markPosted(
       account_id: account.id,
       platform: account.platform,
       url,
+      ...(postedAt ? { posted_at: postedAt } : {}),
       view_count: null,
       view_count_entered_at: null,
     })

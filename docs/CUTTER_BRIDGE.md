@@ -19,8 +19,9 @@ A video the cutter app posts ticks the planner's Post grid by itself.
 ## Scheduled boxes (blue)
 
 `cutter-posted` also answers `{ action: 'scheduled', ids }` with the linked campaigns' posts waiting in Postiz
-for a time in the next two days (`status = 'scheduled'`, not reposts). The Post screen counts today's per campaign
-and platform (`scheduledCounts` in `src/data/cutterBridge.ts`) and paints that many open boxes blue with a ticking
+for a time in the next two days (`status = 'scheduled'`, not reposts). The Post screen counts today's per planner
+account - the account each post really goes to (`scheduledByAccount`, `accountFor` in `src/data/cutterBridge.ts`) -
+and paints that many open boxes blue with a ticking
 clock (`useCutterScheduled`, refreshed every 5 minutes and on return). It is display only: nothing is written, and
 a box still ticks for real only when the post goes out (`posted`). He can tick a blue box by hand as before.
 
@@ -39,10 +40,21 @@ grid only paints linked ones.
 - Only cutter posts with status `posted` count. Scheduled is not posted.
 - A repost of an earlier video (`repost_of` set) is never returned, so one deliverable is
   not paid twice.
-- Idempotent across devices: each tick stores the platform link (or `cutter:<post id>:<platform>`)
-  in `video_posts.url`; a post whose url is already there is skipped.
-- Only accounts of the linked campaign whose platform matches are ticked. Nothing is guessed
-  from a name.
+- Idempotent across devices: each tick stores the video's own link (or `cutter:<post id>:<platform>`)
+  in `video_posts.url`; a post whose url is already there is skipped. Only a link to the video itself
+  counts (`videoLink`): Postiz gives TikTok the account's page, the same for every video, which made
+  every TikTok post after the first look ticked already. Links are keyed by the account's name.
+- The account ticked is the one the post went to (`accountFor`): by its handle (`profile`, sent by
+  `cutter-posted` since 2026-10-19), one a letter or two off a saved handle, or - with no handle saved
+  to tell them apart - the only account on that platform. Never another account on the same platform:
+  matching the platform alone ticked @danny.snoozed for posts to @lockinwithziad and Jake's posts on
+  @hooksandmike. An account the campaign doesn't have is named under its board instead (amber), until
+  he adds it (`lastUnmatched`, the scheduled list).
+- One post is one deliverable: all its accounts are ticked in the same column - the one it already
+  holds, else the first open on every account it went to, else a new one.
+- A post is ticked on the day it went out, with its real time (`markPosted`'s `postedAt`): one from
+  23:31 ticked the next morning used to land on the next day's board.
+- A pass that gets a full page (200) goes on from the last one's `updatedAt` instead of from now.
 
 ## To switch it on
 

@@ -17,18 +17,42 @@
 
 import type { DataAdapter } from './DataAdapter'
 import { localToday } from './index'
-import { boardsForToday, markPosted } from './posting'
+import { boardsForToday, markPosted, type PostingBoard } from './posting'
+import type { CampaignAccount } from './schema'
+
+/** One account a cutter post went to. */
+export interface CutterAccount {
+  /** Postiz's display name for it ("Danny | Growth Marketer"). */
+  name: string
+  platform: string
+  /** Its handle on the platform ("hooksandmike") - absent from a function
+   *  deployed before it was sent. */
+  profile?: string
+}
 
 export interface CutterPost {
   id: string
   campaignId: string
   campaignName: string
-  accounts: { name: string; platform: string }[]
+  accounts: CutterAccount[]
   links: Record<string, string>
   postedAt: string
+  /** When the cutter last changed it - where the next pass starts from. */
+  updatedAt?: string
 }
 
 const ROOTS = ['tiktok', 'instagram', 'youtube', 'facebook', 'twitter', 'linkedin', 'threads', 'pinterest']
+
+const PLATFORM_NAMES: Record<string, string> = {
+  tiktok: 'TikTok',
+  instagram: 'Instagram',
+  youtube: 'YouTube',
+  facebook: 'Facebook',
+  twitter: 'X',
+  linkedin: 'LinkedIn',
+  threads: 'Threads',
+  pinterest: 'Pinterest',
+}
 
 /** "tiktok-business" and "TikTok" are both "tiktok". Unknown names stay as
  *  they are, letters only. */
@@ -39,6 +63,53 @@ export function platformRoot(platform: string): string {
 
 export const markerFor = (postId: string, platform: string) => `cutter:${postId}:${platformRoot(platform)}`
 
+/** A handle as it compares: "@Ziad.Moneytalks " and "ziad.moneytalks" alike. */
+export function handleKey(handle: string | null | undefined): string {
+  return (handle ?? '').trim().replace(/^@+/, '').toLowerCase().replace(/\s+/g, '')
+}
+
+/** Letters to change to turn one handle into the other. */
+function editDistance(a: string, b: string): number {
+  let row = Array.from({ length: b.length + 1 }, (_, j) => j)
+  for (let i = 1; i <= a.length; i++) {
+    const next = [i]
+    for (let j = 1; j <= b.length; j++) next[j] = Math.min(row[j] + 1, next[j - 1] + 1, row[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1))
+    row = next
+  }
+  return row[b.length]
+}
+
+/** Which of the campaign's accounts a cutter post went to: the one with its
+ *  handle; one a letter or two off it ("Steven.ugcx" saved for
+ *  "steve.ugcx"); or - with no handle saved to tell them apart - the only
+ *  account on that platform (also when the cutter sent no handle). Never one with a different handle: matching on
+ *  the platform alone ticked @danny.snoozed for videos that went to
+ *  @lockinwithziad, and Jake's posts onto @hooksandmike. */
+export function accountFor<A extends Pick<CampaignAccount, 'platform' | 'handle'>>(accounts: readonly A[], sent: CutterAccount): A | null {
+  const root = platformRoot(sent.platform)
+  const same = accounts.filter((a) => platformRoot(a.platform) === root)
+  const keys = [handleKey(sent.profile), handleKey(sent.name)].filter(Boolean)
+  // Nothing to tell accounts apart by (a function deployed before it sent
+  // handles): only an account that is the one on its platform.
+  if (keys.length === 0) return same.length === 1 ? same[0] : null
+  const exact = same.filter((a) => keys.includes(handleKey(a.handle)))
+  if (exact.length > 0) return exact.length === 1 ? exact[0] : null
+  const near = same.filter((a) => {
+    const saved = handleKey(a.handle)
+    return saved.length >= 5 && keys.some((k) => k.length >= 5 && editDistance(k, saved) <= 2)
+  })
+  if (near.length === 1) return near[0]
+  return same.length === 1 && !handleKey(same[0].handle) ? same[0] : null
+}
+
+/** The link to the video itself, when the cutter has one for this account -
+ *  never the account's own page, which Postiz gives for TikTok and which is
+ *  the same for every video it posts. Links are keyed by the account's name. */
+export function videoLink(post: Pick<CutterPost, 'links'>, sent: CutterAccount): string | null {
+  const link = post.links[sent.name] ?? Object.entries(post.links).find(([key]) => platformRoot(key) === platformRoot(sent.platform))?.[1]
+  return link && /\/(video|reel|reels|p|shorts|posts?)\/|watch\?v=|youtu\.be\//i.test(link) ? link : null
+}
+
 /** The local calendar day an ISO instant falls on. */
 function localDay(iso: string): string {
   const d = new Date(iso)
@@ -46,33 +117,61 @@ function localDay(iso: string): string {
   return d.toLocaleDateString('en-CA')
 }
 
-/** Ticks what the cutter posted. Returns how many boxes it ticked. */
-export async function applyCutterPosts(data: DataAdapter, posts: readonly CutterPost[]): Promise<number> {
+/** Accounts the cutter posts a linked campaign to that it doesn't have - so
+ *  the Post screen can say so instead of ticking another account. */
+export interface UnmatchedAccount {
+  campaignId: string
+  platform: string
+  handle: string
+}
+
+/** Ticks what the cutter posted: each post one deliverable, its accounts in
+ *  ONE column (a post to TikTok and Instagram is the same video in both),
+ *  on the day it went out, on the accounts it really went to. Returns how
+ *  many boxes it ticked, and the accounts it couldn't find in the campaign. */
+export async function applyCutterPosts(
+  data: DataAdapter,
+  posts: readonly CutterPost[],
+): Promise<{ ticked: number; unmatched: UnmatchedAccount[] }> {
   let ticked = 0
+  const unmatched: UnmatchedAccount[] = []
   for (const post of posts) {
     const campaigns = await data.listCampaigns()
     const campaign = campaigns.find((c) => c.cutter_campaign_id === post.campaignId)
     if (!campaign) continue
     const date = localDay(post.postedAt)
+    const boardNow = async (): Promise<PostingBoard | undefined> => {
+      const [accounts, videos, existing] = await Promise.all([data.listCampaignAccounts(), data.listVideos(), data.listAllVideoPosts()])
+      return boardsForToday(campaigns, accounts, videos, existing, date).find((b) => b.campaign.id === campaign.id)
+    }
     for (const sent of post.accounts) {
-      const root = platformRoot(sent.platform)
       const marker = markerFor(post.id, sent.platform)
-      const link = Object.entries(post.links).find(([key]) => platformRoot(key) === root)?.[1] ?? null
-      const [accounts, videos, existing] = await Promise.all([
-        data.listCampaignAccounts(),
-        data.listVideos(),
-        data.listAllVideoPosts(),
-      ])
+      const link = videoLink(post, sent)
+      const existing = await data.listAllVideoPosts()
       if (existing.some((p) => p.url === marker || (link !== null && p.url === link))) continue
-      const board = boardsForToday(campaigns, accounts, videos, existing, date).find((b) => b.campaign.id === campaign.id)
-      const row = board?.rows.find((r) => r.account.is_active && platformRoot(r.account.platform) === root)
-      if (!board || !row) continue
-      const open = row.cells.find((cell) => cell.post === null)
-      await markPosted(data, board, row.account, open ? open.slot : board.slots, videos, date, link ?? marker)
+      const board = await boardNow()
+      if (!board) break
+      const here = board.rows.map((r) => r.account)
+      const account = accountFor(here, sent)
+      if (!account) {
+        unmatched.push({ campaignId: campaign.id, platform: sent.platform, handle: sent.profile || sent.name })
+        continue
+      }
+      // The column this post already holds (another of its accounts was
+      // ticked); else the first open on every account it went to; else a
+      // new one.
+      const mine = existing.find((p) => p.url?.startsWith(`cutter:${post.id}:`) || post.accounts.some((a) => videoLink(post, a) === p.url))
+      const held = mine ? board.videoIdBySlot.indexOf(mine.video_id) : -1
+      const targets = new Set(post.accounts.map((a) => accountFor(here, a)?.id).filter(Boolean))
+      const open = Array.from({ length: board.slots }, (_, slot) => slot).find((slot) =>
+        board.rows.filter((r) => targets.has(r.account.id)).every((r) => r.cells[slot]?.post === null),
+      )
+      const slot = held >= 0 ? held : (open ?? board.slots)
+      await markPosted(data, board, account, slot, await data.listVideos(), date, link ?? marker, post.postedAt)
       ticked++
     }
   }
-  return ticked
+  return { ticked, unmatched }
 }
 
 /** A video waiting in Postiz for its time, as the cutter reports it. */
@@ -82,28 +181,46 @@ export interface CutterScheduled {
   /** Absent from a function deployed before it was added. */
   campaignName?: string
   platforms: string[]
+  /** The accounts it goes to, with their handles - absent from a function
+   *  deployed before they were sent (then only `platforms`). */
+  accounts?: CutterAccount[]
   postAt: string
 }
 
 /** How many of a day's boxes are scheduled in the cutter, per planner
- *  campaign and platform: "Inflow, TikTok: 2". Only ever painted, never
- *  ticked - the box ticks itself when the post actually goes out
- *  (applyCutterPosts). Only linked campaigns, only that day's posts. */
-export function scheduledCounts(
+ *  account - the account each post will really go to (accountFor), not the
+ *  first one on its platform - and the accounts a campaign doesn't have.
+ *  Only ever painted, never ticked: the box ticks itself when the post
+ *  actually goes out (applyCutterPosts). Only linked campaigns, only that
+ *  day's posts. */
+export function scheduledByAccount(
   posts: readonly CutterScheduled[],
-  campaigns: readonly { id: string; cutter_campaign_id: string | null }[],
+  boards: readonly Pick<PostingBoard, 'campaign' | 'rows'>[],
   date: string,
-): Map<string, Map<string, number>> {
-  const counts = new Map<string, Map<string, number>>()
+): { counts: Map<string, number>; unmatched: UnmatchedAccount[] } {
+  const counts = new Map<string, number>()
+  const unmatched: UnmatchedAccount[] = []
   for (const post of posts) {
     if (localDay(post.postAt) !== date) continue
-    const campaign = campaigns.find((c) => c.cutter_campaign_id === post.campaignId)
-    if (!campaign) continue
-    const byPlatform = counts.get(campaign.id) ?? new Map<string, number>()
-    for (const root of new Set(post.platforms.map(platformRoot))) byPlatform.set(root, (byPlatform.get(root) ?? 0) + 1)
-    counts.set(campaign.id, byPlatform)
+    const board = boards.find((b) => b.campaign.cutter_campaign_id === post.campaignId)
+    if (!board) continue
+    const here = board.rows.map((r) => r.account)
+    for (const sent of post.accounts ?? post.platforms.map((platform): CutterAccount => ({ name: '', platform }))) {
+      const account = accountFor(here, sent)
+      if (account) counts.set(account.id, (counts.get(account.id) ?? 0) + 1)
+      else if (sent.profile || sent.name) unmatched.push({ campaignId: board.campaign.id, platform: sent.platform, handle: sent.profile || sent.name })
+    }
   }
-  return counts
+  return { counts, unmatched }
+}
+
+/** "TikTok @lockinwithziad", once each - the accounts to name under a
+ *  campaign the cutter posts to but that it doesn't have. */
+export function unmatchedLabels(unmatched: readonly UnmatchedAccount[], campaignId: string): string[] {
+  const labels = unmatched
+    .filter((u) => u.campaignId === campaignId)
+    .map((u) => `${PLATFORM_NAMES[platformRoot(u.platform)] ?? u.platform} @${handleKey(u.handle)}`)
+  return [...new Set(labels)]
 }
 
 /** "Pump.Fun" and "pump.fun" alike: lowercase, letters and digits only. */

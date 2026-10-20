@@ -6,7 +6,7 @@
 
 import { useEffect, useState } from 'react'
 
-import { applyCutterPosts, joinHandColumns, mergeSplitPosts, type CutterPost, type CutterScheduled, type UnmatchedAccount } from '../data/cutterBridge'
+import { applyCutterPosts, joinHandColumns, mergeSplitPosts, redateCorrections, type CutterPost, type CutterScheduled, type UnmatchedAccount } from '../data/cutterBridge'
 import type { DataAdapter } from '../data'
 import { getSupabaseClient } from './auth'
 
@@ -83,6 +83,8 @@ export async function syncCutterPosts(data: DataAdapter): Promise<number> {
   // account, and a post next to the column he ticked by hand for it.
   await mergeSplitPosts(data)
   await joinHandColumns(data)
+  // And money those fixes took off today for other days' videos.
+  await redateCorrections(data)
   const { ticked, unmatched } = await applyCutterPosts(data, result.posts)
   // A full page means more are waiting: the next pass goes on from the last
   // one here, rather than from now and skipping them.

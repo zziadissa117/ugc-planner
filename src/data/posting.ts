@@ -319,13 +319,15 @@ export async function markPosted(
  *  The deliverable stays posted while it is still out anywhere else - it did
  *  go out, and un-earning it because one of three platforms was unticked
  *  would be wrong. Only when the last destination is removed does it stop
- *  counting, which also releases its rate snapshot. */
+ *  counting, which also releases its rate snapshot. `correction`: the app
+ *  is putting right its own tick, see removeVideoPost. */
 export async function unmarkPosted(
   data: DataAdapter,
   account: CampaignAccount,
   post: VideoPost,
+  options?: { correction?: boolean },
 ): Promise<void> {
-  await data.removeVideoPost(post.video_id, account.id)
+  await data.removeVideoPost(post.video_id, account.id, options)
 
   const left = await data.listVideoPosts(post.video_id)
   if (left.length === 0) {

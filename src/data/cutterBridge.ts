@@ -167,7 +167,7 @@ export async function applyCutterPosts(
         // counted on the 19th). Taken off that day, ticked on its own below.
         const owner = (await data.listCampaignAccounts()).find((a) => a.id === done.account_id)
         if (!owner) continue
-        await unmarkPosted(data, owner, done)
+        await unmarkPosted(data, owner, done, { correction: true })
       }
       const board = await boardNow()
       if (!board) break
@@ -211,6 +211,30 @@ export async function applyCutterPosts(
   return { ticked, unmatched }
 }
 
+/** When the bridge's corrections took the money off the day they were made
+ *  instead of the day it was wrongly counted on - before removeVideoPost's
+ *  `correction` - so "today" showed money taken off for other days' videos:
+ *  "why does it say negative money now". */
+const MISDATED = { from: Date.parse('2026-10-19T17:00:00Z'), until: Date.parse('2026-10-20T12:00:00Z') }
+
+/** Moves those reversals onto the days of the checkoffs they undo
+ *  (redateReversal). Does nothing once done, so it runs on every pass.
+ *  Returns how many it moved. */
+export async function redateCorrections(data: DataAdapter): Promise<number> {
+  const events = await data.listEarningsEvents()
+  const byId = new Map(events.map((e) => [e.id, e]))
+  let moved = 0
+  for (const event of events) {
+    if (event.source !== 'reversal' || event.reverses_id === null) continue
+    const at = instant(event.occurred_at)
+    if (!(at >= MISDATED.from && at < MISDATED.until)) continue
+    const original = byId.get(event.reverses_id)
+    if (!original || original.earned_on === event.earned_on) continue
+    if (await data.redateReversal(event.id)) moved++
+  }
+  return moved
+}
+
 type Tick = Pick<VideoPost, 'url' | 'posted_at' | 'view_count' | 'view_count_entered_at'>
 
 /** A column he ticked by hand on every account a cutter post went to, before
@@ -243,7 +267,7 @@ const instant = (iso: string) => Date.parse(iso)
 async function claim(data: DataAdapter, videoId: string, account: CampaignAccount, tick: Tick): Promise<void> {
   const there = (await data.listVideoPosts(videoId)).find((p) => p.account_id === account.id)
   if (there && there.url !== null) return
-  if (there) await data.removeVideoPost(videoId, account.id)
+  if (there) await data.removeVideoPost(videoId, account.id, { correction: true })
   await data.addVideoPost({
     video_id: videoId,
     account_id: account.id,
@@ -297,7 +321,7 @@ export async function joinHandColumns(data: DataAdapter, days = 7): Promise<numb
           const account = accounts.find((a) => a.id === tick.account_id)
           if (!account) continue
           await claim(data, board.videoIdBySlot[to]!, account, tick)
-          await unmarkPosted(data, account, tick)
+          await unmarkPosted(data, account, tick, { correction: true })
           moved++
         }
       }
@@ -346,7 +370,7 @@ export async function mergeSplitPosts(data: DataAdapter): Promise<number> {
       if (tick.video_id === keep) continue
       const account = accounts.find((a) => a.id === tick.account_id)
       if (!account) continue
-      await unmarkPosted(data, account, tick)
+      await unmarkPosted(data, account, tick, { correction: true })
       if (there.has(account.id)) continue
       await data.addVideoPost({
         video_id: keep,

@@ -260,8 +260,13 @@ export interface DataAdapter {
    *  a row saying "not here" is not a record of anything. The phase_event
    *  history of the posting itself is untouched and stays append-only: what is
    *  removed is the claim about where the video currently sits, never the log
-   *  of what happened. */
-  removeVideoPost(videoId: string, accountId: string): Promise<void>
+   *  of what happened.
+   *
+   *  The money comes off today - unless `correction`: the tick was the app's
+   *  own mistake (the cutter bridge put it on the wrong day, or in a second
+   *  column), and the money comes off the day it was wrongly counted on. Taken
+   *  off today, every such fix made today's total negative. */
+  removeVideoPost(videoId: string, accountId: string, options?: { correction?: boolean }): Promise<void>
   listVideoPosts(videoId: string): Promise<VideoPost[]>
   /** Every video_post, in one read. The Post and home screens need all of
    *  them to work out today, and fetching them one video at a time made every
@@ -303,6 +308,14 @@ export interface DataAdapter {
    *  every device - the event id is the post's own id, so two devices that
    *  both backfill write the same row. Returns how many were written. */
   backfillEarningsHistory(): Promise<number>
+
+  /** Moves a correction's reversal that was written on today onto the day of
+   *  the checkoff it undoes, by appending two more rows - money back on the
+   *  reversal's day, and taken off the checkoff's day - never by editing it.
+   *  For the corrections the cutter bridge made before `correction` existed.
+   *  Idempotent and safe on every device: the two rows' ids come from the
+   *  reversal's own. Returns whether it wrote them. */
+  redateReversal(reversalId: string): Promise<boolean>
 
   // --- Payouts -------------------------------------------------------------
   //

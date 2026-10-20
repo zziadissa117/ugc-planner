@@ -72,6 +72,12 @@ grid only paints linked ones.
   post and the hand column ticked for it (same rule as `handColumn`, last 7 days). The fortnight is
   read once more from the start when `REREAD` in `src/sync/cutterBridge.ts` changes, so posts ticked
   on the wrong day come by again.
+- Every tick the bridge takes back to put its own mistake right is a `correction`
+  (`removeVideoPost`): its reversal is dated on the day the money was wrongly counted, not today.
+  Dated today, as his own unticks are, the fixes of 2026-10-19 made that day's total negative ("why
+  does it say negative money now"); `redateCorrections` moves those (`MISDATED` window) onto their own
+  days with `redateReversal` - two more rows, money back on the reversal's day and off the
+  checkoff's, ids derived from the reversal's so every device writes the same two.
 - A pass that gets a full page (200) goes on from the last one's `updatedAt` instead of from now.
 
 ## To switch it on

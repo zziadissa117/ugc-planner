@@ -3,8 +3,8 @@ import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { DataAdapter } from '.'
-import { accountFor, applyCutterPosts, joinHandColumns, mergeSplitPosts, platformRoot, scheduledByAccount, videoLink, type CutterPost, suggestCutterLinks } from './cutterBridge'
-import { boardsForToday, markPosted } from './posting'
+import { accountFor, applyCutterPosts, joinHandColumns, mergeSplitPosts, redateCorrections, platformRoot, scheduledByAccount, videoLink, type CutterPost, suggestCutterLinks } from './cutterBridge'
+import { boardsForToday, markPosted, unmarkPosted } from './posting'
 import { LocalDatabase } from './local/db'
 import { LocalAdapter } from './local/LocalAdapter'
 
@@ -318,6 +318,11 @@ describe('one post, one column', () => {
     expect(posts[0].posted_at).toBe(went)
     expect(posts[0].view_count).toBe(50)
     expect((await boardOf(campaign.id)).board.doneToday).toBe(0)
+    // The money moves with it: off the 5th, onto the 3rd - never a minus today.
+    const events = await adapter.listEarningsEvents()
+    const on = (date: string) => events.filter((e) => e.earned_on === date).reduce((sum, e) => sum + e.amount_cents, 0)
+    expect(on(DAY)).toBe(0)
+    expect(on('2026-10-03')).toBe(1600)
     // Seen again: left where it is.
     await applyCutterPosts(adapter, [post({ id: 'p1', postedAt: went })])
     expect(await adapter.listAllVideoPosts()).toHaveLength(1)
@@ -343,6 +348,34 @@ describe('one post, one column', () => {
     await tickColumn(campaign.id, 1)
     expect(await mergeSplitPosts(adapter)).toBe(0)
     expect(new Set((await adapter.listAllVideoPosts()).map((p) => p.video_id)).size).toBe(2)
+  })
+})
+
+describe('money the old corrections took off the wrong day', () => {
+  async function tickedThenTakenBackOn(when: Date) {
+    const campaign = await linked(['TikTok'])
+    await tickColumn(campaign.id, 0)
+    vi.setSystemTime(when)
+    const [post] = await adapter.listAllVideoPosts()
+    const [account] = await adapter.listCampaignAccounts(campaign.id)
+    await unmarkPosted(adapter, account, post)
+  }
+  const day = async (date: string) =>
+    (await adapter.listEarningsEvents()).filter((e) => e.earned_on === date).reduce((sum, e) => sum + e.amount_cents, 0)
+
+  it('goes back to the day it was counted on, for those taken off on October 19th', async () => {
+    await tickedThenTakenBackOn(new Date(Date.UTC(2026, 9, 19, 22, 35)))
+    expect(await day('2026-10-19')).toBe(-1600)
+    expect(await redateCorrections(adapter)).toBe(1)
+    expect(await day('2026-10-19')).toBe(0)
+    expect(await day(DAY)).toBe(0)
+    expect(await redateCorrections(adapter)).toBe(0)
+  })
+
+  it("leaves a box he unticked himself on another day alone", async () => {
+    await tickedThenTakenBackOn(new Date(Date.UTC(2026, 9, 25, 12, 0)))
+    expect(await redateCorrections(adapter)).toBe(0)
+    expect(await day('2026-10-25')).toBe(-1600)
   })
 })
 

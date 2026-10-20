@@ -179,6 +179,54 @@ describe('the history is append-only', () => {
     expect(await earned('2026-10-06')).toBe(-1600) // the takeback is Tuesday's
   })
 
+  it("dates a correction on the day it puts right, so today doesn't go negative", async () => {
+    const { campaign, accounts } = await setUp(['TikTok'])
+    await tick(campaign, accounts[0])
+    const posted = localToday()
+
+    at(2026, 10, 6)
+    const [video] = await adapter.listVideos()
+    const post = (await adapter.listVideoPosts(video.id))[0]
+    await unmarkPosted(adapter, accounts[0], post, { correction: true })
+
+    expect(await earned(posted)).toBe(0)
+    expect(await earned('2026-10-06')).toBe(0)
+  })
+
+  it('moves a correction taken off today onto its own day, adding rows, and only once', async () => {
+    const { campaign, accounts } = await setUp(['TikTok'])
+    await tick(campaign, accounts[0])
+    const posted = localToday()
+    // How the bridge used to correct it: taken off the day it was done.
+    at(2026, 10, 6)
+    await untick(accounts[0])
+    expect(await earned('2026-10-06')).toBe(-1600)
+    const before = await adapter.listEarningsEvents()
+    const reversal = before.find((e) => e.source === 'reversal')!
+
+    expect(await adapter.redateReversal(reversal.id)).toBe(true)
+    expect(await earned(posted)).toBe(0)
+    expect(await earned('2026-10-06')).toBe(0)
+    const after = await adapter.listEarningsEvents()
+    // Nothing written before is changed; nothing counts as a live tick.
+    for (const event of before) expect(after.find((e) => e.id === event.id)).toEqual(event)
+    expect(liveCheckoffs(after)).toEqual([])
+    expect(netCents(after)).toBe(0)
+
+    // Again, or the pair's own reversal: nothing more is written.
+    expect(await adapter.redateReversal(reversal.id)).toBe(false)
+    for (const event of after.filter((e) => e.source === 'reversal')) await adapter.redateReversal(event.id)
+    expect(await adapter.listEarningsEvents()).toHaveLength(after.length)
+  })
+
+  it('leaves a reversal already on its own day alone', async () => {
+    const { campaign, accounts } = await setUp(['TikTok'])
+    await tick(campaign, accounts[0])
+    await untick(accounts[0])
+    const reversal = (await adapter.listEarningsEvents()).find((e) => e.source === 'reversal')!
+    expect(await adapter.redateReversal(reversal.id)).toBe(false)
+  })
+
   it('pays again when the box is ticked again, as a new row', async () => {
     const { campaign, accounts } = await setUp(['TikTok'])
     await tick(campaign, accounts[0])

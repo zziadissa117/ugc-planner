@@ -95,6 +95,16 @@ function localUserId(): string {
 const now = (): string => new Date().toISOString()
 const newId = (): string => crypto.randomUUID()
 
+/** A uuid that is always the same for the same row and purpose: two devices
+ *  writing the same follow-up row write one row, not two. */
+async function derivedId(id: string, purpose: string): Promise<string> {
+  const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${id}:${purpose}`)))
+  hash[6] = (hash[6] & 0x0f) | 0x40
+  hash[8] = (hash[8] & 0x3f) | 0x80
+  const hex = Array.from(hash.slice(0, 16), (b) => b.toString(16).padStart(2, '0')).join('')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+
 /** Today as YYYY-MM-DD in the user's own zone. The posting quota resets at his
  *  midnight, not at UTC's. */
 export function localToday(date = new Date()): string {
@@ -827,7 +837,7 @@ export class LocalAdapter implements DataAdapter {
     return row
   }
 
-  async removeVideoPost(videoId: string, accountId: string): Promise<void> {
+  async removeVideoPost(videoId: string, accountId: string, options?: { correction?: boolean }): Promise<void> {
     await this.tx([this.db.video_posts, this.db.earnings_events, this.db._outbox], async (tx) => {
       const rows = (await tx
         .table('video_posts')
@@ -842,7 +852,7 @@ export class LocalAdapter implements DataAdapter {
         this.enqueue(tx, 'video_posts', row.id, 'delete', row)
       }
       // Taken back as a new row, never by editing the old one.
-      await this.recordReversal(tx, videoId, accountId)
+      await this.recordReversal(tx, videoId, accountId, options?.correction ?? false)
     })
   }
 
@@ -929,8 +939,10 @@ export class LocalAdapter implements DataAdapter {
 
   /** Appends the opposite of every live checkoff this account has on the
    *  video. Dated today, not on the day it undoes: a past day's total must
-   *  not move because of something done today. */
-  private async recordReversal(tx: Transaction, videoId: string, accountId: string): Promise<void> {
+   *  not move because of something done today. A `correction` of the app's
+   *  own mistake is dated on the day it undoes instead: that day's total was
+   *  wrong, and today's has nothing to do with it. */
+  private async recordReversal(tx: Transaction, videoId: string, accountId: string, correction: boolean): Promise<void> {
     const events = (await tx
       .table('earnings_events')
       .where('video_id')
@@ -947,7 +959,7 @@ export class LocalAdapter implements DataAdapter {
         platform: original.platform,
         amount_cents: -original.amount_cents,
         source: 'reversal',
-        earned_on: localToday(),
+        earned_on: correction ? original.earned_on : localToday(),
         reverses_id: original.id,
         occurred_at: now(),
       }
@@ -955,6 +967,40 @@ export class LocalAdapter implements DataAdapter {
       await tx.table('earnings_events').add(reversal)
       this.enqueue(tx, 'earnings_events', reversal.id, 'insert', reversal)
     }
+  }
+
+  async redateReversal(reversalId: string): Promise<boolean> {
+    // Worked out before the transaction: IndexedDB commits a transaction
+    // that waits on anything else.
+    const [backId, offId] = await Promise.all([derivedId(reversalId, 'back'), derivedId(reversalId, 'off')])
+    return this.tx([this.db.earnings_events, this.db._outbox], async (tx) => {
+      const events = tx.table('earnings_events')
+      const reversal = (await events.get(reversalId)) as EarningsEvent | undefined
+      if (!reversal || reversal.source !== 'reversal' || reversal.reverses_id === null) return false
+      const original = (await events.get(reversal.reverses_id)) as EarningsEvent | undefined
+      if (!original || original.earned_on === reversal.earned_on) return false
+      // The second half of a pair written here: never moved again.
+      if (original.occurred_at === reversal.occurred_at) return false
+      if (await events.get(backId)) return false
+      const base = {
+        user_id: this.userId,
+        campaign_id: reversal.campaign_id,
+        video_id: reversal.video_id,
+        account_id: reversal.account_id,
+        platform: reversal.platform,
+        occurred_at: now(),
+      }
+      // The money back on the reversal's day, then off the checkoff's -
+      // itself a checkoff and its reversal, so neither counts as a live tick.
+      const back: EarningsEvent = { ...base, id: backId, amount_cents: -reversal.amount_cents, source: 'checkoff', earned_on: reversal.earned_on, reverses_id: null }
+      const off: EarningsEvent = { ...base, id: offId, amount_cents: reversal.amount_cents, source: 'reversal', earned_on: original.earned_on, reverses_id: backId }
+      for (const row of [back, off]) {
+        assertRow('earnings_events', row)
+        await events.add(row)
+        this.enqueue(tx, 'earnings_events', row.id, 'insert', row)
+      }
+      return true
+    })
   }
 
   async backfillEarningsHistory(): Promise<number> {

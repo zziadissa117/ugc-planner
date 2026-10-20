@@ -6,12 +6,18 @@
 
 import { useEffect, useState } from 'react'
 
-import { applyCutterPosts, type CutterPost, type CutterScheduled, type UnmatchedAccount } from '../data/cutterBridge'
+import { applyCutterPosts, joinHandColumns, mergeSplitPosts, type CutterPost, type CutterScheduled, type UnmatchedAccount } from '../data/cutterBridge'
 import type { DataAdapter } from '../data'
 import { getSupabaseClient } from './auth'
 
 const SINCE_KEY = 'cutter-bridge-since'
 const UNMATCHED_KEY = 'cutter-bridge-unmatched'
+/** Read the last fortnight once more, from the start, once per value: posts
+ *  an earlier version ticked on the wrong day are only put right when they
+ *  come by again. Change the value to do it once more. */
+const REREAD_KEY = 'cutter-bridge-reread'
+const REREAD = '2026-10-20'
+const REREAD_DAYS = 14
 /** As many posts as the function returns in one go (its own limit). */
 const PAGE = 200
 const EVERY_MS = 5 * 60 * 1000
@@ -41,18 +47,24 @@ export async function listCutterCampaigns(): Promise<CutterCampaign[] | null> {
 
 function savedSince(): string | undefined {
   try {
+    if (localStorage.getItem(REREAD_KEY) !== REREAD) return new Date(Date.now() - REREAD_DAYS * 24 * 60 * 60 * 1000).toISOString()
     return localStorage.getItem(SINCE_KEY) ?? undefined
   } catch {
     return undefined
   }
 }
 
+/** How long an account the cutter posted to is named under a campaign that
+ *  doesn't have it: past that, the campaign has stopped posting there. */
+const UNMATCHED_DAYS = 3
+
 /** The cutter's accounts the last passes couldn't find in their campaigns,
- *  for the Post screen to name. */
+ *  posted to in the last few days, for the Post screen to name. */
 export function lastUnmatched(): UnmatchedAccount[] {
   try {
     const stored = JSON.parse(localStorage.getItem(UNMATCHED_KEY) ?? '[]') as unknown
-    return Array.isArray(stored) ? (stored as UnmatchedAccount[]) : []
+    const since = Date.now() - UNMATCHED_DAYS * 24 * 60 * 60 * 1000
+    return Array.isArray(stored) ? (stored as UnmatchedAccount[]).filter((u) => u.at !== undefined && Date.parse(u.at) >= since) : []
   } catch {
     return []
   }
@@ -67,6 +79,10 @@ export async function syncCutterPosts(data: DataAdapter): Promise<number> {
   if (ids.length === 0) return 0
   const result = await call<{ enabled: boolean; posts: CutterPost[] }>({ action: 'posted', since: savedSince(), ids })
   if (!result?.enabled) return 0
+  // What earlier versions left wrong: a post spread over a column per
+  // account, and a post next to the column he ticked by hand for it.
+  await mergeSplitPosts(data)
+  await joinHandColumns(data)
   const { ticked, unmatched } = await applyCutterPosts(data, result.posts)
   // A full page means more are waiting: the next pass goes on from the last
   // one here, rather than from now and skipping them.
@@ -74,9 +90,16 @@ export async function syncCutterPosts(data: DataAdapter): Promise<number> {
   const next = result.posts.length >= PAGE && last ? last : new Date(started - OVERLAP_MS).toISOString()
   try {
     localStorage.setItem(SINCE_KEY, next)
-    const seen = [...lastUnmatched(), ...unmatched]
+    localStorage.setItem(REREAD_KEY, REREAD)
+    // Each account once, with the last time a post went to it.
     const key = (u: UnmatchedAccount) => `${u.campaignId}|${u.platform}|${u.handle}`
-    localStorage.setItem(UNMATCHED_KEY, JSON.stringify(seen.filter((u, i) => seen.findIndex((o) => key(o) === key(u)) === i).slice(-50)))
+    const when = (u: UnmatchedAccount) => Date.parse(u.at ?? '') || 0
+    const latest = new Map<string, UnmatchedAccount>()
+    for (const u of [...lastUnmatched(), ...unmatched]) {
+      const had = latest.get(key(u))
+      if (!had || when(u) > when(had)) latest.set(key(u), u)
+    }
+    localStorage.setItem(UNMATCHED_KEY, JSON.stringify([...latest.values()].slice(-50)))
   } catch {
     // Next pass looks back the default few days; ticking stays idempotent.
   }

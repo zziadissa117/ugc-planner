@@ -17,8 +17,8 @@
 
 import type { DataAdapter } from './DataAdapter'
 import { localToday } from './index'
-import { boardsForToday, markPosted, type PostingBoard } from './posting'
-import type { CampaignAccount } from './schema'
+import { boardsForToday, markPosted, unmarkPosted, type PostingBoard } from './posting'
+import type { CampaignAccount, VideoPost } from './schema'
 
 /** One account a cutter post went to. */
 export interface CutterAccount {
@@ -126,6 +126,9 @@ export interface UnmatchedAccount {
   campaignId: string
   platform: string
   handle: string
+  /** When the post that went there went out - the Post screen names only
+   *  recent ones, so an account the campaign stopped posting to drops off. */
+  at?: string
 }
 
 /** Ticks what the cutter posted: each post one deliverable, its accounts in
@@ -153,38 +156,212 @@ export async function applyCutterPosts(
       const views = post.views?.[sent.name]
       const existing = await data.listAllVideoPosts()
       const done = existing.find((p) => p.url === marker || (link !== null && p.url === link))
-      if (done) {
+      if (done && localDay(done.posted_at) === date) {
         // Ticked already: its views, as they come in.
         if (typeof views === 'number' && done.view_count !== views) await data.setViewCount(done.id, views)
         continue
+      }
+      if (done) {
+        // Ticked on another day - by an earlier version, on the day it was
+        // ticked rather than the day it went out (October 15th's video
+        // counted on the 19th). Taken off that day, ticked on its own below.
+        const owner = (await data.listCampaignAccounts()).find((a) => a.id === done.account_id)
+        if (!owner) continue
+        await unmarkPosted(data, owner, done)
       }
       const board = await boardNow()
       if (!board) break
       const here = board.rows.map((r) => r.account)
       const account = accountFor(here, sent)
       if (!account) {
-        unmatched.push({ campaignId: campaign.id, platform: sent.platform, handle: sent.profile || sent.name })
+        unmatched.push({ campaignId: campaign.id, platform: sent.platform, handle: sent.profile || sent.name, at: post.postedAt })
         continue
       }
       // The column this post already holds (another of its accounts was
-      // ticked); else the first open on every account it went to; else a
-      // new one.
-      const mine = existing.find((p) => p.url?.startsWith(`cutter:${post.id}:`) || post.accounts.some((a) => videoLink(post, a) === p.url))
-      const held = mine ? board.videoIdBySlot.indexOf(mine.video_id) : -1
-      const targets = new Set(post.accounts.map((a) => accountFor(here, a)?.id).filter(Boolean))
-      const open = Array.from({ length: board.slots }, (_, slot) => slot).find((slot) =>
-        board.rows.filter((r) => targets.has(r.account.id)).every((r) => r.cells[slot]?.post === null),
+      // ticked that day). Only a tick with a url can be one of its own: a box
+      // he ticked by hand has none, and so does an account with no link here
+      // - null matching null once sent each account of a post to a column of
+      // its own ("8 of 2 today").
+      const mine = existing.find(
+        (p) =>
+          p.url !== null &&
+          localDay(p.posted_at) === date &&
+          (p.url.startsWith(`cutter:${post.id}:`) || post.accounts.some((a) => videoLink(post, a) === p.url)),
       )
-      const slot = held >= 0 ? held : (open ?? board.slots)
-      await markPosted(data, board, account, slot, await data.listVideos(), date, link ?? marker, post.postedAt)
+      const targets = new Set(post.accounts.map((a) => accountFor(here, a)?.id).filter((id): id is string => Boolean(id)))
+      const held = mine ? board.videoIdBySlot.indexOf(mine.video_id) : -1
+      // Else a column he ticked by hand for it; else the first open on every
+      // account it went to; else a new one.
+      const slot = held >= 0 ? held : handColumn(board, targets, post.postedAt)
+      const tick = { url: link ?? marker, posted_at: post.postedAt, view_count: null, view_count_entered_at: null }
+      if (slot >= 0) await claim(data, board.videoIdBySlot[slot]!, account, tick)
+      else {
+        const open = Array.from({ length: board.slots }, (_, s) => s).find((s) =>
+          board.rows.filter((r) => targets.has(r.account.id)).every((r) => r.cells[s]?.post === null),
+        )
+        await markPosted(data, board, account, open ?? board.slots, await data.listVideos(), date, tick.url, post.postedAt)
+      }
       ticked++
       if (typeof views === 'number') {
-        const made = (await data.listAllVideoPosts()).find((p) => p.url === (link ?? marker))
+        const made = (await data.listAllVideoPosts()).find((p) => p.url === tick.url)
         if (made) await data.setViewCount(made.id, views)
       }
     }
   }
   return { ticked, unmatched }
+}
+
+type Tick = Pick<VideoPost, 'url' | 'posted_at' | 'view_count' | 'view_count_entered_at'>
+
+/** A column he ticked by hand on every account a cutter post went to, before
+ *  it went out, with no cutter tick in it: he ticked the boxes for the video
+ *  as he sent it (Vertus, ticked at 12:33, posted at 3:24 and 5:32), so the
+ *  post is that column, not one more. -1 for none. */
+function handColumn(board: PostingBoard, targets: ReadonlySet<string>, postedAt: string): number {
+  if (targets.size === 0) return -1
+  return board.videoIdBySlot.findIndex((videoId, slot) => {
+    if (videoId === null) return false
+    const ticks = board.rows.map((r) => r.cells[slot]?.post ?? null).filter((p): p is VideoPost => p !== null)
+    return isHandColumn(ticks, targets, postedAt)
+  })
+}
+
+/** Ticked by hand on exactly these accounts, each before `postedAt`. */
+function isHandColumn(ticks: readonly VideoPost[], targets: ReadonlySet<string>, postedAt: string): boolean {
+  return (
+    ticks.length === targets.size &&
+    ticks.every((p) => p.url === null && p.account_id !== null && targets.has(p.account_id) && instant(p.posted_at) <= instant(postedAt))
+  )
+}
+
+/** An ISO time as a number: the cutter's "+00:00" and a local "Z" alike. */
+const instant = (iso: string) => Date.parse(iso)
+
+/** Puts a cutter tick for `account` on `videoId`: a box there he ticked by
+ *  hand becomes it, with the post's link and the time it went out. A tick
+ *  there that is already a post's is left alone. */
+async function claim(data: DataAdapter, videoId: string, account: CampaignAccount, tick: Tick): Promise<void> {
+  const there = (await data.listVideoPosts(videoId)).find((p) => p.account_id === account.id)
+  if (there && there.url !== null) return
+  if (there) await data.removeVideoPost(videoId, account.id)
+  await data.addVideoPost({
+    video_id: videoId,
+    account_id: account.id,
+    platform: account.platform,
+    url: tick.url,
+    posted_at: tick.posted_at,
+    view_count: tick.view_count ?? there?.view_count ?? null,
+    view_count_entered_at: tick.view_count_entered_at ?? there?.view_count_entered_at ?? null,
+  })
+  const video = await data.getVideo(videoId)
+  if (video !== null && video.phase !== 'posted') await data.markVideoPosted(videoId, { session: 'post' })
+}
+
+/** The columns he ticked by hand for a video the cutter then posted, joined
+ *  to the cutter's: its ticks go onto his column (which keeps its place) and
+ *  its own video goes back. Same rule as handColumn - the same accounts, the
+ *  same day, ticked by hand before it went out - each hand column taken by
+ *  one post at most. For the doubles an earlier version left ("4 of 2");
+ *  does nothing once there are none. Returns how many ticks moved. */
+export async function joinHandColumns(data: DataAdapter, days = 7): Promise<number> {
+  const [campaigns, accounts, videos, posts] = await Promise.all([
+    data.listCampaigns(),
+    data.listCampaignAccounts(),
+    data.listVideos(),
+    data.listAllVideoPosts(),
+  ])
+  const linked = new Set(campaigns.filter((c) => c.cutter_campaign_id).map((c) => c.id))
+  const videoById = new Map(videos.map((v) => [v.id, v]))
+  const since = Date.now() - days * 24 * 60 * 60 * 1000
+  const dates = new Set(
+    posts
+      .filter((p) => p.url !== null && instant(p.posted_at) >= since && linked.has(videoById.get(p.video_id)?.campaign_id ?? ''))
+      .map((p) => localDay(p.posted_at)),
+  )
+  let moved = 0
+  for (const date of dates) {
+    for (const board of boardsForToday(campaigns, accounts, videos, posts, date)) {
+      if (!linked.has(board.campaign.id)) continue
+      const column = (slot: number) => board.rows.map((r) => r.cells[slot]?.post ?? null).filter((p): p is VideoPost => p !== null)
+      const slots = board.videoIdBySlot.map((_, slot) => slot)
+      const cutter = slots.filter((s) => column(s).length > 0 && column(s).every((p) => p.url !== null))
+      const taken = new Set<number>()
+      for (const from of cutter) {
+        const ticks = column(from)
+        const first = ticks.reduce((a, p) => (instant(p.posted_at) < instant(a) ? p.posted_at : a), ticks[0].posted_at)
+        const targets = new Set(ticks.map((p) => p.account_id).filter((id): id is string => id !== null))
+        const to = slots.find((s) => !taken.has(s) && s !== from && isHandColumn(column(s), targets, first))
+        if (to === undefined) continue
+        taken.add(to)
+        for (const tick of ticks) {
+          const account = accounts.find((a) => a.id === tick.account_id)
+          if (!account) continue
+          await claim(data, board.videoIdBySlot[to]!, account, tick)
+          await unmarkPosted(data, account, tick)
+          moved++
+        }
+      }
+    }
+  }
+  return moved
+}
+
+/** Puts back together a cutter post an earlier pass spread over several
+ *  columns: each account's tick on a video of its own, so one post to three
+ *  accounts read as three deliverables. A post's ticks are the ones with a
+ *  url (never a box ticked by hand) on the same campaign at the same instant
+ *  - every account of one post is ticked with the post's own time - each
+ *  account once. They go onto the video holding most of them (then the one owed
+ *  that day, then the oldest) through the same untick and tick as by hand,
+ *  so the earnings history and the videos sent back to the backlog follow.
+ *  Does nothing once nothing is split, so it runs on every pass. Returns how
+ *  many ticks moved. */
+export async function mergeSplitPosts(data: DataAdapter): Promise<number> {
+  const [posts, videos, accounts] = await Promise.all([data.listAllVideoPosts(), data.listVideos(), data.listCampaignAccounts()])
+  const videoById = new Map(videos.map((v) => [v.id, v]))
+  const groups = new Map<string, VideoPost[]>()
+  for (const tick of posts) {
+    const video = videoById.get(tick.video_id)
+    if (tick.url === null || tick.account_id === null || !video) continue
+    const key = `${video.campaign_id}|${instant(tick.posted_at)}`
+    groups.set(key, [...(groups.get(key) ?? []), tick])
+  }
+  let moved = 0
+  for (const group of groups.values()) {
+    const ids = [...new Set(group.map((p) => p.video_id))]
+    if (ids.length < 2) continue
+    // Two posts can share a time (one scheduled at 13:31:00 sharp, like
+    // another): an account ticked twice, or two posts' markers, is two
+    // posts, never one to put together.
+    const accountIds = group.map((p) => p.account_id)
+    const postIds = new Set(group.map((p) => (p.url?.startsWith('cutter:') ? p.url.split(':')[1] : null)).filter(Boolean))
+    if (new Set(accountIds).size < accountIds.length || postIds.size > 1) continue
+    const held = (id: string) => group.filter((p) => p.video_id === id).length
+    const day = localToday(new Date(group[0].posted_at))
+    const owed = (id: string) => (videoById.get(id)?.owed_for_date === day ? 1 : 0)
+    const created = (id: string) => videoById.get(id)?.created_at ?? ''
+    const [keep] = ids.sort((a, b) => held(b) - held(a) || owed(b) - owed(a) || created(a).localeCompare(created(b)))
+    const there = new Set(posts.filter((p) => p.video_id === keep).map((p) => p.account_id))
+    for (const tick of group) {
+      if (tick.video_id === keep) continue
+      const account = accounts.find((a) => a.id === tick.account_id)
+      if (!account) continue
+      await unmarkPosted(data, account, tick)
+      if (there.has(account.id)) continue
+      await data.addVideoPost({
+        video_id: keep,
+        account_id: account.id,
+        platform: tick.platform,
+        url: tick.url,
+        posted_at: tick.posted_at,
+        view_count: tick.view_count,
+        view_count_entered_at: tick.view_count_entered_at,
+      })
+      there.add(account.id)
+      moved++
+    }
+  }
+  return moved
 }
 
 /** A video waiting in Postiz for its time, as the cutter reports it. */

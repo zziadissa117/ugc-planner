@@ -57,11 +57,21 @@ grid only paints linked ones.
   to tell them apart - the only account on that platform. Never another account on the same platform:
   matching the platform alone ticked @danny.snoozed for posts to @lockinwithziad and Jake's posts on
   @hooksandmike. An account the campaign doesn't have is named under its board instead (amber), until
-  he adds it (`lastUnmatched`, the scheduled list).
+  he adds it or nothing has gone there for 3 days (`lastUnmatched`, the scheduled list).
 - One post is one deliverable: all its accounts are ticked in the same column - the one it already
-  holds, else the first open on every account it went to, else a new one.
+  holds that day (found only by a tick with a url: a box ticked by hand has none, and null matching
+  null once put each account of a post in a column of its own - "8 of 2 today"); else a column he
+  ticked by hand on exactly its accounts before it went out (`handColumn`: he ticks the boxes as he
+  sends the video - those ticks become the post's, with its link and time, in their place); else the
+  first open on every account it went to; else a new one.
 - A post is ticked on the day it went out, with its real time (`markPosted`'s `postedAt`): one from
-  23:31 ticked the next morning used to land on the next day's board.
+  23:31 ticked the next morning used to land on the next day's board. A post found ticked on another
+  day (by an earlier version) is taken off it and ticked on its own day.
+- Every pass first puts right what earlier versions left: `mergeSplitPosts` joins a post spread over
+  a column per account (its ticks share the post's time to the millisecond), `joinHandColumns` joins a
+  post and the hand column ticked for it (same rule as `handColumn`, last 7 days). The fortnight is
+  read once more from the start when `REREAD` in `src/sync/cutterBridge.ts` changes, so posts ticked
+  on the wrong day come by again.
 - A pass that gets a full page (200) goes on from the last one's `updatedAt` instead of from now.
 
 ## To switch it on

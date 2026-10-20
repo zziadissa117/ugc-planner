@@ -3,7 +3,8 @@ import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { DataAdapter } from '.'
-import { accountFor, applyCutterPosts, platformRoot, scheduledByAccount, videoLink, type CutterPost, suggestCutterLinks } from './cutterBridge'
+import { accountFor, applyCutterPosts, joinHandColumns, mergeSplitPosts, platformRoot, scheduledByAccount, videoLink, type CutterPost, suggestCutterLinks } from './cutterBridge'
+import { boardsForToday, markPosted } from './posting'
 import { LocalDatabase } from './local/db'
 import { LocalAdapter } from './local/LocalAdapter'
 
@@ -134,7 +135,7 @@ describe('ticking what went out', () => {
     const campaign = await linked(['TikTok'], 'cut-1', '@danny.snoozed')
     const result = await applyCutterPosts(adapter, [post({ accounts: [{ name: 'lockinwithziad', profile: 'lockinwithziad', platform: 'tiktok-business' }] })])
     expect(result.ticked).toBe(0)
-    expect(result.unmatched).toEqual([{ campaignId: campaign.id, platform: 'tiktok-business', handle: 'lockinwithziad' }])
+    expect(result.unmatched).toEqual([{ campaignId: campaign.id, platform: 'tiktok-business', handle: 'lockinwithziad', at: post().postedAt }])
     expect(await adapter.listAllVideoPosts()).toHaveLength(0)
   })
 
@@ -187,6 +188,161 @@ describe('ticking what went out', () => {
     )
     expect([...counts]).toEqual([['ig', 1]])
     expect(unmatched.map((u) => u.handle)).toEqual(['lockinwithziad'])
+  })
+})
+
+const DAY = '2026-10-05'
+
+async function boardOf(campaignId: string) {
+  const [campaigns, accounts, videos, posts] = await Promise.all([
+    adapter.listCampaigns(),
+    adapter.listCampaignAccounts(),
+    adapter.listVideos(),
+    adapter.listAllVideoPosts(),
+  ])
+  return { board: boardsForToday(campaigns, accounts, videos, posts, DAY).find((b) => b.campaign.id === campaignId)!, videos }
+}
+
+/** Ticks one column on every account, as his taps would. */
+async function tickColumn(campaignId: string, slot: number, url: string | null = null, postedAt: string | null = null) {
+  const { board } = await boardOf(campaignId)
+  for (const row of board.rows) {
+    const fresh = await boardOf(campaignId)
+    const here = fresh.board.rows.find((r) => r.account.id === row.account.id)!.account
+    await markPosted(adapter, fresh.board, here, slot, fresh.videos, DAY, url, postedAt)
+  }
+}
+
+const three = [
+  { name: 'a', profile: 'me', platform: 'tiktok' },
+  { name: 'b', profile: 'me', platform: 'instagram' },
+  { name: 'c', profile: 'me', platform: 'youtube' },
+]
+
+describe('one post, one column', () => {
+  it('keeps a post to three accounts in one column next to boxes ticked by hand', async () => {
+    const campaign = await linked(['TikTok', 'Instagram', 'YouTube'], 'cut-1', '@me', 2)
+    await tickColumn(campaign.id, 0)
+    await applyCutterPosts(adapter, [post({ id: 'p1', accounts: three, links: { b: 'https://www.instagram.com/reel/x/' } })])
+    const posts = await adapter.listAllVideoPosts()
+    const cutter = posts.filter((p) => p.url !== null)
+    expect(cutter).toHaveLength(3)
+    expect(new Set(cutter.map((p) => p.video_id)).size).toBe(1)
+    // The hand column and the cutter's: two deliverables.
+    expect(new Set(posts.map((p) => p.video_id)).size).toBe(2)
+    const { board } = await boardOf(campaign.id)
+    expect(board.doneToday).toBe(2)
+  })
+
+  it('puts a post spread over three columns back into one', async () => {
+    const campaign = await linked(['TikTok', 'Instagram', 'YouTube'], 'cut-1', '@me', 2)
+    await tickColumn(campaign.id, 0)
+    const at = new Date(2026, 9, 5, 9, 0, 0).toISOString()
+    // How the earlier pass left it: each account's tick on a video of its own.
+    for (const [slot, account] of [[1, 'TikTok'], [2, 'Instagram'], [3, 'YouTube']] as const) {
+      const { board, videos } = await boardOf(campaign.id)
+      const row = board.rows.find((r) => r.account.platform === account)!
+      await markPosted(adapter, board, row.account, slot, videos, DAY, `cutter:p1:${account.toLowerCase()}`, at)
+    }
+    expect((await boardOf(campaign.id)).board.doneToday).toBe(4)
+
+    expect(await mergeSplitPosts(adapter)).toBe(2)
+    const posts = await adapter.listAllVideoPosts()
+    const cutter = posts.filter((p) => p.url !== null)
+    expect(cutter).toHaveLength(3)
+    expect(new Set(cutter.map((p) => p.video_id)).size).toBe(1)
+    expect(cutter.every((p) => p.posted_at === at)).toBe(true)
+    // The hand column is left alone, the two emptied videos go back.
+    expect(posts.filter((p) => p.url === null)).toHaveLength(3)
+    expect((await boardOf(campaign.id)).board.doneToday).toBe(2)
+    const posted = (await adapter.listVideos()).filter((v) => v.phase === 'posted')
+    expect(posted).toHaveLength(2)
+
+    // Nothing split any more: a second pass moves nothing.
+    expect(await mergeSplitPosts(adapter)).toBe(0)
+  })
+
+  it('takes the column he ticked by hand for it as he sent it, not one more', async () => {
+    const campaign = await linked(['TikTok', 'Instagram', 'YouTube'], 'cut-1', '@me', 2)
+    await tickColumn(campaign.id, 0) // at noon
+    const at = new Date(2026, 9, 5, 15, 24, 0).toISOString()
+    await applyCutterPosts(adapter, [post({ id: 'p1', accounts: three, postedAt: at, links: { b: 'https://www.instagram.com/reel/x/' } })])
+    const posts = await adapter.listAllVideoPosts()
+    expect(posts).toHaveLength(3)
+    expect(new Set(posts.map((p) => p.video_id)).size).toBe(1)
+    expect(posts.every((p) => p.url !== null && p.posted_at === at)).toBe(true)
+    const { board } = await boardOf(campaign.id)
+    expect(board.doneToday).toBe(1)
+    // It stays in the box he ticked.
+    expect(board.rows.every((r) => r.cells[0].post !== null)).toBe(true)
+  })
+
+  it("doesn't take a hand column on other accounts, or ticked after it went out", async () => {
+    const campaign = await linked(['TikTok', 'Instagram', 'YouTube'], 'cut-1', '@me', 3)
+    const { board } = await boardOf(campaign.id)
+    for (const row of board.rows.filter((r) => r.account.platform !== 'YouTube')) {
+      const fresh = await boardOf(campaign.id)
+      await markPosted(adapter, fresh.board, row.account, 0, fresh.videos, DAY)
+    }
+    await applyCutterPosts(adapter, [post({ id: 'p1', accounts: three, postedAt: new Date(2026, 9, 5, 15, 0, 0).toISOString() })])
+    await applyCutterPosts(adapter, [post({ id: 'p2', accounts: three.slice(0, 2), postedAt: new Date(2026, 9, 5, 9, 0, 0).toISOString() })])
+    expect(new Set((await adapter.listAllVideoPosts()).map((p) => p.video_id)).size).toBe(3)
+  })
+
+  it('joins a hand column and the cutter column it was ticked for', async () => {
+    const campaign = await linked(['TikTok', 'Instagram'], 'cut-1', '@me', 2)
+    await tickColumn(campaign.id, 0) // noon, by hand
+    const at = new Date(2026, 9, 5, 15, 24, 0).toISOString()
+    vi.setSystemTime(new Date(2026, 9, 5, 15, 30, 0))
+    await tickColumn(campaign.id, 1, 'cutter:p1:x', at) // how an earlier version left it
+    expect((await boardOf(campaign.id)).board.doneToday).toBe(2)
+    const handVideo = (await boardOf(campaign.id)).board.videoIdBySlot[0]
+
+    expect(await joinHandColumns(adapter)).toBe(2)
+    const posts = await adapter.listAllVideoPosts()
+    expect(posts).toHaveLength(2)
+    expect(posts.every((p) => p.video_id === handVideo && p.url === 'cutter:p1:x' && p.posted_at === at)).toBe(true)
+    expect((await boardOf(campaign.id)).board.doneToday).toBe(1)
+    expect((await adapter.listVideos()).filter((v) => v.phase === 'posted')).toHaveLength(1)
+    expect(await joinHandColumns(adapter)).toBe(0)
+  })
+
+  it('moves a post ticked on the wrong day to the day it went out', async () => {
+    const campaign = await linked(['TikTok'])
+    // An earlier version ticked October 3rd's post on the 5th, when it saw it.
+    await tickColumn(campaign.id, 0, 'cutter:p1:tiktok')
+    const went = new Date(2026, 9, 3, 9, 0, 0).toISOString()
+    await applyCutterPosts(adapter, [post({ id: 'p1', postedAt: went, views: { 'Me | Creator': 50 } })])
+    const posts = await adapter.listAllVideoPosts()
+    expect(posts).toHaveLength(1)
+    expect(posts[0].posted_at).toBe(went)
+    expect(posts[0].view_count).toBe(50)
+    expect((await boardOf(campaign.id)).board.doneToday).toBe(0)
+    // Seen again: left where it is.
+    await applyCutterPosts(adapter, [post({ id: 'p1', postedAt: went })])
+    expect(await adapter.listAllVideoPosts()).toHaveLength(1)
+  })
+
+  it('leaves two posts that went out at the same minute apart', async () => {
+    const campaign = await linked(['TikTok', 'Instagram'], 'cut-1', '@me', 2)
+    const at = new Date(2026, 9, 5, 13, 31, 0).toISOString()
+    for (const [slot, id] of [[0, 'p1'], [1, 'p2']] as const) {
+      for (const platform of ['TikTok', 'Instagram']) {
+        const { board, videos } = await boardOf(campaign.id)
+        const row = board.rows.find((r) => r.account.platform === platform)!
+        await markPosted(adapter, board, row.account, slot, videos, DAY, `cutter:${id}:${platform.toLowerCase()}`, at)
+      }
+    }
+    expect(await mergeSplitPosts(adapter)).toBe(0)
+    expect((await boardOf(campaign.id)).board.doneToday).toBe(2)
+  })
+
+  it('never joins boxes ticked by hand, even at the same moment', async () => {
+    const campaign = await linked(['TikTok', 'Instagram'], 'cut-1', '@me', 2)
+    await tickColumn(campaign.id, 0)
+    await tickColumn(campaign.id, 1)
+    expect(await mergeSplitPosts(adapter)).toBe(0)
+    expect(new Set((await adapter.listAllVideoPosts()).map((p) => p.video_id)).size).toBe(2)
   })
 })
 

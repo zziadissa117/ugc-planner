@@ -284,7 +284,7 @@ export function Now() {
         </>
       ) : stage.kind === 'pick_campaign' ? (
         <CampaignPicker
-          campaigns={campaigns}
+          campaigns={byBestPay(campaigns, accounts)}
           onPick={(campaign) => setStage({ kind: 'briefing', campaign })}
           onBack={() => setStage({ kind: 'home' })}
         />

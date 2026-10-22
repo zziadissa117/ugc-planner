@@ -515,6 +515,33 @@ describe('filming against a goal', () => {
     await waitFor(() => expect(screen.getByText('1')).toBeInTheDocument())
   })
 
+  it('lists the best-paying campaign first when picking what to film', async () => {
+    // Inflow pays $35 a video. One that pays more must sit above it, and one
+    // that pays less below - the same order as every other list of campaigns.
+    for (const [name, cents] of [['Aardvark', 1000], ['Zenith', 9000]] as const) {
+      await adapter.createCampaign({
+        name,
+        company: null,
+        default_setup: 'face',
+        daily_post_quota: 1,
+        pay_per_video_cents: cents,
+        cycle_size: null,
+      })
+    }
+    const user = userEvent.setup()
+    renderScreen()
+    await screen.findByText(/of \d/)
+
+    await user.click(screen.getByRole('button', { name: 'FILM' }))
+    await screen.findByText('Which campaign?')
+    const names = screen
+      .getAllByRole('button')
+      .map((b) => b.textContent ?? '')
+      .filter((t) => /Aardvark|Inflow|Zenith/.test(t))
+      .map((t) => t.match(/Aardvark|Inflow|Zenith/)![0])
+    expect(names).toEqual(['Zenith', 'Inflow', 'Aardvark'])
+  })
+
   it('lets him set his own goal rather than taking the preset', async () => {
     const user = userEvent.setup()
     renderScreen()

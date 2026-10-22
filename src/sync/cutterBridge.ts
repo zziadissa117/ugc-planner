@@ -28,6 +28,11 @@ const OVERLAP_MS = 15 * 60 * 1000
 async function call<T>(body: Record<string, unknown>): Promise<T | null> {
   const client = getSupabaseClient()
   if (!client) return null
+  // Signed out there is no one to ask for: the function only answers a signed-in
+  // user, so every pass was a refused request, every five minutes and on every
+  // return to the app. getSession reads the stored session - no network.
+  const { data: auth } = await client.auth.getSession()
+  if (!auth.session) return null
   const { data, error } = await client.functions.invoke('cutter-posted', { body })
   if (error) return null
   return data as T

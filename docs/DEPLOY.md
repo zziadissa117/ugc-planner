@@ -3,6 +3,15 @@
 Live at **https://ugc-planner.netlify.app**. Netlify site `ugc-planner`
 (id `02dcbc49-d87c-4d36-ad8a-2190d23740c0`), team `ugcacc1ziad`.
 
+## How to ship
+
+`./deploy.sh` from a checkout on a machine logged in to Netlify: it links the
+checkout to the site once, builds with the site's environment variables and
+publishes to production. Pushing to GitHub deploys nothing - the repository
+is not connected to Netlify - and a cloud Claude session cannot reach
+Netlify's hosts, so the deploy is run from the owner's Mac, like the
+Cutter's.
+
 ## What's configured
 
 - `netlify.toml` - build command `npm run build`, publishes `dist`, and a

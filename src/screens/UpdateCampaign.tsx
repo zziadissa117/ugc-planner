@@ -17,9 +17,12 @@ import { useNavigate, useParams } from 'react-router-dom'
 
 import { DocumentInput, type Upload } from '../components/DocumentInput'
 import { fieldLabel } from '../components/fieldLabel'
+import { MONEY_FIELDS } from '../data/campaignFields'
+import { formatCents } from '../money'
 import { CheckIcon } from '../components/icons'
 import { ReadingProgress } from '../components/ReadingProgress'
 import type { Campaign } from '../data'
+import { plainError } from '../data/errorText'
 import { useData } from '../data/useData'
 import {
   PastedJsonParser,
@@ -117,7 +120,7 @@ export function UpdateCampaign() {
       setUseNew(new Set())
       setLeftOut(new Set())
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught))
+      setError(plainError(caught))
     } finally {
       setParsing(false)
     }
@@ -142,7 +145,7 @@ export function UpdateCampaign() {
       })
       void navigate(`/campaigns/${campaignId}`)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught))
+      setError(plainError(caught))
     } finally {
       setBusy(false)
     }
@@ -178,8 +181,8 @@ export function UpdateCampaign() {
 
         {conflicts.length > 0 ? (
           <div>
-            <h2 className="text-lg font-semibold text-state-blocked">
-              Disagrees with what you already confirmed - {conflicts.length}
+            <h2 className="text-lg font-semibold text-state-waiting">
+              Differs from what you have - {conflicts.length}
             </h2>
             <p className="meta mt-1 text-state-later">
               Nothing here changes unless you tap "Use new", which accepts the new value. The
@@ -245,7 +248,7 @@ export function UpdateCampaign() {
                             ticked ? 'text-text' : 'text-state-later line-through decoration-state-later/60'
                           }
                         >
-                          {diff.parsedValue}
+                          {shown(diff.key, diff.parsedValue)}
                         </span>
                         {diff.parsedQuote ? (
                           <span className="meta mt-1 text-state-later">"{diff.parsedQuote}"</span>
@@ -381,6 +384,15 @@ export function UpdateCampaign() {
   )
 }
 
+/** A field's value as he reads it: money as dollars, the rest as written.
+ *  The rows hold integer cents, and "You have 3500 / New document says 4000"
+ *  was those cents shown raw. */
+function shown(key: string, value: string | null): string {
+  if (value === null) return ''
+  if (MONEY_FIELDS.includes(key) && /^\d+$/.test(value)) return formatCents(Number(value))
+  return value
+}
+
 function ConflictRow({
   diff,
   chosen,
@@ -390,19 +402,21 @@ function ConflictRow({
   chosen: boolean
   onChoose: (choose: boolean) => void
 }) {
+  // Amber, not red: a value that differs is a choice to make, not something
+  // blocked - and a re-read of the same document rewords every paragraph.
   return (
-    <div className="rounded-2xl border border-state-blocked/50 p-4">
+    <div className="rounded-2xl border border-state-waiting/50 p-4">
       <p className="text-sm font-semibold text-text">{fieldLabel(diff.key)}</p>
 
       <p className="mt-2 label text-state-later">
         You have
       </p>
-      <p className="text-text">{diff.currentValue}</p>
+      <p className="text-text">{shown(diff.key, diff.currentValue)}</p>
 
       <p className="mt-2 label text-state-waiting">
         New document says
       </p>
-      <p className="text-text">{diff.parsedValue}</p>
+      <p className="text-text">{shown(diff.key, diff.parsedValue)}</p>
       {diff.parsedQuote ? (
         <p className="meta mt-1 text-state-later">"{diff.parsedQuote}"</p>
       ) : null}

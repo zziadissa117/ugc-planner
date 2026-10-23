@@ -71,6 +71,41 @@ import { Console } from './Console'
 const GOAL_PRESETS = [3, 5, 7, 10] as const
 const DEFAULT_GOAL = 7
 
+/** The filming session in progress, kept on this device so a tap on POST to
+ *  check something, a reload or the app being reopened brings the console
+ *  back with its count - it used to live only in this screen's state, and
+ *  any of those sent him home with the goal gone and the session never
+ *  ended. Cleared by "Finish this session". */
+const FILM_SESSION_KEY = 'ugc-planner.film-session'
+
+interface FilmSession {
+  campaignId: string
+  goal: number
+  workSessionId: string
+}
+
+function readFilmSession(): FilmSession | null {
+  try {
+    const raw = localStorage.getItem(FILM_SESSION_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<FilmSession>
+    return typeof parsed.campaignId === 'string' && typeof parsed.workSessionId === 'string' && typeof parsed.goal === 'number'
+      ? { campaignId: parsed.campaignId, goal: parsed.goal, workSessionId: parsed.workSessionId }
+      : null
+  } catch {
+    return null
+  }
+}
+
+function writeFilmSession(session: FilmSession | null): void {
+  try {
+    if (session) localStorage.setItem(FILM_SESSION_KEY, JSON.stringify(session))
+    else localStorage.removeItem(FILM_SESSION_KEY)
+  } catch {
+    /* not remembered: the console lasts as long as this screen */
+  }
+}
+
 /** `work_sessions.planned_minutes` is `not null check (> 0)` in the schema,
  *  but nothing asks for a time budget any more - he watches the goal count.
  *  Bookkeeping only: never surfaced, never compared against. */
@@ -173,10 +208,34 @@ export function Now() {
         planned_minutes: FILM_SESSION_PLANNED_MINUTES,
         ended_at: null,
       })
+      writeFilmSession({ campaignId: campaign.id, goal, workSessionId: workSession.id })
       setStage({ kind: 'console', campaign, goal, workSessionId: workSession.id })
     },
     [data],
   )
+
+  // Back to a session he left mid-way: the console reopens on the same
+  // work session, so the count carries on. Only while that session is still
+  // open and its campaign is still on the books.
+  const resumed = useRef(false)
+  useEffect(() => {
+    if (!loaded || resumed.current) return
+    resumed.current = true
+    const remembered = readFilmSession()
+    if (!remembered) return
+    const campaign = campaigns.find((c) => c.id === remembered.campaignId)
+    if (!campaign) {
+      writeFilmSession(null)
+      return
+    }
+    void data.listWorkSessions({ campaignId: campaign.id, openOnly: true }).then((open) => {
+      if (open.some((s) => s.id === remembered.workSessionId)) {
+        setStage({ kind: 'console', campaign, goal: remembered.goal, workSessionId: remembered.workSessionId })
+      } else {
+        writeFilmSession(null)
+      }
+    })
+  }, [campaigns, data, loaded])
 
   // A warm-up marked done from the strip at the top of the page - while he was
   // on some other screen, or with this one already open - has to show up here.
@@ -308,6 +367,7 @@ export function Now() {
           goal={stage.goal}
           workSessionId={stage.workSessionId}
           onFinish={() => {
+            writeFilmSession(null)
             void data.endWorkSession(stage.workSessionId)
             void reload()
             setStage({ kind: 'home' })
@@ -586,7 +646,11 @@ function Briefing({
 
   if (rules === null) return null
 
-  const chosen = typedGoal.trim() === '' ? goal : Number(typedGoal)
+  // A typed goal has to be a whole number of videos: "2.5" used to leave
+  // Start lit and then fail silently when the session row was refused.
+  const typed = Number(typedGoal)
+  const typedOk = typedGoal.trim() === '' || (Number.isInteger(typed) && typed > 0)
+  const chosen = typedGoal.trim() === '' ? goal : typed
 
   return (
     <div className="flex flex-col gap-6">
@@ -648,7 +712,7 @@ function Briefing({
         variant="now"
         size="big"
         onClick={() => onStart(chosen)}
-        disabled={typedGoal.trim() !== '' && Number(typedGoal) <= 0}
+        disabled={!typedOk}
       >
         Start filming
       </Button>

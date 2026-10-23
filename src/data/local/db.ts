@@ -11,6 +11,7 @@
 
 import Dexie, { type EntityTable, type Transaction } from 'dexie'
 
+import { completeRow } from '../constraints'
 import type {
   BonusClaim,
   BonusTier,
@@ -284,6 +285,32 @@ export class LocalDatabase extends Dexie {
             })
         } catch (error) {
           console.error('v9 upgrade could not fill min_views; continuing.', error)
+        }
+      })
+
+    // v10 fills in, on every table at once, whatever an older build never
+    // wrote: a nullable column gets null, one with a default gets it
+    // (completeRow, driven by the schema itself). Until now each new column
+    // needed an upgrade of its own, and the ones that were missed -
+    // archived_at, cutter_campaign_id, post_position, pay_per_post_cents,
+    // view_count... - came back as undefined, which the screens' `=== null`
+    // checks took for a value and crashed formatting. Same wrapping as v4, per
+    // table, so one table that cannot be read never costs the others.
+    this.version(10)
+      .stores({})
+      .upgrade(async (tx) => {
+        for (const table of MIRRORED_TABLES) {
+          try {
+            await tx
+              .table(table)
+              .toCollection()
+              .modify((row: Record<string, unknown>) => {
+                const full = completeRow(table, row) as unknown as Record<string, unknown>
+                for (const key of Object.keys(full)) if (row[key] === undefined) row[key] = full[key]
+              })
+          } catch (error) {
+            console.error(`v10 upgrade could not fill ${table}; continuing.`, error)
+          }
         }
       })
   }

@@ -45,6 +45,11 @@ export function CreativeBrief({
           </p>
         ) : null}
         <GenerationBrief
+          // Re-seeded whenever the saved brief itself changes (it arrives
+          // after the first paint, or another device saved one): the draft
+          // is read once on mount, and a stale empty draft over a saved
+          // brief is what its Save button used to write.
+          key={`${field?.id ?? 'none'}:${field?.updated_at ?? ''}`}
           value={value}
           unreviewed={unreviewed}
           onSave={async (next) => {

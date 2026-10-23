@@ -234,7 +234,7 @@ export function AccountsEditor({
       ) : null}
 
       {accounts.length === 0 ? (
-        <p className="text-base text-state-blocked">None yet - add the platforms this campaign posts to.</p>
+        <p className="text-base text-state-later">None yet - add the platforms this campaign posts to.</p>
       ) : (
         <ul className="flex flex-col divide-y divide-rule border-y border-rule">
           {accounts.map((account) => (
@@ -494,16 +494,16 @@ function PlatformRate({
   const [invalid, setInvalid] = useState(false)
 
   return (
-    <label className="flex items-center gap-1.5">
+    <label className="flex flex-wrap items-center gap-1.5">
       <span className="label text-state-later">Pays</span>
       <input
         key={account.pay_per_post_cents ?? 'none'}
-        defaultValue={account.pay_per_post_cents === null ? '' : centsToDollarsInput(account.pay_per_post_cents)}
+        defaultValue={account.pay_per_post_cents == null ? '' : centsToDollarsInput(account.pay_per_post_cents)}
         onBlur={(event) => {
           const raw = event.target.value.trim()
           if (raw === '') {
             setInvalid(false)
-            if (account.pay_per_post_cents !== null) void onPatch(account.id, { pay_per_post_cents: null })
+            if (account.pay_per_post_cents != null) void onPatch(account.id, { pay_per_post_cents: null })
             return
           }
           const cents = parseDollarsToCents(raw)
@@ -526,6 +526,11 @@ function PlatformRate({
           invalid ? 'border-state-blocked' : 'border-edge focus:border-state-now/80'
         }`}
       />
+      {invalid ? (
+        <span role="alert" className="meta basis-full text-state-blocked">
+          Enter an amount like 16 or 16.50 - nothing was saved.
+        </span>
+      ) : null}
     </label>
   )
 }
@@ -545,8 +550,14 @@ function AccountRow({
 }) {
   const [more, setMore] = useState(false)
 
-  const field = (key: 'handle' | 'email' | 'password', value: string) =>
-    void onPatch(account.id, { [key]: value.trim() === '' ? null : value })
+  // Only a real change is written. Tapping into a box and out used to save
+  // the row as it was - and, since the box keeps what it showed when it was
+  // drawn, a handle changed on the phone since was written back over.
+  const field = (key: 'handle' | 'email' | 'password', value: string) => {
+    const next = value.trim() === '' ? null : value
+    if ((account[key] ?? null) === next) return
+    void onPatch(account.id, { [key]: next })
+  }
 
   return (
     <div className="flex flex-col gap-2">
@@ -564,7 +575,12 @@ function AccountRow({
         </button>
       </div>
 
+      {/* Each box keyed on its own saved value, so one that arrived from
+          another device re-seeds the box instead of the box keeping the old
+          one - and saving the handle leaves the email box he is typing in
+          alone. */}
       <LoginLine
+        key={`handle-${account.handle ?? ''}`}
         name="Username"
         value={account.handle ?? ''}
         label={`${account.platform} handle`}
@@ -574,6 +590,7 @@ function AccountRow({
       {separate ? (
         <>
           <LoginLine
+            key={`email-${account.email ?? ''}`}
             name="Email"
             value={account.email ?? ''}
             label={`${account.platform} email`}
@@ -581,6 +598,7 @@ function AccountRow({
             onCommit={(next) => field('email', next)}
           />
           <LoginLine
+            key={`password-${account.password ?? ''}`}
             name="Password"
             value={account.password ?? ''}
             label={`${account.platform} password`}

@@ -22,6 +22,7 @@ import {
   PAYOUT_SCHEDULE_VALUES,
   SESSION_TYPE_VALUES,
   SETUP_TYPE_VALUES,
+  SQL_COLUMNS,
   VIDEO_KIND_VALUES,
   VIDEO_PHASE_VALUES,
   type BonusClaim,
@@ -37,6 +38,7 @@ import {
   type CampaignRule,
   type PhaseEvent,
   type TableName,
+  type TableRowMap,
   type TimeEstimate,
   type UserSettings,
   type Video,
@@ -479,4 +481,62 @@ export function assertRow<K extends TableName>(
   row: Parameters<(typeof VALIDATORS)[K]>[0],
 ): void {
   ;(VALIDATORS[table] as (r: unknown) => void)(row)
+}
+
+// --- Filling in what an older build never wrote --------------------------
+
+/** A SQL default, as the value it stands for. `now()` is the moment of the
+ *  fill; an id the database would mint (`gen_random_uuid()`, bigserial) is
+ *  left alone, because a row without its id is not a row to repair but one
+ *  to refuse. */
+function valueOfDefault(sqlDefault: string | null): unknown {
+  if (sqlDefault === null) return undefined
+  const text = sqlDefault.trim().replace(/::\w+$/, '')
+  if (/^(now|clock_timestamp)\(\)$/i.test(text)) return new Date().toISOString()
+  if (/^gen_random_uuid\(\)$/i.test(text)) return undefined
+  if (/^'.*'$/.test(text)) return text.slice(1, -1)
+  if (/^(true|false)$/i.test(text)) return text.toLowerCase() === 'true'
+  if (/^-?\d+(\.\d+)?$/.test(text)) return Number(text)
+  if (/^null$/i.test(text)) return null
+  return undefined
+}
+
+/** Columns whose fill is worked out from the row rather than taken from the
+ *  SQL default: the weekly quota of a campaign written when only the daily
+ *  one existed is seven times it, the same arithmetic as migration 0016 and
+ *  the v8 upgrade, so no figure on screen moves. */
+const DERIVED_FILLS: Partial<Record<TableName, Record<string, (row: Record<string, unknown>) => unknown>>> = {
+  campaigns: {
+    posts_per_week: (row) => (typeof row.daily_post_quota === 'number' ? row.daily_post_quota * 7 : undefined),
+  },
+}
+
+/** The row with every column an older build never wrote filled in the way the
+ *  database would have: a nullable column gets null, one with a default gets
+ *  it. Nothing already there is touched.
+ *
+ *  Every new column used to need an upgrade of its own in db.ts, and the ones
+ *  that were missed (archived_at, cutter_campaign_id, post_position,
+ *  pay_per_post_cents...) came back from the store as undefined. The validators
+ *  let that through, because undefined reads as "nothing" for a nullable
+ *  column - but a screen's `=== null` check reads it as a value, and formatting
+ *  it took the whole screen down ("undefined is not an object (evaluating
+ *  'e.toLocaleString')"). So every row now passes through here on its way in:
+ *  the Dexie upgrade, a restored backup, a row pulled from the server, a row
+ *  claimed for an account. */
+export function completeRow<K extends TableName>(table: K, row: Record<string, unknown>): TableRowMap[K] {
+  const out: Record<string, unknown> = { ...row }
+  for (const column of SQL_COLUMNS[table]) {
+    const value = out[column.name]
+    if (value !== undefined && !(value === null && !column.nullable)) continue
+    const derived = DERIVED_FILLS[table]?.[column.name]?.(out)
+    if (derived !== undefined) {
+      out[column.name] = derived
+      continue
+    }
+    const fallback = valueOfDefault(column.sqlDefault)
+    if (fallback !== undefined) out[column.name] = fallback
+    else if (column.nullable) out[column.name] = null
+  }
+  return out as unknown as TableRowMap[K]
 }

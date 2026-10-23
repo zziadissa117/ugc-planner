@@ -109,7 +109,9 @@ src/
 | `DataAdapter.ts` | the interface (all intents) + `New*` input types |
 | `local/db.ts` | Dexie schema, `version(n)` upgrades, `MIRRORED_TABLES`, `_outbox` |
 | `local/LocalAdapter.ts` | implements everything; enqueues on every write |
-| `constraints.ts` | SQL check constraints re-enforced in code (IndexedDB can't) |
+| `constraints.ts` | SQL check constraints re-enforced in code (IndexedDB can't); `completeRow` fills the columns an older build never wrote (null / the SQL default, from `SQL_COLUMNS`) - every row passes through it on import, pull, claim and the Dexie v10 upgrade |
+| `changed.ts` | `announceDataChanged()`: the bridge and a sync pull announce rows written behind the screens; every `useLoaded` screen reads again |
+| `errorText.ts` | `plainError` (Dexie/constraint failures in words), `isDataFailure`; `App.tsx` shows an unhandled data-layer rejection as one red line |
 | `sync.ts` | `PULL_CURSOR_COLUMN` per table |
 | `phases.ts` | chain `to_film -> filmed -> edited -> posted` |
 | `posting.ts` | Post-screen grid logic (deliverables x accounts, ticks, one video earned once) |
@@ -125,7 +127,9 @@ src/
 `/` Now · `/post` Posting (the grid) · `/campaigns` list · `/campaigns/new`
 drop box · `/campaigns/:id` brief · `/campaigns/:id/update` · `/money` ·
 `/money/history` earnings history, `/settings` (export/import, sign-in, AI key, studio todos). FILM console is `Console.tsx`,
-launched from Now.
+launched from Now (the session in progress is kept in localStorage, so a tab change or reload reopens it).
+Every route carries `errorElement: <ScreenError />` (`screens/ScreenError.tsx`): a screen that throws shows one
+plain sentence, the line that broke and a Reload button inside the shell, never the router's developer page.
 
 ## Data model
 

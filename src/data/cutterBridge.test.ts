@@ -93,12 +93,17 @@ describe('applyCutterPosts', () => {
     expect((await adapter.listAllVideoPosts())[0].url).toBe('https://tiktok.com/@me/video/1')
   })
 
-  it('leaves unlinked campaigns and platforms with no account alone', async () => {
+  it('leaves an unlinked campaign alone, and adds the platform a linked one lacks', async () => {
     await linked(['TikTok'], null)
     expect((await applyCutterPosts(adapter, [post()])).ticked).toBe(0)
-    await linked(['Instagram'])
-    expect((await applyCutterPosts(adapter, [post()])).ticked).toBe(0)
     expect(await adapter.listAllVideoPosts()).toHaveLength(0)
+    // The cutter posts this campaign to TikTok and it has only Instagram
+    // here: TikTok is added, ready, and the post ticked on it.
+    const campaign = await linked(['Instagram'])
+    const outcome = await applyCutterPosts(adapter, [post()])
+    expect(outcome.added).toMatchObject([{ platform: 'TikTok', handle: 'me' }])
+    expect(outcome.ticked).toBe(1)
+    expect((await adapter.listCampaignAccounts(campaign.id)).map((a) => a.platform)).toEqual(['Instagram', 'TikTok'])
   })
 })
 

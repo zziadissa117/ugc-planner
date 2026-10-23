@@ -52,7 +52,7 @@ function normalise(text: string): string {
  *  no usable row falls back to the campaign's own column value as "current". */
 export function diffFields(
   currentFields: readonly CampaignField[],
-  campaign: Pick<Campaign, 'pay_per_video_cents' | 'cycle_size'>,
+  campaign: Pick<Campaign, 'pay_per_video_cents' | 'cycle_size'> & Partial<Pick<Campaign, 'posts_per_week'>>,
   result: ParseResult,
 ): FieldDiff[] {
   const byKey = new Map(currentFields.map((field) => [field.field_key, field]))
@@ -64,7 +64,7 @@ export function diffFields(
     const row = byKey.get(key)
     const rowHasValue = row !== undefined && row.source !== 'missing' && row.field_value !== null
     const column = COLUMN_FIELDS[key as keyof typeof COLUMN_FIELDS]
-    const columnValue = column ? campaign[column] : null
+    const columnValue = column ? (campaign[column] ?? null) : null
 
     const currentValue = rowHasValue ? (row!.field_value as string) : columnValue !== null ? String(columnValue) : null
 

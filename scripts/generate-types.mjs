@@ -148,6 +148,11 @@ function parseColumn(part, tableName, enums) {
   // bigserial and `default ...` both mean the database supplies a value, so the
   // column is optional at insert time.
   const hasDefault = /\bdefault\b/i.test(rest) || pgType === 'bigserial'
+  // The default as written - 'none', false, 0, null, now(), gen_random_uuid() -
+  // so a row an older build wrote without the column can be given what the
+  // database would have given it (completeRow in src/data/constraints.ts).
+  const defaultMatch = /\bdefault\s+('[^']*'|[\w.]+(?:\(\))?)/i.exec(rest)
+  const sqlDefault = defaultMatch ? defaultMatch[1] : null
 
   // Column-level CHECKs carry the non-negative guards on money and counts.
   // IndexedDB enforces none of them, so they have to be recorded and then
@@ -167,6 +172,7 @@ function parseColumn(part, tableName, enums) {
     // Primary keys are never null even without an explicit NOT NULL.
     nullable: !(notNull || isPrimaryKey),
     optionalOnInsert: hasDefault,
+    sqlDefault,
     checks,
   }
 }
@@ -324,6 +330,26 @@ function generate(enums, tables) {
       out.push(`    ${col.name}: [${col.checks.map((c) => JSON.stringify(c)).join(', ')}],`)
     }
     out.push('  },')
+  }
+  out.push('}')
+  out.push('')
+
+  out.push('/** Every column of every table: whether it may be null, and the default the')
+  out.push(' *  SQL gives it, as written (null for none). A row written by an older build')
+  out.push(' *  is missing the columns added since; this is what fills them in the way')
+  out.push(' *  the database would, instead of leaving them undefined for a screen to')
+  out.push(' *  trip over - see completeRow in src/data/constraints.ts. */')
+  out.push(
+    'export const SQL_COLUMNS: Readonly<Record<TableName, readonly { name: string; nullable: boolean; sqlDefault: string | null }[]>> = {',
+  )
+  for (const table of tables) {
+    out.push(`  ${table.name}: [`)
+    for (const col of table.columns) {
+      out.push(
+        `    { name: '${col.name}', nullable: ${col.nullable}, sqlDefault: ${JSON.stringify(col.sqlDefault)} },`,
+      )
+    }
+    out.push('  ],')
   }
   out.push('}')
   out.push('')

@@ -43,6 +43,27 @@ planner campaign are not mentioned anywhere: some, like "Temporary lovable", hav
 "not here" line about them was noise he asked to remove. `scheduled` returns every campaign's posts (no `ids`); the
 grid only paints linked ones.
 
+## Accounts the cutter posts to that the planner does not have
+
+The cutter is where posts really go, so from 2026-10-23 a pass takes what it says about a linked campaign's
+accounts rather than asking him to add them by hand (`applyCutterPosts` in `src/data/cutterBridge.ts`):
+
+- A platform the campaign has no account for: the account is added, `ready` (it is being posted to), with the
+  cutter's handle. A removed account on that platform comes back the same way.
+- The one account on a platform saved with no handle: the cutter's handle is filled in.
+- A handle a few letters off ("studywithmike1" for @studywithmichael1): corrected to the cutter's - but only when
+  the cutter has posted that campaign to exactly one account on the platform over the last fortnight. The
+  fortnight's handles per campaign and platform (`Roster`) are kept in localStorage (`cutter-bridge-roster`); a
+  correction is only made from a roster built by a whole fortnight's read (`cutter-bridge-roster-complete`), which
+  `REREAD` forces once per value.
+- A post to a different account on a platform the campaign already has one for (Jake's @hooknjake under Cantina,
+  which has Mike's @hooksandmike) is someone else's: nothing is ticked or changed, and the Post screen says so in
+  grey, without asking for an account the one-per-platform rule could not hold anyway.
+
+What a pass changed is kept three days (`cutter-bridge-notices`) and shown in grey under the campaign on the Post
+screen ("Added Facebook @x - the Cutter posts this campaign there", "TikTok handle corrected to @y"). Every pass
+that wrote anything calls `announceDataChanged()`, so the open screen shows the ticks at once.
+
 ## Safety properties
 
 - Only cutter posts with status `posted` count. Scheduled is not posted.

@@ -32,7 +32,7 @@ export function viewsTally(
   const tally: ViewsTally = { posted: 0, reached: 0, under: 0, unread: 0 }
   const best = new Map<string, number>()
   for (const post of posts) {
-    if (post.view_count === null) continue
+    if (post.view_count == null) continue
     best.set(post.video_id, Math.max(best.get(post.video_id) ?? 0, post.view_count))
   }
   for (const video of videos) {
@@ -56,7 +56,10 @@ export function formatViews(views: number): string {
 /** A typed minimum - "1000", "1,000", "1k", "1.5K", "2m" - or null for none
  *  or anything that isn't one. */
 export function parseViews(raw: string): number | null {
-  const text = raw.trim().toLowerCase().replace(/[,\s]/g, '')
+  const lowered = raw.trim().toLowerCase().replace(/\s/g, '')
+  // "1,5k" is one and a half thousand (a decimal comma); "1,500" is fifteen
+  // hundred - the same rule as money (plainNumber in campaignFields.ts).
+  const text = /^\d+,\d{1,2}[km]?$/.test(lowered) ? lowered.replace(',', '.') : lowered.replace(/,/g, '')
   const match = /^(\d+(?:\.\d+)?)([km])?$/.exec(text)
   if (!match) return null
   const n = Math.round(Number(match[1]) * (match[2] === 'm' ? 1_000_000 : match[2] === 'k' ? 1000 : 1))

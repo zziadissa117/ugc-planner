@@ -336,12 +336,22 @@ describe('the home screen and the Post tab', () => {
     ).toHaveLength(0)
   })
 
-  it('still owe a campaign with no accounts at all, because that is fixable', async () => {
-    await setUp(2, [])
+  it('show a campaign with no accounts at all, so he can add one, without owing him a number he cannot fill', async () => {
+    const { campaign } = await setUp(2, [])
 
+    // On the tab, saying "add platforms"...
+    const boards = boardsForToday(
+      await adapter.listCampaigns(),
+      await adapter.listCampaignAccounts(),
+      await adapter.listVideos(),
+      await adapter.listAllVideoPosts(),
+    )
+    expect(boards.map((b) => b.campaign.id)).toContain(campaign.id)
+    // ...but not in the count: nothing he can tick fills it, so the day could
+    // never read done with it in.
     const { home, tab } = await bothCounts()
-    expect(home.owed).toBe(2)
-    expect(tab.owed).toBe(2)
+    expect(home.owed).toBe(0)
+    expect(tab.owed).toBe(0)
   })
 
   it('keep a YouTube campaign off the tab until he marks it ready', async () => {

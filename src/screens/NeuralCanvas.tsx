@@ -27,7 +27,6 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
-  type WheelEvent as ReactWheelEvent,
 } from 'react'
 
 import { FitIcon, MinusIcon, PlusIcon } from '../components/icons'
@@ -132,12 +131,23 @@ export function NeuralCanvas({
   }, [fit])
 
   const drag = useRef({ down: false, moved: false, startX: 0, startY: 0, startTx: 0, startTy: 0 })
+  // Every finger currently down, for the pinch: two of them zoom about their
+  // midpoint by how much the gap between them changed.
+  const pointers = useRef(new Map<number, { x: number; y: number }>())
+  const pinch = useRef<{ distance: number } | null>(null)
   // A drag that ends on top of a node leaves a click behind it; this is what
   // that click checks before letting the node's own tap through.
   const justDragged = useRef(false)
 
   const onPointerDown = (event: ReactPointerEvent) => {
     if (event.pointerType === 'mouse' && event.button !== 0) return
+    pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+    if (pointers.current.size === 2) {
+      const [a, b] = [...pointers.current.values()]
+      pinch.current = { distance: Math.hypot(a.x - b.x, a.y - b.y) }
+      drag.current.down = false
+      return
+    }
     drag.current = {
       down: true,
       moved: false,
@@ -155,6 +165,21 @@ export function NeuralCanvas({
   }
 
   const onPointerMove = (event: ReactPointerEvent) => {
+    if (pointers.current.has(event.pointerId)) pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+    if (pinch.current && pointers.current.size >= 2) {
+      const rect = viewportRef.current?.getBoundingClientRect()
+      const [a, b] = [...pointers.current.values()]
+      const distance = Math.hypot(a.x - b.x, a.y - b.y)
+      if (rect && distance > 0 && pinch.current.distance > 0) {
+        const factor = distance / pinch.current.distance
+        const mx = (a.x + b.x) / 2 - rect.left
+        const my = (a.y + b.y) / 2 - rect.top
+        setTransform((current) => zoomAt(current, factor, mx, my))
+      }
+      pinch.current = { distance }
+      justDragged.current = true
+      return
+    }
     if (!drag.current.down) return
     const dx = event.clientX - drag.current.startX
     const dy = event.clientY - drag.current.startY
@@ -164,7 +189,9 @@ export function NeuralCanvas({
     setTransform((current) => ({ ...current, x: drag.current.startTx + dx, y: drag.current.startTy + dy }))
   }
 
-  const endDrag = () => {
+  const endDrag = (event: ReactPointerEvent) => {
+    pointers.current.delete(event.pointerId)
+    if (pointers.current.size < 2) pinch.current = null
     if (drag.current.moved) justDragged.current = true
     drag.current.down = false
   }
@@ -176,17 +203,25 @@ export function NeuralCanvas({
     justDragged.current = false
   }
 
-  const onWheel = (event: ReactWheelEvent) => {
-    event.preventDefault()
-    const rect = viewportRef.current?.getBoundingClientRect()
-    if (!rect) return
-    const px = event.clientX - rect.left
-    const py = event.clientY - rect.top
-    // Exponential rather than linear, so a trackpad's small, frequent deltas
-    // and a mouse wheel's large, occasional ones both feel proportionate.
-    const factor = Math.exp(-event.deltaY * 0.0018)
-    setTransform((current) => zoomAt(current, factor, px, py))
-  }
+  // A native listener, not the onWheel prop: React registers wheel as
+  // passive, so preventDefault there is ignored (the page scrolled under the
+  // graph) and the browser logged a warning on every tick of the wheel.
+  useEffect(() => {
+    const el = viewportRef.current
+    if (!el) return
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault()
+      const rect = el.getBoundingClientRect()
+      const px = event.clientX - rect.left
+      const py = event.clientY - rect.top
+      // Exponential rather than linear, so a trackpad's small, frequent deltas
+      // and a mouse wheel's large, occasional ones both feel proportionate.
+      const factor = Math.exp(-event.deltaY * 0.0018)
+      setTransform((current) => zoomAt(current, factor, px, py))
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [])
 
   const zoomBy = (factor: number) => () => {
     setTransform((current) => zoomAt(current, factor, viewport.width / 2, viewport.height / 2))
@@ -196,7 +231,6 @@ export function NeuralCanvas({
     <div className={`relative overflow-hidden bg-ink ${className}`}>
       <div
         ref={viewportRef}
-        onWheel={onWheel}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}

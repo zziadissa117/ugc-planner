@@ -215,12 +215,14 @@ export function Campaign() {
         <Count
           label="posts/week"
           value={campaign.posts_per_week}
-          onSave={(next) => saveColumn({ posts_per_week: next })}
+          // Through the field row, like the rate, so a documented weekly
+          // count in the fold and the number here can never disagree.
+          onSave={(next) => saveField('posts_per_week', String(next))}
         />
         <InlineEdit
           label="min views"
-          display={campaign.min_views === null ? 'none' : formatViews(campaign.min_views)}
-          initial={campaign.min_views === null ? '' : String(campaign.min_views)}
+          display={campaign.min_views == null ? 'none' : formatViews(campaign.min_views)}
+          initial={campaign.min_views == null ? '' : String(campaign.min_views)}
           parse={parseViews}
           invalid="Enter a number of views, like 1000 or 1k - or leave it empty for none."
           onSave={(next) => saveColumn({ min_views: next })}
@@ -237,7 +239,7 @@ export function Campaign() {
         </div>
       </div>
 
-      {campaign.min_views === null ? null : <ViewsTracker campaignId={campaign.id} minViews={campaign.min_views} videos={videos} posts={posts} />}
+      {campaign.min_views == null ? null : <ViewsTracker campaignId={campaign.id} minViews={campaign.min_views} videos={videos} posts={posts} />}
 
       <AccountsEditor data={data} campaignId={campaign.id} onChanged={() => void refresh()} />
 

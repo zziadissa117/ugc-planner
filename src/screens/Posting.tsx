@@ -40,9 +40,9 @@ import {
   type PostingBoard,
 } from '../data/posting'
 import { ensureTodaysQuota } from '../data/today'
-import { accountFor, scheduledByAccount, unmatchedLabels } from '../data/cutterBridge'
+import { accountFor, scheduledByAccount, unmatchedLabels, type AccountChange } from '../data/cutterBridge'
 import { formatViews, viewsTally, type ViewsTally } from '../data/viewsTracker'
-import { lastUnmatched, useCutterScheduled } from '../sync/cutterBridge'
+import { lastUnmatched, recentChanges, useCutterScheduled } from '../sync/cutterBridge'
 import { useData } from '../data/useData'
 import { useLoaded } from '../data/useLoaded'
 import { formatCents, hasOwnPostOrder, inPostOrder, toCadCents } from '../money'
@@ -60,6 +60,20 @@ interface Loaded {
 
 const VIEW_KEY = 'ugc-planner.post_view'
 
+function useNarrowScreen(): boolean {
+  const [narrow, setNarrow] = useState(() =>
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia('(max-width: 639px)').matches : false,
+  )
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
+    const query = window.matchMedia('(max-width: 639px)')
+    const update = () => setNarrow(query.matches)
+    query.addEventListener('change', update)
+    return () => query.removeEventListener('change', update)
+  }, [])
+  return narrow
+}
+
 function readView(): 'list' | 'network' {
   try {
     return localStorage.getItem(VIEW_KEY) === 'network' ? 'network' : 'list'
@@ -72,6 +86,10 @@ export function Posting() {
   const data = useData()
   const [busy, setBusy] = useState<string | null>(null)
   const [view, setView] = useState<'list' | 'network'>(readView)
+  // The network view is a laptop thing: on a phone its dots and labels are
+  // too small to read or tap, and the choice is remembered across devices'
+  // worth of screen sizes. Below a tablet's width the list is what shows.
+  const narrow = useNarrowScreen()
   const [reminder, setReminder] = useState<string | null>(null)
   const [arranging, setArranging] = useState(false)
 
@@ -213,7 +231,7 @@ export function Posting() {
   // middle of a page with a header above it, it read as a widget rather than
   // a place. The negative margins undo the app shell's own padding so the
   // black goes edge to edge, and the height leaves exactly the nav bar.
-  if (view === 'network' && boards.length > 0) {
+  if (view === 'network' && !narrow && boards.length > 0) {
     return (
       <div
         className="relative -mx-4 -mb-6 -mt-5"
@@ -313,8 +331,9 @@ export function Posting() {
                 busy={busy}
                 scheduled={scheduled.counts}
                 missing={missing.get(board.campaign.id) ?? []}
+                changes={recentChanges(board.campaign.id)}
                 views={
-                  board.campaign.min_views === null || !loaded
+                  board.campaign.min_views == null || !loaded
                     ? undefined
                     : viewsTally(board.campaign.id, board.campaign.min_views, loaded.videos, loaded.posts)
                 }
@@ -832,6 +851,7 @@ function CampaignBoard({
   busy,
   scheduled,
   missing = [],
+  changes = [],
   views,
   onToggle,
 }: {
@@ -839,8 +859,12 @@ function CampaignBoard({
   busy: string | null
   /** Per account id, how many of today's posts the cutter has scheduled. */
   scheduled?: ReadonlyMap<string, number>
-  /** Accounts the cutter posts this campaign to that it doesn't have. */
+  /** Accounts the cutter posts this campaign to that are not its accounts
+   *  here - another person's, on a platform it already has one for. */
   missing?: string[]
+  /** What the cutter's posts changed here lately: an account added for a
+   *  platform the campaign had none for, a handle filled in or put right. */
+  changes?: AccountChange[]
   /** Its views tracker, when it has a minimum (viewsTracker.ts). */
   views?: ViewsTally
   onToggle: (account: CampaignAccount, slot: number, post: VideoPost | null) => void
@@ -858,7 +882,7 @@ function CampaignBoard({
             {doneToday} of {quota} today
           </span>
           {rate === null ? null : <span> · {formatCents(rate)} each</span>}
-          {views && campaign.min_views !== null ? (
+          {views && campaign.min_views != null ? (
             <span>
               {' '}
               · <span className="text-state-posted">{views.reached}</span> of {views.posted} reached {formatViews(campaign.min_views)}
@@ -956,12 +980,22 @@ function CampaignBoard({
           ))}
         </ul>
       )}
+      {changes.map((change) => (
+        <p key={`${change.platform}:${change.handle}:${change.at}`} className="meta text-state-later">
+          {change.from === undefined
+            ? `Added ${change.platform}${change.handle ? ` @${change.handle}` : ''} - the Cutter posts this campaign there.`
+            : change.from === null
+              ? `${change.platform} handle saved as @${change.handle}, from the Cutter.`
+              : `${change.platform} handle corrected to @${change.handle} (was @${change.from}) - it is the one the Cutter posts to.`}
+        </p>
+      ))}
       {missing.length > 0 ? (
-        // Amber: not ticked here, and he can fix it - instead of the cutter's
-        // posts being ticked on another of the campaign's accounts.
-        <p className="meta text-state-waiting">
-          The Cutter also posts this campaign to {missing.join(', ')} - not one of its accounts here, so those aren&apos;t
-          ticked. Add {missing.length === 1 ? 'it' : 'them'} on the brief to have them ticked.
+        // Grey, and no ask: a second account on a platform the campaign
+        // already has one for cannot be added here, and those posts are
+        // someone else's - they are not this campaign's count.
+        <p className="meta text-state-later">
+          The Cutter also posts this campaign to {missing.join(', ')} - not {missing.length === 1 ? 'an account' : 'accounts'} of
+          this campaign here, so those posts aren&apos;t counted.
         </p>
       ) : null}
     </div>

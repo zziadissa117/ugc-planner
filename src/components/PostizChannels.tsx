@@ -51,7 +51,7 @@ export function PostizChannels({
       // one of those still posts to is never one to switch off.
       const liveIds = new Set(
         live
-          .filter((c) => c.id !== campaign.id && c.archived_at === null)
+          .filter((c) => c.id !== campaign.id && c.archived_at == null)
           .map((c) => c.cutter_campaign_id)
           .filter((id): id is string => Boolean(id)),
       )

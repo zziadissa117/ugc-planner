@@ -14,6 +14,7 @@ import {
   parseDollarsToCents,
   saveFieldValue,
 } from '../data/campaignFields'
+import { plainError } from '../data/errorText'
 import { useData } from '../data/useData'
 import { parseViews } from '../data/viewsTracker'
 import {
@@ -157,10 +158,14 @@ export function NewCampaign() {
       setExcludedTiers(new Set())
       // 'platforms' is the one account fact a document sometimes states
       // (docs/EDGE_FUNCTION.md), so the ones it names are pre-selected. The
-      // handles and logins never arrive parsed and start blank.
-      setPlatforms(
-        platformsFromBrief(verified.result.fields.platforms?.value ?? null).map(blankPlatform),
-      )
+      // handles and logins never arrive parsed and start blank - and a
+      // second read of the documents keeps the ones he typed on the first.
+      setPlatforms((current) => {
+        const named = platformsFromBrief(verified.result.fields.platforms?.value ?? null)
+        const kept = current.filter((p) => named.includes(p.platform) || p.handle !== '' || p.email !== '' || p.password !== '')
+        const fresh = named.filter((name) => !kept.some((p) => p.platform === name)).map(blankPlatform)
+        return [...kept, ...fresh]
+      })
       // Whatever the contract said, shown in dollars so he can correct it
       // rather than discover it later. Blank when it said nothing: an empty
       // box is a question, and a guessed rate would be an answer.
@@ -179,7 +184,7 @@ export function NewCampaign() {
       if (parsedWeekly !== null && /^\d+$/.test(parsedWeekly)) setQuota(parsedWeekly)
       setHookBrief(verified.result.hook_brief?.trim() ?? '')
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught))
+      setError(plainError(caught))
     } finally {
       setParsing(false)
     }
@@ -203,7 +208,16 @@ export function NewCampaign() {
 
       const owed = Number(quota)
       if (Number.isInteger(owed) && owed >= 0) {
-        await data.updateCampaign(campaign.id, { posts_per_week: owed })
+        // The box over a documented weekly count: left alone and ticked, the
+        // documented value already set the column; changed, his number goes
+        // through the field row too, so the fold and the strip agree.
+        const parsedWeekly = review.fields.posts_per_week?.value ?? null
+        const sameAsParsed = parsedWeekly !== null && Number(parsedWeekly) === owed
+        if (parsedWeekly !== null && !sameAsParsed) {
+          await saveFieldValue(data, campaign.id, 'posts_per_week', String(owed))
+        } else if (!(sameAsParsed && confirmed.has('posts_per_week'))) {
+          await data.updateCampaign(campaign.id, { posts_per_week: owed })
+        }
       }
       const minimum = parseViews(minViews)
       if (minimum !== null) await data.updateCampaign(campaign.id, { min_views: minimum })
@@ -238,7 +252,7 @@ export function NewCampaign() {
 
       void navigate(`/campaigns/${campaign.id}`)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught))
+      setError(plainError(caught))
     } finally {
       setBusy(false)
     }
@@ -300,7 +314,7 @@ export function NewCampaign() {
 
       void navigate(`/campaigns/${campaign.id}`)
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught))
+      setError(plainError(caught))
     } finally {
       setBusy(false)
     }
@@ -833,8 +847,9 @@ function PlatformEntry({
         {/* The two numbers that decide what the campaign owes and what it
             pays. Both live here rather than only on the brief page: he
             reported that creating a campaign gave him no way to say what it
-            pays, so it read "no rate yet" from the moment it was saved. */}
-        <div className="flex items-center gap-3">
+            pays, so it read "no rate yet" from the moment it was saved.
+            Wraps: three boxes and their labels are wider than a phone. */}
+        <div className="flex flex-wrap items-center gap-3">
           <label className="flex items-center gap-2 text-sm text-state-later">
             $ per post
             <input

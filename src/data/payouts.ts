@@ -90,7 +90,7 @@ export function payoutStatus(
   today: string,
 ): PayoutStatus | null {
   const { payout_schedule: schedule, payout_date: anchor } = campaign
-  if (schedule === 'none' || anchor === null) return null
+  if (schedule === 'none' || anchor == null) return null
 
   const paidOn = (due: string) =>
     payouts.find((p) => p.campaign_id === campaign.id && p.due_date === due) ?? null

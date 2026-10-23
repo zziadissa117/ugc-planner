@@ -6,7 +6,19 @@
 
 import { useEffect, useState } from 'react'
 
-import { applyCutterPosts, joinHandColumns, mergeSplitPosts, redateCorrections, type CutterPost, type CutterScheduled, type UnmatchedAccount } from '../data/cutterBridge'
+import {
+  applyCutterPosts,
+  joinHandColumns,
+  mergeSplitPosts,
+  pruneRoster,
+  redateCorrections,
+  type AccountChange,
+  type CutterPost,
+  type CutterScheduled,
+  type Roster,
+  type UnmatchedAccount,
+} from '../data/cutterBridge'
+import { announceDataChanged } from '../data/changed'
 import type { DataAdapter } from '../data'
 import { getSupabaseClient } from './auth'
 
@@ -16,8 +28,16 @@ const UNMATCHED_KEY = 'cutter-bridge-unmatched'
  *  an earlier version ticked on the wrong day are only put right when they
  *  come by again. Change the value to do it once more. */
 const REREAD_KEY = 'cutter-bridge-reread'
-const REREAD = '2026-10-20'
+const REREAD = '2026-10-23'
 const REREAD_DAYS = 14
+/** The fortnight's handles per campaign and platform (data/cutterBridge.ts
+ *  Roster), and whether it was built from a whole fortnight's read. */
+const ROSTER_KEY = 'cutter-bridge-roster'
+const ROSTER_COMPLETE_KEY = 'cutter-bridge-roster-complete'
+/** What the passes changed on his campaigns - an account added, a handle
+ *  put right - for the Post screen to say, a few days each. */
+const NOTICES_KEY = 'cutter-bridge-notices'
+const NOTICE_DAYS = 3
 /** As many posts as the function returns in one go (its own limit). */
 const PAGE = 200
 const EVERY_MS = 5 * 60 * 1000
@@ -75,6 +95,29 @@ export function lastUnmatched(): UnmatchedAccount[] {
   }
 }
 
+function savedRoster(): Roster {
+  try {
+    const stored = JSON.parse(localStorage.getItem(ROSTER_KEY) ?? '{}') as unknown
+    return pruneRoster(typeof stored === 'object' && stored !== null ? (stored as Roster) : {})
+  } catch {
+    return {}
+  }
+}
+
+/** Changes the passes made to a campaign's accounts in the last few days,
+ *  newest first, for the Post screen. */
+export function recentChanges(campaignId: string): AccountChange[] {
+  try {
+    const stored = JSON.parse(localStorage.getItem(NOTICES_KEY) ?? '[]') as unknown
+    const since = Date.now() - NOTICE_DAYS * 24 * 60 * 60 * 1000
+    return Array.isArray(stored)
+      ? (stored as AccountChange[]).filter((c) => c.campaignId === campaignId && Date.parse(c.at) >= since).reverse()
+      : []
+  } catch {
+    return []
+  }
+}
+
 /** One pass: fetch what was posted since the last, tick it. Returns how many
  *  boxes were ticked; 0 when the bridge is off or offline. */
 export async function syncCutterPosts(data: DataAdapter): Promise<number> {
@@ -82,15 +125,29 @@ export async function syncCutterPosts(data: DataAdapter): Promise<number> {
   const campaigns = await data.listCampaigns()
   const ids = campaigns.map((c) => c.cutter_campaign_id).filter((id): id is string => Boolean(id))
   if (ids.length === 0) return 0
-  const result = await call<{ enabled: boolean; posts: CutterPost[] }>({ action: 'posted', since: savedSince(), ids })
+  const since = savedSince()
+  // A read that reaches back the whole fortnight builds a roster that can
+  // tell a typo from another person's account (data/cutterBridge.ts).
+  const wholeFortnight = since === undefined || Date.parse(since) <= started - (REREAD_DAYS - 1) * 24 * 60 * 60 * 1000
+  const result = await call<{ enabled: boolean; posts: CutterPost[] }>({ action: 'posted', since, ids })
   if (!result?.enabled) return 0
   // What earlier versions left wrong: a post spread over a column per
   // account, and a post next to the column he ticked by hand for it.
-  await mergeSplitPosts(data)
-  await joinHandColumns(data)
+  const merged = await mergeSplitPosts(data)
+  const joined = await joinHandColumns(data)
   // And money those fixes took off today for other days' videos.
-  await redateCorrections(data)
-  const { ticked, unmatched } = await applyCutterPosts(data, result.posts)
+  const redated = await redateCorrections(data)
+  const roster = savedRoster()
+  let complete = wholeFortnight
+  try {
+    complete = complete || localStorage.getItem(ROSTER_COMPLETE_KEY) === 'true'
+  } catch {
+    /* a handle is only ever corrected from a whole fortnight's roster */
+  }
+  const { ticked, unmatched, added, renamed } = await applyCutterPosts(data, result.posts, roster, complete)
+  // The screens read again: a box this pass ticked shows ticked now, not
+  // after his next tap.
+  if (merged + joined + redated + ticked + added.length + renamed.length > 0) announceDataChanged()
   // A full page means more are waiting: the next pass goes on from the last
   // one here, rather than from now and skipping them.
   const last = result.posts.at(-1)?.updatedAt
@@ -107,6 +164,13 @@ export async function syncCutterPosts(data: DataAdapter): Promise<number> {
       if (!had || when(u) > when(had)) latest.set(key(u), u)
     }
     localStorage.setItem(UNMATCHED_KEY, JSON.stringify([...latest.values()].slice(-50)))
+    localStorage.setItem(ROSTER_KEY, JSON.stringify(pruneRoster(roster)))
+    if (complete) localStorage.setItem(ROSTER_COMPLETE_KEY, 'true')
+    if (added.length + renamed.length > 0) {
+      const stored = JSON.parse(localStorage.getItem(NOTICES_KEY) ?? '[]') as unknown
+      const kept = Array.isArray(stored) ? (stored as AccountChange[]) : []
+      localStorage.setItem(NOTICES_KEY, JSON.stringify([...kept, ...added, ...renamed].slice(-30)))
+    }
   } catch {
     // Next pass looks back the default few days; ticking stays idempotent.
   }

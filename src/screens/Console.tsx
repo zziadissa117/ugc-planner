@@ -282,11 +282,17 @@ export function Console({
 
           {/* The creative brief and his own ideas: here, where hooks are
               written, not on the campaign page he never opens for them. */}
-          <CreativeBrief
-            campaignId={campaign.id}
-            field={fields.find((f) => f.field_key === GENERATION_BRIEF_KEY)}
-            onChanged={reload}
-          />
+          {/* Only once the fields have loaded: drawn from the empty rows
+              before the read landed, the box opened blank over a saved
+              brief, and its Save button then wrote that blank - deleting
+              the brief. */}
+          {loaded ? (
+            <CreativeBrief
+              campaignId={campaign.id}
+              field={fields.find((f) => f.field_key === GENERATION_BRIEF_KEY)}
+              onChanged={reload}
+            />
+          ) : null}
         </div>
 
         <div className="flex flex-col gap-7 lg:[&_p]:text-lg lg:[&_li]:text-lg">

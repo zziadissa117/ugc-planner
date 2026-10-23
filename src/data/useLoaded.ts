@@ -10,6 +10,8 @@
 
 import { useCallback, useEffect, useRef, useState, type DependencyList } from 'react'
 
+import { DATA_CHANGED_EVENT } from './changed'
+
 /** Runs `load` on mount and whenever `deps` change, and hands back its
  *  result (null until the first read lands) and a `reload` to call after a
  *  write. A read that has been overtaken by a newer one, or that finishes
@@ -35,7 +37,12 @@ export function useLoaded<T>(
     // makes any read still in flight land nowhere.
     const counter = latest
     void reload()
+    // Rows written behind the screen - the cutter bridge, a sync pull - are
+    // announced (src/data/changed.ts), and the screen reads again.
+    const onChanged = () => void reload()
+    window.addEventListener(DATA_CHANGED_EVENT, onChanged)
     return () => {
+      window.removeEventListener(DATA_CHANGED_EVENT, onChanged)
       // Anything still in flight belongs to a screen that is gone.
       counter.current++
     }

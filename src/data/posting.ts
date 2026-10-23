@@ -232,9 +232,13 @@ export function boardsForToday(
 
 /** What today owes and what has gone out, summed off those boards. */
 export function tallyBoards(boards: readonly PostingBoard[]): { owed: number; posted: number } {
+  // A board with no account to post from stays on the tab to say "add one",
+  // but its quota is not owed today: nothing he can tick fills it, so with
+  // it counted the day could never read done.
+  const fillable = boards.filter((board) => board.rows.length > 0)
   return {
-    owed: boards.reduce((sum, board) => sum + board.quota, 0),
-    posted: boards.reduce((sum, board) => sum + board.doneToday, 0),
+    owed: fillable.reduce((sum, board) => sum + board.quota, 0),
+    posted: fillable.reduce((sum, board) => sum + board.doneToday, 0),
   }
 }
 

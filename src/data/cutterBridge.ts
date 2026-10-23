@@ -131,20 +131,89 @@ export interface UnmatchedAccount {
   at?: string
 }
 
+/** Which handles the cutter has posted each linked campaign to, per platform,
+ *  over the last fortnight: `campaignId|platform root` -> handle -> when it
+ *  was last posted to. Kept between passes by the caller. It is what tells a
+ *  typo'd handle (the only account the cutter ever posts that campaign to on
+ *  the platform) from another person's account (one of two it posts to). */
+export type Roster = Record<string, Record<string, string>>
+
+/** How far back the roster reaches. A rename is only ever made from a roster
+ *  that covers this long: a device that has only seen this morning's posts
+ *  could take one creator's account for the campaign's only one. */
+export const ROSTER_DAYS = 14
+
+export function rosterKey(campaignId: string, platform: string): string {
+  return `${campaignId}|${platformRoot(platform)}`
+}
+
+/** Drops what is older than the fortnight. */
+export function pruneRoster(roster: Roster, now = Date.now()): Roster {
+  const since = now - ROSTER_DAYS * 24 * 60 * 60 * 1000
+  const out: Roster = {}
+  for (const [key, handles] of Object.entries(roster)) {
+    const kept = Object.fromEntries(Object.entries(handles).filter(([, at]) => Date.parse(at) >= since))
+    if (Object.keys(kept).length > 0) out[key] = kept
+  }
+  return out
+}
+
+/** An account the pass added to a campaign, or whose handle it put right. */
+export interface AccountChange {
+  campaignId: string
+  platform: string
+  handle: string
+  /** The handle it had before a correction; absent for an addition or an
+   *  empty handle filled in. */
+  from?: string | null
+  at: string
+}
+
+export interface ApplyOutcome {
+  ticked: number
+  /** Accounts the cutter posts a campaign to that are not its accounts here
+   *  - another person's, on a platform the campaign already has an account
+   *  for - so nothing is ticked and nothing is changed. */
+  unmatched: UnmatchedAccount[]
+  added: AccountChange[]
+  renamed: AccountChange[]
+}
+
 /** Ticks what the cutter posted: each post one deliverable, its accounts in
  *  ONE column (a post to TikTok and Instagram is the same video in both),
- *  on the day it went out, on the accounts it really went to. Returns how
- *  many boxes it ticked, and the accounts it couldn't find in the campaign. */
+ *  on the day it went out, on the accounts it really went to.
+ *
+ *  The cutter is where posts really go, so what it says about a campaign's
+ *  accounts is taken rather than asked for: an account on a platform the
+ *  campaign has none for is added (ready - it is being posted to); an
+ *  account saved with no handle gets the cutter's; and a handle a few
+ *  letters off the only one the cutter ever posts that campaign to on the
+ *  platform is corrected ("studywithmike1" for @studywithmichael1). Only a
+ *  post to a different account on a platform the campaign already has one
+ *  for is left alone and named - Jake's posts are not Mike's. `roster` is
+ *  the fortnight's handles (see Roster); `complete` says it covers the whole
+ *  fortnight, without which no handle is corrected. */
 export async function applyCutterPosts(
   data: DataAdapter,
   posts: readonly CutterPost[],
-): Promise<{ ticked: number; unmatched: UnmatchedAccount[] }> {
+  roster: Roster = {},
+  complete = false,
+): Promise<ApplyOutcome> {
   let ticked = 0
   const unmatched: UnmatchedAccount[] = []
+  const added: AccountChange[] = []
+  const renamed: AccountChange[] = []
   for (const post of posts) {
     const campaigns = await data.listCampaigns()
     const campaign = campaigns.find((c) => c.cutter_campaign_id === post.campaignId)
     if (!campaign) continue
+    for (const sent of post.accounts) {
+      const handle = handleKey(sent.profile)
+      if (handle === '') continue
+      const key = rosterKey(campaign.id, sent.platform)
+      const seen = roster[key] ?? (roster[key] = {})
+      if (!seen[handle] || seen[handle] < post.postedAt) seen[handle] = post.postedAt
+    }
     const date = localDay(post.postedAt)
     const boardNow = async (): Promise<PostingBoard | undefined> => {
       const [accounts, videos, existing] = await Promise.all([data.listCampaignAccounts(), data.listVideos(), data.listAllVideoPosts()])
@@ -169,13 +238,48 @@ export async function applyCutterPosts(
         if (!owner) continue
         await unmarkPosted(data, owner, done, { correction: true })
       }
-      const board = await boardNow()
+      let board = await boardNow()
       if (!board) break
-      const here = board.rows.map((r) => r.account)
-      const account = accountFor(here, sent)
+      let here = board.rows.map((r) => r.account)
+      let account = accountFor(here, sent)
       if (!account) {
-        unmatched.push({ campaignId: campaign.id, platform: sent.platform, handle: sent.profile || sent.name, at: post.postedAt })
-        continue
+        const root = platformRoot(sent.platform)
+        const onPlatform = here.filter((a) => platformRoot(a.platform) === root)
+        const profile = (sent.profile ?? '').trim().replace(/^@+/, '')
+        const everSeen = Object.keys(roster[rosterKey(campaign.id, sent.platform)] ?? {})
+        if (onPlatform.length === 0) {
+          // A platform the campaign has no account for: the cutter posts
+          // there, so it gets one.
+          await data.addCampaignAccount({
+            campaign_id: campaign.id,
+            platform: PLATFORM_NAMES[root] ?? sent.platform,
+            handle: profile === '' ? null : profile,
+            status: 'ready',
+            sort_order: here.length,
+          })
+          added.push({ campaignId: campaign.id, platform: PLATFORM_NAMES[root] ?? sent.platform, handle: profile, at: post.postedAt })
+        } else if (onPlatform.length === 1 && profile !== '' && complete && everSeen.length === 1) {
+          // The only account the cutter ever posts this campaign to on the
+          // platform, saved here under a handle a few letters off: the
+          // cutter's is the real one.
+          await data.updateCampaignAccount(onPlatform[0].id, { handle: profile })
+          renamed.push({ campaignId: campaign.id, platform: onPlatform[0].platform, handle: profile, from: onPlatform[0].handle, at: post.postedAt })
+        } else {
+          unmatched.push({ campaignId: campaign.id, platform: sent.platform, handle: sent.profile || sent.name, at: post.postedAt })
+          continue
+        }
+        board = await boardNow()
+        if (!board) break
+        here = board.rows.map((r) => r.account)
+        account = accountFor(here, sent)
+        if (!account) continue
+      } else if (!handleKey(account.handle) && (sent.profile ?? '').trim() !== '') {
+        // Matched as the one account on its platform with no handle saved:
+        // the cutter knows the handle, so it is filled in.
+        const profile = sent.profile!.trim().replace(/^@+/, '')
+        await data.updateCampaignAccount(account.id, { handle: profile })
+        renamed.push({ campaignId: campaign.id, platform: account.platform, handle: profile, from: null, at: post.postedAt })
+        account = { ...account, handle: profile }
       }
       // The column this post already holds (another of its accounts was
       // ticked that day). Only a tick with a url can be one of its own: a box
@@ -208,7 +312,7 @@ export async function applyCutterPosts(
       }
     }
   }
-  return { ticked, unmatched }
+  return { ticked, unmatched, added, renamed }
 }
 
 /** When the bridge's corrections took the money off the day they were made

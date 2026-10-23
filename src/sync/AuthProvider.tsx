@@ -14,6 +14,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 
 import { useData } from '../data/useData'
 import { AuthContext, type AuthControls } from './AuthContext'
+import { announceDataChanged } from '../data/changed'
 import { claimLocalRows } from './claim'
 import { drainOutbox, pullChanges } from './engine'
 import { getSupabaseClient, signIn, signOut as signOutRemote } from './auth'
@@ -85,9 +86,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           localStorage.setItem(OUTBOX_RETRY_KEY, new Date().toISOString())
         }
 
-        await drainOutbox(data, target)
+        const drained = await drainOutbox(data, target)
         const pulled = await pullChanges(data, target, localStorage.getItem(SYNC_CURSOR_KEY))
         if (pulled.serverTime) localStorage.setItem(SYNC_CURSOR_KEY, pulled.serverTime)
+        // Another device's edits landed: the open screen reads again.
+        if (pulled.appliedRows > 0 || drained.conflicts > 0) announceDataChanged()
+      } catch (error) {
+        // Offline, or the server refused a read: the next pass tries again.
+        // Never an unhandled rejection - those surface as error text.
+        console.warn('Sync pass did not finish', error)
       } finally {
         running = false
       }

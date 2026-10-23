@@ -128,9 +128,16 @@ async function applyWithin(adapter: DataAdapter, input: ApplyInput): Promise<Cam
   // Only what survived verifyQuotes reaches here, and only what he left
   // ticked on the review screen: each tier's line was found in the contract
   // and states both its numbers, each rule's quote was found in a document.
+  // Each threshold once and each rule once: a contract with a bonus table
+  // per platform parses the same tier twice, and the second one broke the
+  // unique index - which refused the whole save with Dexie's own words
+  // ("A mutation operation in the transaction failed because a constraint
+  // was not satisfied").
   const excludedTiers = input.excludedTiers ?? new Set<number>()
+  const thresholds = new Set<number>()
   for (const [index, tier] of result.bonus_tiers.entries()) {
-    if (excludedTiers.has(index)) continue
+    if (excludedTiers.has(index) || thresholds.has(tier.threshold_views)) continue
+    thresholds.add(tier.threshold_views)
     await adapter.addBonusTier({
       campaign_id: campaign.id,
       label: tier.label,
@@ -141,9 +148,12 @@ async function applyWithin(adapter: DataAdapter, input: ApplyInput): Promise<Cam
   }
 
   const excludedRules = input.excludedRules ?? new Set<number>()
+  const bodies = new Set<string>()
   let order = 0
   for (const [index, rule] of result.rules.entries()) {
-    if (excludedRules.has(index)) continue
+    const body = rule.body.trim().toLowerCase().replace(/\s+/g, ' ')
+    if (excludedRules.has(index) || bodies.has(body)) continue
+    bodies.add(body)
     await adapter.addCampaignRule({
       campaign_id: campaign.id,
       body: rule.body,

@@ -20,11 +20,12 @@ import type {
   PendingWrite,
   ResetScope,
 } from '../DataAdapter'
-import { ConstraintError, assertRow } from '../constraints'
+import { ConstraintError, assertRow, completeRow } from '../constraints'
 import { DEFAULT_SETUP_SWITCH_MINUTES, DEFAULT_TIME_ESTIMATES } from '../defaults'
 import {
   EARNINGS_HISTORY_START,
   liveCheckoffs,
+  paysPerPlatform,
   tickAmountCents,
 } from '../earnings'
 import { nextPhase, previousPhase } from '../phases'
@@ -332,7 +333,7 @@ export class LocalAdapter implements DataAdapter {
 
   async listArchivedCampaigns(): Promise<Campaign[]> {
     const all = await this.db.campaigns.toArray()
-    return all.filter((c) => c.archived_at !== null && !c.is_active).sort((a, b) => a.name.localeCompare(b.name))
+    return all.filter((c) => c.archived_at != null && !c.is_active).sort((a, b) => a.name.localeCompare(b.name))
   }
 
   async backfillUnpricedVideos(campaignId: string): Promise<number> {
@@ -913,7 +914,18 @@ export class LocalAdapter implements DataAdapter {
       ).length
     }
 
-    const amount = tickAmountCents(campaign, accounts, account, ticked)
+    let amount = tickAmountCents(campaign, accounts, account, ticked)
+    // One deliverable is worth the campaign's rate once, however its platforms
+    // share it. The share is worked out from the accounts he can post from
+    // NOW, and that roster moves: TikTok ticked alone paid the whole $35,
+    // then Instagram finished warming up and ticking it paid another $17.50 -
+    // $52.50 for a $35 video, kept forever by the append-only history. So a
+    // tick never pays more than what is left of the rate after the video's
+    // live checkoffs. Platforms paid separately have no shared rate to cap.
+    if (amount !== null && !paysPerPlatform(campaign, accounts) && campaign.pay_per_video_cents !== null) {
+      const paid = liveCheckoffs(events).reduce((sum, e) => sum + e.amount_cents, 0)
+      amount = Math.min(amount, Math.max(0, campaign.pay_per_video_cents - paid))
+    }
     // No rate, or a bonus-only account, or a share that rounds to nothing:
     // there is no money to record, and a zero row would only be noise.
     if (amount === null || amount === 0) return false
@@ -1663,8 +1675,14 @@ export class LocalAdapter implements DataAdapter {
     // its last row must leave the store exactly as it was - this is the backup
     // of record, and a half-applied restore is worse than a refused one.
     const counts: Record<string, number> = {}
+    const rowsByTable = {} as Record<TableName, unknown[]>
     for (const table of MIRRORED_TABLES) {
-      const rows = parsed[table] as unknown[]
+      // A backup from an older build lacks the columns added since. They are
+      // filled the way the database would fill them (completeRow) rather than
+      // refused, or restored as undefined for a screen to trip over.
+      const rows = (parsed[table] as unknown[]).map((row) =>
+        typeof row === 'object' && row !== null ? completeRow(table, row as Record<string, unknown>) : row,
+      )
       rows.forEach((row, i) => {
         try {
           assertRow(table, row as never)
@@ -1674,12 +1692,13 @@ export class LocalAdapter implements DataAdapter {
         }
       })
       counts[table] = rows.length
+      rowsByTable[table] = rows
     }
 
     await this.tx([...MIRRORED_TABLES.map((t) => this.db.table(t)), this.db._outbox], async (tx) => {
         for (const table of MIRRORED_TABLES) {
           await tx.table(table).clear()
-          await tx.table(table).bulkAdd(parsed[table] as never[])
+          await tx.table(table).bulkAdd(rowsByTable[table] as never[])
         }
         // Anything queued described rows that no longer exist.
         await tx.table('_outbox').clear()
@@ -1729,75 +1748,24 @@ export class LocalAdapter implements DataAdapter {
   }
 
   async applyRemoteRow(table: TableName, row: unknown): Promise<void> {
-    if (table === 'campaigns') {
-      // A server provisioned before pays_per_platform existed sends campaigns
-      // without it, and the validator would refuse the whole row. Keep what
-      // this device already says rather than resetting it: the server has no
-      // opinion, so it must not be able to turn the setting off.
-      const incoming = row as Partial<Campaign> & { id: string }
-      if (typeof incoming.pays_per_platform !== 'boolean') {
-        const existing = (await this.db.campaigns.get(incoming.id)) as Campaign | undefined
-        row = { ...incoming, pays_per_platform: existing?.pays_per_platform ?? false }
-      }
-      if (typeof (row as Partial<Campaign>).needs_submission !== 'boolean') {
-        const existing = (await this.db.campaigns.get(incoming.id)) as Campaign | undefined
-        row = { ...(row as object), needs_submission: existing?.needs_submission ?? false }
-      }
-      if ((row as Partial<Campaign>).archived_at === undefined) {
-        const existing = (await this.db.campaigns.get(incoming.id)) as Campaign | undefined
-        row = { ...(row as object), archived_at: existing?.archived_at ?? null }
-      }
-      if ((row as Partial<Campaign>).min_views === undefined) {
-        const existing = (await this.db.campaigns.get(incoming.id)) as Campaign | undefined
-        row = { ...(row as object), min_views: existing?.min_views ?? null }
-      }
-      if ((row as Partial<Campaign>).cutter_campaign_id === undefined) {
-        const existing = (await this.db.campaigns.get(incoming.id)) as Campaign | undefined
-        row = { ...(row as object), cutter_campaign_id: existing?.cutter_campaign_id ?? null }
-      }
-      if ((row as Partial<Campaign>).post_position === undefined) {
-        const existing = (await this.db.campaigns.get(incoming.id)) as Campaign | undefined
-        row = { ...(row as object), post_position: existing?.post_position ?? null }
-      }
-      // A server that has not run the weekly-rate / payout migration sends
-      // none of these. Keep this device's values, or derive them the way the
-      // migration would.
-      {
-        const sent = row as Partial<Campaign>
-        if (
-          typeof sent.posts_per_week !== 'number' ||
-          typeof sent.payout_schedule !== 'string' ||
-          sent.payout_date === undefined
-        ) {
-          const existing = (await this.db.campaigns.get(incoming.id)) as Campaign | undefined
-          row = {
-            ...sent,
-            posts_per_week:
-              typeof sent.posts_per_week === 'number'
-                ? sent.posts_per_week
-                : (existing?.posts_per_week ?? (sent.daily_post_quota ?? 0) * 7),
-            payout_schedule: sent.payout_schedule ?? existing?.payout_schedule ?? 'none',
-            payout_date: sent.payout_date ?? existing?.payout_date ?? null,
-          }
-        }
-      }
-    }
-    if (table === 'campaign_accounts') {
-      // Same for bonus_only on accounts, from a server that predates it.
-      const incoming = row as Partial<CampaignAccount> & { id: string }
-      if (typeof incoming.bonus_only !== 'boolean') {
-        const existing = (await this.db.campaign_accounts.get(incoming.id)) as CampaignAccount | undefined
-        row = { ...incoming, bonus_only: existing?.bonus_only ?? false }
-      }
-      if ((row as Partial<CampaignAccount>).pay_per_post_cents === undefined) {
-        const existing = (await this.db.campaign_accounts.get(incoming.id)) as CampaignAccount | undefined
-        row = { ...(row as object), pay_per_post_cents: existing?.pay_per_post_cents ?? null }
-      }
-    }
-    assertRow(table, row as never)
+    const incoming = row as Record<string, unknown>
+    // A column the server did not send is not an opinion. A server provisioned
+    // before a column existed sends rows without it, and the validator would
+    // refuse the whole row - or, let through, the screens would read undefined
+    // as a value. What this device already holds for that column stays, so
+    // the server cannot turn a setting off by not knowing about it; what
+    // nothing holds gets the column's own default (completeRow).
+    const key = table === 'user_settings' ? 'user_id' : 'id'
+    const existing = (await this.db.table(table).get(incoming[key] as string)) as
+      | Record<string, unknown>
+      | undefined
+    const sent: Record<string, unknown> = {}
+    for (const [column, value] of Object.entries(incoming)) if (value !== undefined) sent[column] = value
+    const full = completeRow(table, { ...(existing ?? {}), ...sent }) as unknown as Record<string, unknown>
+    assertRow(table, full as never)
     // No enqueue: this came from the server, and sending it straight back
     // would be an echo that never settles.
-    await this.db.table(table).put(row)
+    await this.db.table(table).put(full)
   }
 
   /** The current owner of every local row. */
@@ -1859,7 +1827,7 @@ export class LocalAdapter implements DataAdapter {
 
           for (const row of rows) {
             if (row.user_id !== previousUserId) continue
-            const claimedRow = { ...row, user_id: userId }
+            const claimedRow = completeRow(table, { ...row, user_id: userId }) as typeof row
 
             if (table === "user_settings") {
               // Keyed by user_id, so this is a move rather than an edit.

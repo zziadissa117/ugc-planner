@@ -15,6 +15,7 @@ import { Money } from './screens/Money'
 import { NewCampaign } from './screens/NewCampaign'
 import { NotFound } from './screens/NotFound'
 import { Now } from './screens/Now'
+import { ScreenError } from './screens/ScreenError'
 import { Settings } from './screens/Settings'
 import { Posting } from './screens/Posting'
 import { UpdateCampaign } from './screens/UpdateCampaign'
@@ -50,23 +51,30 @@ registerSW({
 // never asked the app; he asked it for a target, a scoreboard and a way to
 // record what actually went out. Posting lives at /post and nowhere else, so
 // there is exactly one place that can say a thing was posted.
+//
+// Every screen carries its own error screen (ScreenError), so a screen that
+// throws shows one plain sentence inside the shell - the bottom nav still
+// works - instead of the router's developer page taking the whole window.
+const screens = [
+  { index: true, element: <Now /> },
+  { path: 'post', element: <Posting /> },
+  { path: 'campaigns', element: <Campaigns /> },
+  { path: 'campaigns/new', element: <NewCampaign /> },
+  { path: 'campaigns/archived', element: <ArchivedCampaigns /> },
+  { path: 'campaigns/:campaignId', element: <Campaign /> },
+  { path: 'campaigns/:campaignId/update', element: <UpdateCampaign /> },
+  { path: 'money', element: <Money /> },
+  { path: 'money/history', element: <EarningsHistory /> },
+  { path: 'settings', element: <Settings /> },
+  { path: '*', element: <NotFound /> },
+]
+
 const router = createBrowserRouter([
   {
     path: '/',
     element: <App />,
-    children: [
-      { index: true, element: <Now /> },
-      { path: 'post', element: <Posting /> },
-      { path: 'campaigns', element: <Campaigns /> },
-      { path: 'campaigns/new', element: <NewCampaign /> },
-      { path: 'campaigns/archived', element: <ArchivedCampaigns /> },
-      { path: 'campaigns/:campaignId', element: <Campaign /> },
-      { path: 'campaigns/:campaignId/update', element: <UpdateCampaign /> },
-      { path: 'money', element: <Money /> },
-      { path: 'money/history', element: <EarningsHistory /> },
-      { path: 'settings', element: <Settings /> },
-      { path: '*', element: <NotFound /> },
-    ],
+    errorElement: <ScreenError />,
+    children: screens.map((screen) => ({ ...screen, errorElement: <ScreenError /> })),
   },
 ])
 

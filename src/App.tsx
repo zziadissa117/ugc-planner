@@ -2,6 +2,7 @@ import { useContext, useEffect, useState, type ComponentType } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 
 import { BriefsIcon, MoneyIcon, NowIcon, PostIcon, SetupIcon } from './components/icons'
+import { isDataFailure, plainError } from './data/errorText'
 import { useData } from './data/useData'
 import { Button } from './components/ui'
 import { AuthContext } from './sync/AuthContext'
@@ -63,12 +64,44 @@ export function App() {
   // While the sign-in is dead every call would be refused; wait for him.
   useCutterBridge(data, ready && !sessionLost)
 
+  // A save that fails where nothing was listening - a switch tapped, a
+  // payout date picked, a login box left - used to do nothing at all: the
+  // promise rejected unwatched and the control sat there as if the tap had
+  // not happened. The store's own refusals are caught here and said once,
+  // in words; the network's failures are not, because sync retries those by
+  // itself and a red line every thirty seconds offline would be noise.
+  const [failed, setFailed] = useState<string | null>(null)
+  useEffect(() => {
+    const onRejection = (event: PromiseRejectionEvent) => {
+      if (!isDataFailure(event.reason)) return
+      event.preventDefault()
+      setFailed(plainError(event.reason))
+    }
+    window.addEventListener('unhandledrejection', onRejection)
+    return () => window.removeEventListener('unhandledrejection', onRejection)
+  }, [])
+  useEffect(() => {
+    if (failed === null) return
+    const timer = window.setTimeout(() => setFailed(null), 10_000)
+    return () => window.clearTimeout(timer)
+  }, [failed])
+
   return (
     <div className="flex min-h-dvh flex-col text-text">
       {/* Above the routes, so a running warm-up timer outlives every screen
           change. It renders its own strip at the top of the page. */}
       <WarmupTimersProvider>
         {sessionLost && auth ? <SignedOut email={auth.email} onSignIn={auth.signOut} /> : null}
+        {failed ? (
+          <div role="alert" className="border-b border-state-blocked/60 px-4 py-3">
+            <div className="mx-auto flex max-w-4xl items-start gap-4">
+              <p className="min-w-0 flex-1 text-base text-state-blocked">That didn't save: {failed}</p>
+              <Button variant="ghost" size="small" onClick={() => setFailed(null)}>
+                OK
+              </Button>
+            </div>
+          </div>
+        ) : null}
         <main key={ready ? `ready:${section}` : 'loading'} className="rise-in flex-1 px-4 pb-6 pt-5">
           {ready ? <Outlet /> : null}
         </main>

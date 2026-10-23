@@ -76,8 +76,8 @@ describe('updating an existing campaign', () => {
     )
     await user.click(screen.getByRole('button', { name: 'Compare with what is saved' }))
 
-    expect(await screen.findByText(/disagrees with what you already confirmed/i)).toBeInTheDocument()
-    expect(screen.getByText('3500')).toBeInTheDocument() // the campaign's own column value, shown as "You have".
+    expect(await screen.findByText(/differs from what you have/i)).toBeInTheDocument()
+    expect(screen.getByText('$35.00')).toBeInTheDocument() // the campaign's own column value, shown as "You have" in dollars.
 
     await user.click(screen.getByRole('button', { name: 'Apply update' }))
 
@@ -103,7 +103,7 @@ describe('updating an existing campaign', () => {
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Compare with what is saved' }))
-    await screen.findByText(/disagrees with what you already confirmed/i)
+    await screen.findByText(/differs from what you have/i)
 
     await user.click(screen.getByRole('button', { name: 'Use new' }))
     await user.click(screen.getByRole('button', { name: 'Apply update' }))

@@ -15,6 +15,9 @@ import type { Campaign, CampaignField, DataAdapter } from './index'
 export const COLUMN_FIELDS = {
   pay_per_video_cents: 'pay_per_video_cents',
   cycle_size: 'cycle_size',
+  // The weekly count a contract states. Without this the field row said
+  // "7 - documented" while the strip and the money read the old column.
+  posts_per_week: 'posts_per_week',
 } as const satisfies Record<string, keyof Campaign>
 
 /** Field keys whose value is integer cents, and which therefore render and
@@ -74,12 +77,25 @@ export function virtualField(campaignId: string, fieldKey: string): CampaignFiel
  *  floating point, and CLAUDE.md's "money is integer cents, never floats"
  *  rule is not satisfied by rounding that afterwards and hoping. */
 export function parseDollarsToCents(input: string): number | null {
-  const trimmed = input.trim().replace(/^\$/, '').replace(/,/g, '')
+  const trimmed = plainNumber(input.trim().replace(/^\$/, ''))
   if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) return null
 
   const [whole, fraction = ''] = trimmed.split('.')
   const cents = Number(whole) * 100 + Number(fraction.padEnd(2, '0'))
   return Number.isSafeInteger(cents) ? cents : null
+}
+
+/** A typed number with its commas sorted out: "16,50" is sixteen fifty (the
+ *  decimal comma an iPhone's French keypad types - there is no "." on it),
+ *  "1,650" and "1,650.00" are thousands. Stripping every comma read "16,50"
+ *  as $1,650.00 a post, and every screen then showed the figure a hundred
+ *  times too high with nothing to say so. */
+export function plainNumber(text: string): string {
+  // Only the ends: "3 5" is not an amount, and stays refused.
+  const compact = text.trim()
+  if (/^\d+,\d{1,2}$/.test(compact)) return compact.replace(',', '.')
+  if (/^\d{1,3}(,\d{3})+(\.\d+)?$/.test(compact)) return compact.replace(/,/g, '')
+  return compact
 }
 
 /** Integer cents in, a plain dollars string out - no symbol, for an input. */
@@ -102,7 +118,8 @@ function columnPatchFor(fieldKey: string, value: string | null): Partial<Campaig
   const column = COLUMN_FIELDS[fieldKey as keyof typeof COLUMN_FIELDS]
   if (!column) return null
 
-  if (value === null) return { [column]: null } as Partial<Campaign>
+  // A weekly count is never null: cleared means nothing owed.
+  if (value === null) return (column === 'posts_per_week' ? { posts_per_week: 0 } : { [column]: null }) as Partial<Campaign>
 
   const parsed = parseCount(value)
   if (parsed === null) return null

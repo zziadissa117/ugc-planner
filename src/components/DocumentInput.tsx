@@ -127,7 +127,9 @@ export function DocumentInput({
 
       <textarea
         value={upload.text}
-        onChange={(event) => onChange({ ...upload, text: event.target.value })}
+        // Typed or pasted by hand: not the file's text any more, so the
+        // filename - and the "written out from the PDF" note - go with it.
+        onChange={(event) => onChange({ text: event.target.value, filename: null })}
         aria-label={`${label} text`}
         spellCheck={false}
         placeholder="or paste the text here"

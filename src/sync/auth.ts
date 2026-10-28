@@ -82,11 +82,21 @@ export async function signIn(email: string): Promise<void> {
   const client = getSupabaseClient()
   if (!client) throw new Error('Supabase is not configured yet.')
 
+  // shouldCreateUser: false - the link signs in an account that exists and
+  // never makes one. It used to make one for any address typed here, which is
+  // how people he had shared the planner with got accounts of their own. The
+  // server refuses new accounts too (docs/migrations/0020_no_new_accounts.sql);
+  // this only keeps a stranger from seeing a database error.
   const { error } = await client.auth.signInWithOtp({
     email,
-    options: { emailRedirectTo: window.location.origin },
+    options: { emailRedirectTo: window.location.origin, shouldCreateUser: false },
   })
-  if (error) throw new Error(error.message)
+  if (error) {
+    if (/signups? not allowed|new accounts are closed/i.test(error.message)) {
+      throw new Error('There is no account for that email.')
+    }
+    throw new Error(error.message)
+  }
 }
 
 export async function signOut(): Promise<void> {

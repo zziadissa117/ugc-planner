@@ -40,6 +40,8 @@ import type {
   CampaignField,
   CampaignHook,
   CampaignPayout,
+  NewSideIncome,
+  SideIncome,
   CampaignRule,
   EarningsEvent,
   NewBonusTier,
@@ -1105,6 +1107,42 @@ export class LocalAdapter implements DataAdapter {
     })
   }
 
+  async listSideIncome(options: { on?: string } = {}): Promise<SideIncome[]> {
+    const rows = options.on
+      ? await this.db.side_income.where('earned_on').equals(options.on).toArray()
+      : await this.db.side_income.toArray()
+    return rows.sort((a, b) => a.created_at.localeCompare(b.created_at))
+  }
+
+  async addSideIncome(entry: NewSideIncome): Promise<SideIncome> {
+    const timestamp = now()
+    const row: SideIncome = {
+      id: entry.id ?? newId(),
+      user_id: this.userId,
+      source: entry.source,
+      amount_cents: entry.amount_cents,
+      currency: entry.currency,
+      earned_on: entry.earned_on,
+      created_at: entry.created_at ?? timestamp,
+      updated_at: entry.updated_at ?? timestamp,
+    }
+    assertRow('side_income', row)
+    await this.tx([this.db.side_income, this.db._outbox], async (tx) => {
+      await tx.table('side_income').add(row)
+      this.enqueue(tx, 'side_income', row.id, 'insert', row)
+    })
+    return row
+  }
+
+  async deleteSideIncome(id: string): Promise<void> {
+    await this.tx([this.db.side_income, this.db._outbox], async (tx) => {
+      const existing = (await tx.table('side_income').get(id)) as SideIncome | undefined
+      if (!existing) return
+      await tx.table('side_income').delete(id)
+      this.enqueue(tx, 'side_income', id, 'delete', existing)
+    })
+  }
+
   async listVideoPosts(videoId: string): Promise<VideoPost[]> {
     return this.db.video_posts.where('video_id').equals(videoId).toArray()
   }
@@ -1619,6 +1657,7 @@ export class LocalAdapter implements DataAdapter {
       warmup_events,
       earnings_events,
       campaign_payouts,
+      side_income,
       bonus_tiers,
       bonus_claims,
       time_estimates,
@@ -1638,6 +1677,7 @@ export class LocalAdapter implements DataAdapter {
       this.db.warmup_events.toArray(),
       this.db.earnings_events.toArray(),
       this.db.campaign_payouts.toArray(),
+      this.db.side_income.toArray(),
       this.db.bonus_tiers.toArray(),
       this.db.bonus_claims.toArray(),
       this.db.time_estimates.toArray(),
@@ -1661,6 +1701,7 @@ export class LocalAdapter implements DataAdapter {
       warmup_events,
       earnings_events,
       campaign_payouts,
+      side_income,
       bonus_tiers,
       bonus_claims,
       time_estimates,

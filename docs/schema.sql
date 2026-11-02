@@ -56,6 +56,10 @@ create type document_kind as enum ('brief', 'contract', 'other');
 -- How often a campaign pays out. 'none' = no payout date saved yet.
 create type payout_schedule as enum ('none', 'one_off', 'weekly', 'biweekly', 'monthly');
 
+-- Income he makes outside UGC campaigns, entered by hand (side_income).
+create type side_income_source as enum ('detailing', 'media_maxing');
+create type currency_code as enum ('USD', 'CAD');
+
 -- Why a row is in the earnings history. 'checkoff' is money earned by ticking
 -- a post; 'reversal' takes one back (negative amount, points at the row it
 -- undoes). History is only ever appended to.
@@ -581,6 +585,25 @@ create table campaign_payouts (
 
 create index on campaign_payouts (campaign_id);
 
+-- What he made outside UGC campaigns on a day - a detailing client, media
+-- maxing work - typed in himself, one row per amount, in the currency he was
+-- paid in. It is added into the Post screen's "Made today". Only the owner is
+-- shown the screen that writes it; the table is per user like every other.
+-- A mistaken entry is deleted, not reversed: this is his own note of money
+-- received, not the campaign earnings ledger.
+create table side_income (
+  id           uuid primary key default gen_random_uuid(),
+  user_id      uuid not null references auth.users(id) on delete cascade,
+  source       side_income_source not null,
+  amount_cents integer not null check (amount_cents > 0),
+  currency     currency_code not null,
+  earned_on    date not null,
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now()
+);
+
+create index on side_income (user_id, earned_on);
+
 -- ---------------------------------------------------------------------------
 -- Settings and estimates
 -- ---------------------------------------------------------------------------
@@ -629,6 +652,7 @@ alter table bonus_tiers        enable row level security;
 alter table bonus_claims       enable row level security;
 alter table earnings_events    enable row level security;
 alter table campaign_payouts   enable row level security;
+alter table side_income        enable row level security;
 alter table time_estimates     enable row level security;
 alter table user_settings      enable row level security;
 
@@ -638,7 +662,7 @@ begin
   foreach t in array array[
     'campaigns','campaign_accounts','campaign_documents','campaign_fields','campaign_angles','campaign_hooks',
     'campaign_rules','videos','video_posts','bonus_tiers','bonus_claims',
-    'time_estimates','work_sessions','campaign_payouts'
+    'time_estimates','work_sessions','campaign_payouts','side_income'
   ]
   loop
     execute format(

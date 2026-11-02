@@ -21,6 +21,7 @@ import type {
   CampaignDocument,
   CampaignField,
   CampaignPayout,
+  SideIncome,
   CampaignRule,
   CampaignHook,
   EarningsEvent,
@@ -77,6 +78,7 @@ export class LocalDatabase extends Dexie {
   warmup_events!: EntityTable<WarmupEvent, 'id'>
   earnings_events!: EntityTable<EarningsEvent, 'id'>
   campaign_payouts!: EntityTable<CampaignPayout, 'id'>
+  side_income!: EntityTable<SideIncome, 'id'>
   bonus_tiers!: EntityTable<BonusTier, 'id'>
   bonus_claims!: EntityTable<BonusClaim, 'id'>
   time_estimates!: EntityTable<TimeEstimate, 'id'>
@@ -313,6 +315,12 @@ export class LocalDatabase extends Dexie {
           }
         }
       })
+
+    // v11 adds side_income: his income outside UGC campaigns, entered by hand.
+    // A new table with nothing to fill, so no upgrade() is needed.
+    this.version(11).stores({
+      side_income: 'id, user_id, earned_on',
+    })
   }
 }
 
@@ -454,6 +462,7 @@ export const MIRRORED_TABLES: readonly TableName[] = [
   'warmup_events',
   'earnings_events',
   'campaign_payouts',
+  'side_income',
   'bonus_tiers',
   'bonus_claims',
   'time_estimates',

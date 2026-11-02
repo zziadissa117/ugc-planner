@@ -141,6 +141,24 @@ export const PAYOUT_SCHEDULE_VALUES = [
   'monthly',
 ] as const satisfies readonly PayoutSchedule[]
 
+export type SideIncomeSource =
+  | 'detailing'
+  | 'media_maxing'
+
+export const SIDE_INCOME_SOURCE_VALUES = [
+  'detailing',
+  'media_maxing',
+] as const satisfies readonly SideIncomeSource[]
+
+export type CurrencyCode =
+  | 'USD'
+  | 'CAD'
+
+export const CURRENCY_CODE_VALUES = [
+  'USD',
+  'CAD',
+] as const satisfies readonly CurrencyCode[]
+
 export type EarningsSource =
   | 'checkoff'
   | 'reversal'
@@ -465,6 +483,23 @@ export interface CampaignPayout {
 export type NewCampaignPayout = Omit<CampaignPayout, 'user_id' | 'id' | 'paid_at' | 'received_cents' | 'updated_at'> &
   Partial<Pick<CampaignPayout, 'id' | 'paid_at' | 'received_cents' | 'updated_at'>>
 
+/** Mirrors `side_income`. */
+export interface SideIncome {
+  id: string
+  user_id: string
+  source: SideIncomeSource
+  amount_cents: number
+  currency: CurrencyCode
+  earned_on: string
+  created_at: string
+  updated_at: string
+}
+
+/** `side_income` as supplied by a caller: user_id comes from the session, and
+ *  columns the database defaults are optional. */
+export type NewSideIncome = Omit<SideIncome, 'user_id' | 'id' | 'created_at' | 'updated_at'> &
+  Partial<Pick<SideIncome, 'id' | 'created_at' | 'updated_at'>>
+
 /** Mirrors `time_estimates`. */
 export interface TimeEstimate {
   id: string
@@ -516,6 +551,7 @@ export const TABLE_NAMES = [
   'bonus_claims',
   'earnings_events',
   'campaign_payouts',
+  'side_income',
   'time_estimates',
   'user_settings',
 ] as const
@@ -540,6 +576,7 @@ export interface TableRowMap {
   bonus_claims: BonusClaim
   earnings_events: EarningsEvent
   campaign_payouts: CampaignPayout
+  side_income: SideIncome
   time_estimates: TimeEstimate
   user_settings: UserSettings
 }
@@ -642,6 +679,9 @@ export const SQL_COLUMN_CHECKS: Readonly<Record<string, Readonly<Record<string, 
   },
   campaign_payouts: {
     received_cents: ["check (received_cents >= 0)"],
+  },
+  side_income: {
+    amount_cents: ["check (amount_cents > 0)"],
   },
   time_estimates: {
     film_minutes: ["check (film_minutes > 0)"],
@@ -859,6 +899,16 @@ export const SQL_COLUMNS: Readonly<Record<TableName, readonly { name: string; nu
     { name: 'due_date', nullable: false, sqlDefault: null },
     { name: 'paid_at', nullable: false, sqlDefault: "now()" },
     { name: 'received_cents', nullable: true, sqlDefault: "null" },
+    { name: 'updated_at', nullable: false, sqlDefault: "now()" },
+  ],
+  side_income: [
+    { name: 'id', nullable: false, sqlDefault: "gen_random_uuid()" },
+    { name: 'user_id', nullable: false, sqlDefault: null },
+    { name: 'source', nullable: false, sqlDefault: null },
+    { name: 'amount_cents', nullable: false, sqlDefault: null },
+    { name: 'currency', nullable: false, sqlDefault: null },
+    { name: 'earned_on', nullable: false, sqlDefault: null },
+    { name: 'created_at', nullable: false, sqlDefault: "now()" },
     { name: 'updated_at', nullable: false, sqlDefault: "now()" },
   ],
   time_estimates: [

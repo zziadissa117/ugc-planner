@@ -21,6 +21,8 @@ import type {
   CampaignAccount,
   CampaignAngle,
   CampaignPayout,
+  NewSideIncome,
+  SideIncome,
   EarningsEvent,
   CampaignDocument,
   CampaignField,
@@ -69,6 +71,7 @@ export interface BackupSnapshot {
   warmup_events: WarmupEvent[]
   earnings_events: EarningsEvent[]
   campaign_payouts: CampaignPayout[]
+  side_income: SideIncome[]
   bonus_tiers: BonusTier[]
   bonus_claims: BonusClaim[]
   time_estimates: TimeEstimate[]
@@ -316,6 +319,18 @@ export interface DataAdapter {
    *  Idempotent and safe on every device: the two rows' ids come from the
    *  reversal's own. Returns whether it wrote them. */
   redateReversal(reversalId: string): Promise<boolean>
+
+  // --- Side income ---------------------------------------------------------
+
+  /** His income outside UGC campaigns (detailing, media maxing), for one day
+   *  or all of it. Only the owner is shown the screen that writes it. */
+  listSideIncome(options?: { on?: string }): Promise<SideIncome[]>
+
+  addSideIncome(entry: NewSideIncome): Promise<SideIncome>
+
+  /** A mistaken entry goes, not a reversal: it is his own note of money
+   *  received, not the campaign earnings ledger. */
+  deleteSideIncome(id: string): Promise<void>
 
   // --- Payouts -------------------------------------------------------------
   //

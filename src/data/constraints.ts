@@ -16,12 +16,14 @@
 
 import {
   APPROVAL_MODE_VALUES,
+  CURRENCY_CODE_VALUES,
   DOCUMENT_KIND_VALUES,
   EARNINGS_SOURCE_VALUES,
   FIELD_SOURCE_VALUES,
   PAYOUT_SCHEDULE_VALUES,
   SESSION_TYPE_VALUES,
   SETUP_TYPE_VALUES,
+  SIDE_INCOME_SOURCE_VALUES,
   SQL_COLUMNS,
   VIDEO_KIND_VALUES,
   VIDEO_PHASE_VALUES,
@@ -37,6 +39,7 @@ import {
   type CampaignField,
   type CampaignRule,
   type PhaseEvent,
+  type SideIncome,
   type TableName,
   type TableRowMap,
   type TimeEstimate,
@@ -386,6 +389,18 @@ export function assertCampaignPayout(row: CampaignPayout): void {
   timestamp(t, 'updated_at', row.updated_at, { nullable: false })
 }
 
+export function assertSideIncome(row: SideIncome): void {
+  const t: TableName = 'side_income'
+  text(t, 'id', row.id, { nullable: false })
+  text(t, 'user_id', row.user_id, { nullable: false })
+  isEnum(t, 'source', row.source, SIDE_INCOME_SOURCE_VALUES, false)
+  integer(t, 'amount_cents', row.amount_cents, { exclusiveMin: 0, nullable: false })
+  isEnum(t, 'currency', row.currency, CURRENCY_CODE_VALUES, false)
+  dateOnly(t, 'earned_on', row.earned_on, { nullable: false })
+  timestamp(t, 'created_at', row.created_at, { nullable: false })
+  timestamp(t, 'updated_at', row.updated_at, { nullable: false })
+}
+
 export function assertWorkSession(row: WorkSession): void {
   const t: TableName = 'work_sessions'
   text(t, 'id', row.id, { nullable: false }); text(t, 'user_id', row.user_id, { nullable: false }); text(t, 'campaign_id', row.campaign_id, { nullable: false }); isEnum(t, 'kind', row.kind, SESSION_TYPE_VALUES, false); integer(t, 'goal_videos', row.goal_videos, { exclusiveMin: 0, nullable: false }); integer(t, 'planned_minutes', row.planned_minutes, { exclusiveMin: 0, nullable: false }); timestamp(t, 'started_at', row.started_at, { nullable: false }); timestamp(t, 'ended_at', row.ended_at, { nullable: true }); timestamp(t, 'created_at', row.created_at, { nullable: false }); timestamp(t, 'updated_at', row.updated_at, { nullable: false })
@@ -470,6 +485,7 @@ const VALIDATORS = {
   warmup_events: assertWarmupEvent,
   earnings_events: assertEarningsEvent,
   campaign_payouts: assertCampaignPayout,
+  side_income: assertSideIncome,
   bonus_tiers: assertBonusTier,
   bonus_claims: assertBonusClaim,
   time_estimates: assertTimeEstimate,

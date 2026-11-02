@@ -24,10 +24,11 @@ import {
   PlusIcon,
   SoundIcon,
 } from '../components/icons'
+import { SideIncomeToday } from '../components/SideIncomeToday'
 import { ScreenHeader } from '../components/ui'
 import { SPRINGS, useSpring } from '../motion'
 
-import type { Campaign, CampaignAccount, EarningsEvent, Video, VideoPost } from '../data'
+import type { Campaign, CampaignAccount, EarningsEvent, SideIncome, Video, VideoPost } from '../data'
 import { localToday } from '../data'
 import { earnedOnDate } from '../data/earnings'
 import {
@@ -44,7 +45,8 @@ import {
 import { ensureTodaysQuota } from '../data/today'
 import { useData } from '../data/useData'
 import { useLoaded } from '../data/useLoaded'
-import { formatCents, hasOwnPostOrder, inPostOrder, toCadCents } from '../money'
+import { formatCents, hasOwnPostOrder, inPostOrder, sideIncomeUsdCents, toCadCents } from '../money'
+import { useIsOwner } from '../sync/owner'
 import { isMuted, playCashRegister, primeCashRegister, setMuted } from '../sound'
 import { CORE_ID, layoutNetwork, type NetworkEdgeDef, type NetworkNodeDef } from './neuralLayout'
 import { NeuralCanvas } from './NeuralCanvas'
@@ -55,6 +57,8 @@ interface Loaded {
   videos: Video[]
   posts: VideoPost[]
   events: EarningsEvent[]
+  /** His detailing and media maxing for today, entered by hand. */
+  side: SideIncome[]
 }
 
 const VIEW_KEY = 'ugc-planner.post_view'
@@ -108,14 +112,15 @@ export function Posting() {
   // missing, and after the first pass none are.
   const [loaded, reload] = useLoaded<Loaded>(async () => {
     await ensureTodaysQuota(data)
-    const [campaigns, accounts, videos, posts, events] = await Promise.all([
+    const [campaigns, accounts, videos, posts, events, side] = await Promise.all([
       data.listCampaigns(),
       data.listCampaignAccounts(),
       data.listVideos(),
       data.listAllVideoPosts(),
       data.listEarningsEvents({ since: today }),
+      data.listSideIncome({ on: today }),
     ])
-    return { campaigns, accounts, videos, posts, events }
+    return { campaigns, accounts, videos, posts, events, side }
   }, [data])
 
   // Fetched and decoded when the screen opens, not on the first tap, so the
@@ -145,7 +150,10 @@ export function Posting() {
   // Off the earnings history, not recomputed from the posts: what each tick
   // paid was written when he ticked it, so the figure cannot move because a
   // rate was edited or a platform switched off since.
-  const earned = loaded === null ? 0 : earnedOnDate(loaded.events, today)
+  // His detailing and media maxing count into the same figure, a CAD amount
+  // converted to USD at the app's fixed rate.
+  const earned = loaded === null ? 0 : earnedOnDate(loaded.events, today) + sideIncomeUsdCents(loaded.side)
+  const owner = useIsOwner()
 
   const toggle = useCallback(
     async (board: PostingBoard, account: CampaignAccount, slot: number, post: VideoPost | null) => {
@@ -326,6 +334,21 @@ export function Posting() {
       />
 
       <MadeToday cents={earned} />
+
+      {owner ? (
+        <SideIncomeToday
+          entries={loaded.side}
+          onAdd={async (entry) => {
+            playCashRegister()
+            await data.addSideIncome({ ...entry, earned_on: today })
+            await reload()
+          }}
+          onDelete={async (id) => {
+            await data.deleteSideIncome(id)
+            await reload()
+          }}
+        />
+      ) : null}
 
       {boards.length === 0 ? (
         <p className="text-base text-state-later">

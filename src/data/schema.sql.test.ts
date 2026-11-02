@@ -21,6 +21,7 @@ import MIGRATION_0016 from '../../docs/migrations/0016_weekly_pay_payouts_earnin
 import MIGRATION_0018 from '../../docs/migrations/0018_campaign_archive.sql?raw'
 import MIGRATION_0017 from '../../docs/migrations/0017_cutter_campaign_link.sql?raw'
 import MIGRATION_0019 from '../../docs/migrations/0019_campaign_min_views.sql?raw'
+import MIGRATION_0022 from '../../docs/migrations/0022_side_income.sql?raw'
 import SCHEMA_BEFORE_0016 from '../../docs/migrations/fixtures/schema.before-0016.sql?raw'
 
 /** The pieces Supabase supplies that plain Postgres does not. */
@@ -77,6 +78,7 @@ describe('docs/schema.sql', () => {
       'campaigns',
       'earnings_events',
       'phase_events',
+      'side_income',
       'time_estimates',
       'user_settings',
       'video_posts',
@@ -93,6 +95,7 @@ describe('docs/schema.sql', () => {
     expect(types.rows.map((r) => r.typname)).toEqual([
       'account_status',
       'approval_mode',
+      'currency_code',
       'document_kind',
       'earnings_source',
       'field_source',
@@ -100,6 +103,7 @@ describe('docs/schema.sql', () => {
       'payout_schedule',
       'session_type',
       'setup_type',
+      'side_income_source',
       'video_kind',
       'video_phase',
     ])
@@ -111,7 +115,7 @@ describe('docs/schema.sql', () => {
        join pg_namespace n on n.oid = c.relnamespace
        where n.nspname = 'public' and c.relkind = 'r' and c.relrowsecurity`,
     )
-    expect(rls.rows).toHaveLength(18)
+    expect(rls.rows).toHaveLength(19)
   })
 
   it.each(['phase_events', 'warmup_events', 'earnings_events'])(
@@ -403,6 +407,51 @@ describe('campaign_payouts', () => {
   })
 })
 
+describe('side_income', () => {
+  const insert = (amount: string, currency = `'CAD'`, source = `'detailing'`) =>
+    db.exec(`insert into side_income (user_id, source, amount_cents, currency, earned_on)
+             values ('${USER}', ${source}, ${amount}, ${currency}, '2026-11-02')`)
+
+  it('takes a detailing or media maxing amount in USD or CAD', async () => {
+    await insert('18000')
+    await insert('5000', `'USD'`, `'media_maxing'`)
+  })
+
+  it('refuses nothing or less as an amount, and any other currency or source', async () => {
+    await expect(insert('0')).rejects.toThrow()
+    await expect(insert('-100')).rejects.toThrow()
+    await expect(insert('100', `'EUR'`)).rejects.toThrow()
+    await expect(insert('100', `'CAD'`, `'tutoring'`)).rejects.toThrow()
+  })
+})
+
+describe('docs/migrations/0022_side_income.sql', () => {
+  it('adds the table to a database without it, and can be run twice', async () => {
+    const fresh = new PGlite()
+    try {
+      await fresh.exec(SUPABASE_STUB)
+      await fresh.exec(MIGRATION_0022)
+      await fresh.exec(MIGRATION_0022)
+      await fresh.exec(`insert into auth.users (id) values ('${USER}')`)
+      await fresh.exec(`insert into side_income (user_id, source, amount_cents, currency, earned_on)
+                        values ('${USER}', 'detailing', 18000, 'CAD', '2026-11-02')`)
+    } finally {
+      await fresh.close()
+    }
+  }, 120_000)
+
+  it('runs on a schema that already has it', async () => {
+    const full = new PGlite()
+    try {
+      await full.exec(SUPABASE_STUB)
+      await full.exec(SCHEMA)
+      await full.exec(MIGRATION_0022)
+    } finally {
+      await full.close()
+    }
+  }, 120_000)
+})
+
 describe('docs/migrations/0016_weekly_pay_payouts_earnings.sql', () => {
   it('migrates a database that ran everything before it: per day becomes per week x 7', async () => {
     const old = new PGlite()
@@ -464,6 +513,8 @@ describe('docs/migrations/0016_weekly_pay_payouts_earnings.sql', () => {
       await migrated.exec(MIGRATION_0018)
       await migrated.exec(MIGRATION_0019)
       await migrated.exec(MIGRATION_0019)
+      await migrated.exec(MIGRATION_0022)
+      await migrated.exec(MIGRATION_0022)
       // If the migration and schema.sql ever describe different tables, a
       // fresh project and an upgraded one would not be the same project.
       expect((await columns(migrated)).rows).toEqual((await columns(db)).rows)

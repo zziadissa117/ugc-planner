@@ -244,6 +244,17 @@ export function toCadCents(usdCents: number): number {
   return Math.round(usdCents * USD_TO_CAD_RATE)
 }
 
+/** The other way: a CAD amount as USD, at the same fixed approximate rate. */
+export function toUsdCents(cadCents: number): number {
+  return Math.round(cadCents / USD_TO_CAD_RATE)
+}
+
+/** His side income for a day in USD cents - each amount as he typed it, a
+ *  CAD one converted - so it adds into "Made today" beside the UGC money. */
+export function sideIncomeUsdCents(entries: readonly { amount_cents: number; currency: 'USD' | 'CAD' }[]): number {
+  return entries.reduce((sum, e) => sum + (e.currency === 'CAD' ? toUsdCents(e.amount_cents) : e.amount_cents), 0)
+}
+
 /** Integer cents in, a readable figure out. The division happens at the edge,
  *  for display only - storage is always integer cents. */
 export function formatCents(cents: number): string {

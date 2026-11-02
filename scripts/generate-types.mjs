@@ -201,6 +201,7 @@ const ROW_TYPE_NAMES = {
   warmup_events: 'WarmupEvent',
   earnings_events: 'EarningsEvent',
   campaign_payouts: 'CampaignPayout',
+  side_income: 'SideIncome',
   bonus_tiers: 'BonusTier',
   bonus_claims: 'BonusClaim',
   time_estimates: 'TimeEstimate',

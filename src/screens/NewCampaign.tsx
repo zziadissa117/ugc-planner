@@ -16,7 +16,7 @@ import {
 } from '../data/campaignFields'
 import { plainError } from '../data/errorText'
 import { useData } from '../data/useData'
-import { parseViews } from '../data/viewsTracker'
+import { parseViews } from '../data/views'
 import {
   PASTE_SCHEMA_EXAMPLE,
   PastedJsonParser,

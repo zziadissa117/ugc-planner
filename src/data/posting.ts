@@ -256,6 +256,48 @@ export function nextUnfilledCell(
   return open ? { account: row.account, slot: open.slot } : { account: row.account, slot: board.slots }
 }
 
+/** The boxes "check all" fills: every one still open that today owes - not a
+ *  bonus-only account's (never owed, and he does not always post there) and
+ *  not one beyond the quota (an extra is his to add). */
+export function openOwedCells(board: PostingBoard): { account: CampaignAccount; slot: number }[] {
+  return board.rows
+    .filter((row) => !row.account.bonus_only)
+    .flatMap((row) => row.cells.filter((cell) => cell.post === null && cell.slot < board.quota))
+    .sort((a, b) => a.slot - b.slot)
+    .map((cell) => ({ account: cell.account, slot: cell.slot }))
+}
+
+/** "Check all" on one campaign: ticks every open owed box, one at a time
+ *  through markPosted - the same write a tap makes, so each earns, locks the
+ *  rate and enqueues exactly as if he had tapped it. The board is rebuilt
+ *  after every tick, because the first tick in a column binds that column to
+ *  its video and the rest of the column must land on the same one. Returns
+ *  how many boxes it ticked. */
+export async function markAllOwed(
+  data: DataAdapter,
+  campaignId: string,
+  date: string = localToday(),
+): Promise<number> {
+  let ticked = 0
+  // A bound on the loop, not a rule: no campaign owes anything near this.
+  for (let guard = 0; guard < 500; guard++) {
+    const [campaigns, accounts, videos, posts] = await Promise.all([
+      data.listCampaigns(),
+      data.listCampaignAccounts(),
+      data.listVideos(),
+      data.listAllVideoPosts(),
+    ])
+    const campaign = campaigns.find((c) => c.id === campaignId)
+    if (!campaign) break
+    const board = buildBoard(campaign, accounts, videos, posts, date)
+    const next = openOwedCells(board)[0]
+    if (!next) break
+    await markPosted(data, board, next.account, next.slot, videos, date)
+    ticked++
+  }
+  return ticked
+}
+
 /** Records that this deliverable went out on this platform.
  *
  *  Binds the slot to a deliverable if it has none yet - reusing stock where

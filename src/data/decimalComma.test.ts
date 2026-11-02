@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { parseDollarsToCents, plainNumber } from './campaignFields'
-import { parseViews } from './viewsTracker'
+import { parseViews } from './views'
 
 describe('a decimal comma', () => {
   it('is sixteen fifty, not sixteen hundred and fifty', () => {

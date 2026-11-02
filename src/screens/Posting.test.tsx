@@ -168,6 +168,22 @@ describe('the posting grid', () => {
     await waitFor(async () => expect(await order()).toEqual(['Inflow', 'Cheap']))
   })
 
+  it('checks every owed box of a campaign in one tap, then the button goes', async () => {
+    const user = userEvent.setup()
+    await setUp(2, ['TikTok', 'Instagram', 'YouTube'])
+    renderScreen()
+
+    await user.click(await screen.findByRole('button', { name: 'Check all 6' }))
+
+    await waitFor(async () => {
+      for (const platform of ['TikTok', 'Instagram', 'YouTube']) {
+        for (const box of await boxes(platform)) expect(box).toHaveAttribute('aria-pressed', 'true')
+      }
+    })
+    expect(screen.queryByRole('button', { name: /Check all/ })).toBeNull()
+    expect(await screen.findByText('2 of 2 today')).toBeInTheDocument()
+  })
+
   it('ticks each platform independently, and none of them disappear', async () => {
     const user = userEvent.setup()
     const { campaign } = await setUp()

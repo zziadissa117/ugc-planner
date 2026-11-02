@@ -108,9 +108,9 @@ wrote it.
 
 **Colour carries state only.** green = posted, bright white = do this now,
 grey = later, amber = past the window you set or an unconfirmed parsed field,
-red = blocked with the reason in plain words, blue = scheduled in the cutter
-and going out by itself (a Post box, until the post goes out and ticks it). No decorative colour, no badges
-for anything that is not a state.
+red = blocked with the reason in plain words. No decorative colour, no badges
+for anything that is not a state. (Blue, "scheduled in the cutter", went with
+the cutter bridge - see below.)
 
 ## Look and motion
 
@@ -159,6 +159,20 @@ Ticking a box records a `video_post`; ticking three platforms for the same
 column records three destinations against the *same* video, so it is earned
 once. A deliverable counts as posted the first time it goes out anywhere, and
 stops counting only when its last destination is removed.
+
+**He ticks every Post box himself.** Ticking is the moment he earns the money
+on screen, and that is the point of the screen for him. The cutter bridge -
+which ticked boxes when the silence cutter posted, painted Postiz-scheduled
+posts as blue boxes, suggested cutter links and fed the views tracker - was
+removed at his request: "Don't make it so when I post something on my cutter,
+it changes it here, because it kind of ruins the whole fun and the whole
+purpose of it. I want to check everything myself." Do not rebuild anything
+that ticks, schedules or marks Post boxes without his tap. Making his own
+ticking faster is welcome: each campaign has a "Check all" button
+(`markAllOwed`) that ticks every open owed box through the same `markPosted`
+a tap uses. `campaigns.cutter_campaign_id` and `min_views` stay in the schema;
+the first is read only by the Postiz channel list when archiving, the second
+is a term of the deal shown on the brief.
 
 **Posting is never gated on filming.** He films on his phone, edits elsewhere
 and posts things this app never saw. A tick with no video behind it creates

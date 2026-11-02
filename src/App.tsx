@@ -6,7 +6,6 @@ import { isDataFailure, plainError } from './data/errorText'
 import { useData } from './data/useData'
 import { Button } from './components/ui'
 import { AuthContext } from './sync/AuthContext'
-import { useCutterBridge } from './sync/cutterBridge'
 import { WarmupTimersProvider } from './warmupTimers'
 
 /** Five tabs, and nothing behind any of them that has to be planned first.
@@ -60,9 +59,6 @@ export function App() {
   // tests with no sign-in at all, and then there is nothing to warn about.
   const auth = useContext(AuthContext)
   const sessionLost = auth?.sessionLost ?? false
-
-  // While the sign-in is dead every call would be refused; wait for him.
-  useCutterBridge(data, ready && !sessionLost)
 
   // A save that fails where nothing was listening - a switch tapped, a
   // payout date picked, a login box left - used to do nothing at all: the

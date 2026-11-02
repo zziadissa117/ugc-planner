@@ -28,12 +28,9 @@ import type {
   CampaignPayout,
   CampaignRule,
   PayoutSchedule,
-  Video,
-  VideoPost,
 } from '../data'
 import { PAYOUT_SCHEDULE_VALUES } from '../data'
-import { listCutterCampaigns, type CutterCampaign } from '../sync/cutterBridge'
-import { suggestCutterLinks } from '../data/cutterBridge'
+import { formatViews, parseViews } from '../data/views'
 import { deliverableCents, paysPerPlatform } from '../data/earnings'
 import { PAYOUT_SCHEDULE_LABELS, payoutStatus } from '../data/payouts'
 import {
@@ -48,7 +45,6 @@ import { GENERATION_BRIEF_KEY } from '../hooks/generateHooks'
 import { localToday } from '../data'
 import { formatDay } from '../data/payouts'
 import { useData } from '../data/useData'
-import { formatViews, parseViews, viewsTally } from '../data/viewsTracker'
 import {
   campaignEarnings,
   formatCents,
@@ -65,9 +61,6 @@ interface Loaded {
    *  what a day is worth depends on how many he can post from. */
   accounts: CampaignAccount[]
   payouts: CampaignPayout[]
-  /** For the views tracker: the campaign's videos and every tick's views. */
-  videos: Video[]
-  posts: VideoPost[]
 }
 
 /** Keys that are shown somewhere better, or are gone from the app entirely,
@@ -99,15 +92,13 @@ export function Campaign() {
     const campaign = await data.getCampaign(campaignId)
     if (!campaign) return null
 
-    const [fields, rules, accounts, payouts, videos, posts] = await Promise.all([
+    const [fields, rules, accounts, payouts] = await Promise.all([
       data.listCampaignFields(campaignId),
       data.listCampaignRules(campaignId),
       data.listCampaignAccounts(campaignId),
       data.listCampaignPayouts(campaignId),
-      data.listVideos({ campaignId }),
-      data.listAllVideoPosts(),
     ])
-    return { campaign, fields, rules, accounts, payouts, videos, posts }
+    return { campaign, fields, rules, accounts, payouts }
   }, [campaignId, data])
 
   useEffect(() => {
@@ -157,7 +148,7 @@ export function Campaign() {
   if (missing) return <p className="text-state-later">No such campaign.</p>
   if (!loaded) return null
 
-  const { campaign, fields, rules, accounts, payouts, videos, posts } = loaded
+  const { campaign, fields, rules, accounts, payouts } = loaded
   const byKey = new Map(fields.map((f) => [f.field_key, f]))
   const rest = fields
     .filter((f) => !RETIRED_KEYS.includes(f.field_key))
@@ -245,8 +236,6 @@ export function Campaign() {
         </div>
       </div>
 
-      {campaign.min_views == null ? null : <ViewsTracker campaignId={campaign.id} minViews={campaign.min_views} videos={videos} posts={posts} />}
-
       <AccountsEditor data={data} campaignId={campaign.id} onChanged={() => void refresh()} />
 
       {/* Everything else: set once, read by other screens, not needed day to
@@ -295,8 +284,6 @@ export function Campaign() {
             }
             onToggle={(on) => saveColumn({ needs_submission: on })}
           />
-
-          <CutterLink campaign={campaign} onSave={saveColumn} />
 
           {rules.length > 0 ? (
             <div>
@@ -450,60 +437,6 @@ function SwitchRow({
  *  been received is its own record per due date, so ticking this month's off
  *  leaves next month's pending. Nothing is guessed: with no date saved the
  *  section says so and shows no status. */
-/** Links this campaign to the cutter's, so a video the cutter posts ticks the
- *  Post grid by itself. Only shown to the user the bridge is enabled for. */
-function CutterLink({ campaign, onSave }: { campaign: CampaignRow; onSave: (patch: Partial<CampaignRow>) => Promise<void> }) {
-  const [options, setOptions] = useState<CutterCampaign[] | null>(null)
-  useEffect(() => {
-    let cancelled = false
-    void listCutterCampaigns()
-      .then((list) => !cancelled && setOptions(list))
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [])
-  if (options === null) return null
-  // A cutter campaign of the same name, offered as one tap - never linked
-  // on the name by itself.
-  const suggestion = campaign.cutter_campaign_id ? null : (suggestCutterLinks([campaign], options)[0] ?? null)
-  return (
-    <label className="flex flex-col gap-1 border-b border-rule pb-3">
-      <span className="label text-state-later">Posted by the cutter</span>
-      {suggestion ? (
-        <Button
-          size="small"
-          variant="now"
-          className="self-start"
-          onClick={(e) => {
-            e.preventDefault()
-            void onSave({ cutter_campaign_id: suggestion.cutterId })
-          }}
-        >
-          Link to the Cutter's {suggestion.cutterName}
-        </Button>
-      ) : null}
-      <select
-        className={INPUT_CLASS}
-        value={campaign.cutter_campaign_id ?? ''}
-        onChange={(e) => void onSave({ cutter_campaign_id: e.target.value || null })}
-      >
-        <option value="">Not linked - I tick it myself</option>
-        {options.map((o) => (
-          <option key={o.id} value={o.id}>
-            {o.name}
-          </option>
-        ))}
-      </select>
-      <span className="meta text-state-later">
-        {campaign.cutter_campaign_id
-          ? 'Videos the cutter posts tick this campaign\'s Post boxes by themselves.'
-          : 'Link it and the Post boxes tick themselves when the cutter posts.'}
-      </span>
-    </label>
-  )
-}
-
 function PayoutSection({
   campaign,
   payouts,
@@ -858,35 +791,6 @@ function InlineEdit({
       <span className="block label text-state-later">{label}</span>
       <span className="numeric mt-1 block text-lg font-semibold leading-none text-text">{display}</span>
     </button>
-  )
-}
-
-/** The views tracker: how many of the campaign's posted videos reached its
- *  minimum on at least one account (viewsTracker.ts). Read by the cutter a
- *  day, three days and a week after each video went out. */
-function ViewsTracker({
-  campaignId,
-  minViews,
-  videos,
-  posts,
-}: {
-  campaignId: string
-  minViews: number
-  videos: readonly Video[]
-  posts: readonly VideoPost[]
-}) {
-  const ids = new Set(videos.map((v) => v.id))
-  const tally = viewsTally(campaignId, minViews, videos, posts.filter((p) => ids.has(p.video_id)))
-  return (
-    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-rule pb-3">
-      <p className="text-base text-text">
-        <span className="numeric text-2xl font-semibold text-state-posted">{tally.reached}</span>
-        <span className="text-state-later"> of {tally.posted} posted reached {formatViews(minViews)} views</span>
-      </p>
-      <p className="meta text-state-later">
-        {tally.under} under{tally.unread > 0 ? ` · ${tally.unread} not read yet` : ''} · read a day, 3 days and a week after posting
-      </p>
-    </div>
   )
 }
 

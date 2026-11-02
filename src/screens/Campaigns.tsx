@@ -7,7 +7,7 @@ import { buttonClass } from '../components/styles'
 import type { Campaign, CampaignAccount } from '../data'
 import { useData } from '../data/useData'
 import { useLoaded } from '../data/useLoaded'
-import { formatViews } from '../data/viewsTracker'
+import { formatViews } from '../data/views'
 import { byBestPay, campaignEarnings, formatCents } from '../money'
 
 /** Every campaign at once, as a wall of tiles.

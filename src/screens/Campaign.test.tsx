@@ -494,46 +494,24 @@ describe('when the campaign pays', () => {
   })
 })
 
-describe('the views tracker', () => {
-  it('counts the posted videos that reached the minimum on any one account', async () => {
-    await adapter.updateCampaign(INFLOW_CAMPAIGN_ID, { min_views: 1000 })
-    const [account] = await adapter.listCampaignAccounts(INFLOW_CAMPAIGN_ID)
-    const make = async (views: (number | null)[]) => {
-      const video = await adapter.createVideo({
-        campaign_id: INFLOW_CAMPAIGN_ID,
-        kind: 'contracted',
-        setup: 'face',
-        angle_id: null,
-        script: null,
-        blocked_reason: null,
-        owed_for_date: null,
-        rate_snapshot_cents: null,
-        posted_at: null,
-      })
-      for (const count of views) {
-        const post = await adapter.addVideoPost({ video_id: video.id, account_id: account?.id ?? null, platform: 'TikTok', url: null, view_count: null, view_count_entered_at: null })
-        if (count !== null) await adapter.setViewCount(post.id, count)
-      }
-      await adapter.markVideoPosted(video.id, { session: 'post' })
-    }
-    await make([1500])
-    await make([400])
-    await make([null])
-    await renderBrief()
-    const tracker = (await screen.findByText(/posted reached 1,000 views/)).closest('div')!
-    expect(tracker.textContent).toContain('1 of 3 posted reached 1,000 views')
-    expect(tracker.textContent).toContain('1 under · 1 not read yet')
-  })
-
-  it('lets the minimum be set, and taken off', async () => {
+// The views tracker ("8 of 12 posted reached 1,000 views") was fed by the
+// cutter bridge, and went with it: the Post grid is ticked by him alone. The
+// minimum itself is a term of the deal and stays on the brief.
+describe('minimum views', () => {
+  it('can be set and taken off, and shows no tracker', async () => {
     const user = userEvent.setup()
     await renderBrief()
-    expect(screen.queryByText(/posted reached/)).toBeNull()
     await user.click(screen.getByLabelText('min views'))
     await user.type(screen.getByLabelText('min views'), '2.5k')
     await user.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(async () => expect((await adapter.getCampaign(INFLOW_CAMPAIGN_ID))?.min_views).toBe(2500))
-    expect(await screen.findByText(/posted reached 2,500 views/)).toBeInTheDocument()
+    expect(await screen.findByText('2,500')).toBeInTheDocument()
+    expect(screen.queryByText(/posted reached/)).toBeNull()
+  })
+
+  it('offers no link to the cutter', async () => {
+    await renderBrief()
+    expect(screen.queryByText('Posted by the cutter')).toBeNull()
   })
 })
 

@@ -17,7 +17,9 @@ import { LocalDatabase } from './local/db'
 import {
   boardsForToday,
   buildBoard,
+  markAllOwed,
   markPosted,
+  openOwedCells,
   nextUnfilledCell,
   pickVideoForSlot,
   tallyBoards,
@@ -733,5 +735,54 @@ describe('the neural view\'s next box', () => {
     const { campaign } = await setUp(1, [])
     const { board } = await state(campaign)
     expect(nextUnfilledCell(board)).toBeNull()
+  })
+})
+
+describe('check all', () => {
+  it('ticks every owed box on every account - seven a day on four accounts', async () => {
+    const { campaign } = await setUp(7, ['TikTok', 'Instagram', 'YouTube', 'Facebook'])
+    await ensureTodaysQuota(adapter)
+    expect(openOwedCells((await state(campaign)).board)).toHaveLength(28)
+
+    expect(await markAllOwed(adapter, campaign.id)).toBe(28)
+
+    const { board, videos, posts } = await state(campaign)
+    expect(openOwedCells(board)).toHaveLength(0)
+    expect(board.doneToday).toBe(7)
+    // One column is one video, posted to all four accounts - seven videos,
+    // not twenty-eight.
+    expect(new Set(posts.map((p) => p.video_id)).size).toBe(7)
+    expect(videos.filter((v) => v.phase === 'posted')).toHaveLength(7)
+  })
+
+  it('pays the same as ticking every box by hand', async () => {
+    const { campaign } = await setUp(2, ['TikTok', 'Instagram'])
+    await ensureTodaysQuota(adapter)
+    await markAllOwed(adapter, campaign.id)
+    const events = await adapter.listEarningsEvents({ since: localToday() })
+    // $35 a video, two videos: the rate once per video, not once per account.
+    expect(earnedOnDate(events, localToday())).toBe(7000)
+  })
+
+  it('leaves boxes already ticked alone, and skips bonus-only accounts', async () => {
+    const { campaign, accounts } = await setUp(2, ['TikTok', 'Instagram', 'Facebook'])
+    await adapter.updateCampaignAccount(accounts[2].id, { bonus_only: true })
+    await ensureTodaysQuota(adapter)
+    const before = await state(campaign)
+    const tiktok = before.board.rows.find((r) => r.account.platform === 'TikTok')!.account
+    await markPosted(adapter, before.board, tiktok, 0, before.videos)
+
+    expect(await markAllOwed(adapter, campaign.id)).toBe(3)
+
+    const { posts } = await state(campaign)
+    expect(posts.filter((p) => p.platform === 'TikTok')).toHaveLength(2)
+    expect(posts.filter((p) => p.platform === 'Facebook')).toHaveLength(0)
+  })
+
+  it('does nothing once the day is done', async () => {
+    const { campaign } = await setUp(1, ['TikTok'])
+    await ensureTodaysQuota(adapter)
+    await markAllOwed(adapter, campaign.id)
+    expect(await markAllOwed(adapter, campaign.id)).toBe(0)
   })
 })

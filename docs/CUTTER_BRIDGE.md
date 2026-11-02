@@ -1,3 +1,13 @@
+# Cutter bridge - REMOVED (Nov 2026)
+
+He asked for it to go: the Post grid is ticked by him alone, because ticking
+is where he earns the money on screen. Everything below describes what was
+removed - kept as a record, not as something to rebuild. See CLAUDE.md, "He
+ticks every Post box himself". The `cutter-posted` Edge Function is still
+deployed but the planner no longer calls it.
+
+---
+
 # Cutter bridge
 
 A video the cutter app posts ticks the planner's Post grid by itself.

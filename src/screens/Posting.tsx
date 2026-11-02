@@ -16,7 +16,6 @@ import { Link } from 'react-router-dom'
 
 import {
   CheckIcon,
-  ClockIcon,
   ChevronDownIcon,
   ListIcon,
   MutedIcon,
@@ -25,7 +24,6 @@ import {
   PlusIcon,
   SoundIcon,
 } from '../components/icons'
-import { CutterLinks } from '../components/CutterLinks'
 import { ScreenHeader } from '../components/ui'
 import { SPRINGS, useSpring } from '../motion'
 
@@ -34,15 +32,14 @@ import { localToday } from '../data'
 import { earnedOnDate } from '../data/earnings'
 import {
   boardsForToday,
+  markAllOwed,
   markPosted,
   nextUnfilledCell,
+  openOwedCells,
   unmarkPosted,
   type PostingBoard,
 } from '../data/posting'
 import { ensureTodaysQuota } from '../data/today'
-import { accountFor, scheduledByAccount, unmatchedLabels, type AccountChange } from '../data/cutterBridge'
-import { formatViews, viewsTally, type ViewsTally } from '../data/viewsTracker'
-import { lastUnmatched, recentChanges, useCutterScheduled } from '../sync/cutterBridge'
 import { useData } from '../data/useData'
 import { useLoaded } from '../data/useLoaded'
 import { formatCents, hasOwnPostOrder, inPostOrder, toCadCents } from '../money'
@@ -143,22 +140,6 @@ export function Posting() {
     [loaded, today],
   )
 
-  // What the cutter has waiting in Postiz today: those boxes show blue until
-  // the post goes out and ticks them for real.
-  const [linked, setLinked] = useState(0)
-  const cutterScheduled = useCutterScheduled(linked)
-  const scheduled = useMemo(() => scheduledByAccount(cutterScheduled, boards, today), [cutterScheduled, boards, today])
-  // Accounts the cutter posts a campaign to that it doesn't have here - named
-  // under the campaign instead of being ticked on another of its accounts.
-  // One he has since added is matched again and drops off.
-  const missing = useMemo(() => {
-    const stillMissing = [...lastUnmatched(), ...scheduled.unmatched].filter((u) => {
-      const board = boards.find((b) => b.campaign.id === u.campaignId)
-      return board !== undefined && accountFor(board.rows.map((r) => r.account), { name: u.handle, platform: u.platform }) === null
-    })
-    return new Map(boards.map((b) => [b.campaign.id, unmatchedLabels(stillMissing, b.campaign.id)]))
-  }, [boards, scheduled])
-
   // Off the earnings history, not recomputed from the posts: what each tick
   // paid was written when he ticked it, so the figure cannot move because a
   // rate was edited or a platform switched off since.
@@ -195,6 +176,25 @@ export function Posting() {
       }
     },
     [data, loaded, reload, today],
+  )
+
+  // Every open owed box of one campaign in one tap - seven posts on four
+  // accounts no longer means twenty-eight taps. The till sounds once and the
+  // submit reminder shows once, as for a single tick.
+  const checkAll = useCallback(
+    async (board: PostingBoard) => {
+      if (openOwedCells(board).length === 0) return
+      setBusy(`all:${board.campaign.id}`)
+      playCashRegister()
+      if (board.campaign.needs_submission) setReminder(board.campaign.name)
+      try {
+        await markAllOwed(data, board.campaign.id, today)
+        await reload()
+      } finally {
+        setBusy(null)
+      }
+    },
+    [data, reload, today],
   )
 
   const postFromNetwork = useCallback(
@@ -309,15 +309,6 @@ export function Posting() {
 
       <MadeToday cents={earned} />
 
-      <CutterLinks
-        campaigns={loaded?.campaigns ?? []}
-        onLink={async (campaignId, cutterId) => {
-          await data.updateCampaign(campaignId, { cutter_campaign_id: cutterId })
-          await reload()
-          setLinked((n) => n + 1)
-        }}
-      />
-
       {boards.length === 0 ? (
         <p className="text-base text-state-later">
           No campaigns yet. Add one on <Link to="/campaigns" className="text-state-now underline underline-offset-4">BRIEFS</Link>.
@@ -329,15 +320,8 @@ export function Posting() {
               <CampaignBoard
                 board={board}
                 busy={busy}
-                scheduled={scheduled.counts}
-                missing={missing.get(board.campaign.id) ?? []}
-                changes={recentChanges(board.campaign.id)}
-                views={
-                  board.campaign.min_views == null || !loaded
-                    ? undefined
-                    : viewsTally(board.campaign.id, board.campaign.min_views, loaded.videos, loaded.posts)
-                }
                 onToggle={(account, slot, post) => void toggle(board, account, slot, post)}
+                onCheckAll={() => void checkAll(board)}
               />
             </div>
           ))}
@@ -849,29 +833,19 @@ function NeuralView({
 function CampaignBoard({
   board,
   busy,
-  scheduled,
-  missing = [],
-  changes = [],
-  views,
   onToggle,
+  onCheckAll,
 }: {
   board: PostingBoard
   busy: string | null
-  /** Per account id, how many of today's posts the cutter has scheduled. */
-  scheduled?: ReadonlyMap<string, number>
-  /** Accounts the cutter posts this campaign to that are not its accounts
-   *  here - another person's, on a platform it already has one for. */
-  missing?: string[]
-  /** What the cutter's posts changed here lately: an account added for a
-   *  platform the campaign had none for, a handle filled in or put right. */
-  changes?: AccountChange[]
-  /** Its views tracker, when it has a minimum (viewsTracker.ts). */
-  views?: ViewsTally
   onToggle: (account: CampaignAccount, slot: number, post: VideoPost | null) => void
+  onCheckAll: () => void
 }) {
   const { campaign, rows, slots, quota, doneToday } = board
   const rate = campaign.pay_per_video_cents
   const filled = doneToday >= quota && quota > 0
+  const open = openOwedCells(board).length
+  const checkingAll = busy === `all:${campaign.id}`
 
   return (
     <div className="flex flex-col gap-2">
@@ -882,14 +856,21 @@ function CampaignBoard({
             {doneToday} of {quota} today
           </span>
           {rate === null ? null : <span> · {formatCents(rate)} each</span>}
-          {views && campaign.min_views != null ? (
-            <span>
-              {' '}
-              · <span className="text-state-posted">{views.reached}</span> of {views.posted} reached {formatViews(campaign.min_views)}
-            </span>
-          ) : null}
         </p>
       </div>
+
+      {/* Only while something owed is still open: once the day is done there
+          is nothing for it to do, and it never un-ticks anything. */}
+      {open > 1 ? (
+        <button
+          type="button"
+          onClick={onCheckAll}
+          disabled={busy !== null}
+          className="press min-h-tap self-start rounded-full border border-edge-lit px-4 text-sm font-semibold text-text active:bg-surface disabled:opacity-50"
+        >
+          {checkingAll ? 'Checking…' : `Check all ${open}`}
+        </button>
+      ) : null}
 
       {rows.length === 0 ? (
         <p className="border-y border-rule py-3 text-base text-state-blocked">
@@ -918,11 +899,6 @@ function CampaignBoard({
                 {row.cells.map((cell) => {
                   const key = `${row.account.id}:${cell.slot}`
                   const done = cell.post !== null
-                  // The first open boxes, as many as the cutter has waiting
-                  // for today on this platform: blue, going out by itself.
-                  const waiting = scheduled?.get(row.account.id) ?? 0
-                  const openBefore = row.cells.filter((c) => c.post === null && c.slot < cell.slot).length
-                  const isScheduled = !done && openBefore < waiting
                   // Dashed, like a box beyond the quota: a bonus-only account
                   // is never owed, so none of its boxes is either.
                   const extra = cell.slot >= quota || row.account.bonus_only
@@ -930,9 +906,9 @@ function CampaignBoard({
                     <button
                       key={cell.slot}
                       type="button"
-                      disabled={busy === key}
+                      disabled={busy === key || checkingAll}
                       aria-pressed={done}
-                      aria-label={`${row.account.platform} post ${cell.slot + 1} of ${slots}${isScheduled ? ' - scheduled' : ''}`}
+                      aria-label={`${row.account.platform} post ${cell.slot + 1} of ${slots}`}
                       onClick={() => onToggle(row.account, cell.slot, cell.post)}
                       className={[
                         'press relative flex size-11 items-center justify-center rounded-xl border',
@@ -941,10 +917,7 @@ function CampaignBoard({
                           ? // Lit, because green here is the whole point of the
                             // screen: the day's work, proved, from across a room.
                             'lit border-state-posted bg-state-posted/15 text-state-posted'
-                          : isScheduled
-                            ? // Blue: waiting in Postiz, it will post itself.
-                              'border-state-scheduled bg-state-scheduled/15 text-state-scheduled'
-                            : extra
+                          : extra
                             ? 'border-dashed border-edge-lit text-state-later active:bg-surface'
                             : 'border-edge-lit text-state-later active:bg-surface',
                       ].join(' ')}
@@ -957,8 +930,6 @@ function CampaignBoard({
                         <span key={cell.post?.id} className="pop-in draw-check flex">
                           <CheckIcon className="h-6 w-6" strokeWidth={2.25} />
                         </span>
-                      ) : isScheduled ? (
-                        <ClockIcon className="h-5 w-5" strokeWidth={2} />
                       ) : null}
                     </button>
                   )
@@ -980,24 +951,6 @@ function CampaignBoard({
           ))}
         </ul>
       )}
-      {changes.map((change) => (
-        <p key={`${change.platform}:${change.handle}:${change.at}`} className="meta text-state-later">
-          {change.from === undefined
-            ? `Added ${change.platform}${change.handle ? ` @${change.handle}` : ''} - the Cutter posts this campaign there.`
-            : change.from === null
-              ? `${change.platform} handle saved as @${change.handle}, from the Cutter.`
-              : `${change.platform} handle corrected to @${change.handle} (was @${change.from}) - it is the one the Cutter posts to.`}
-        </p>
-      ))}
-      {missing.length > 0 ? (
-        // Grey, and no ask: a second account on a platform the campaign
-        // already has one for cannot be added here, and those posts are
-        // someone else's - they are not this campaign's count.
-        <p className="meta text-state-later">
-          The Cutter also posts this campaign to {missing.join(', ')} - not {missing.length === 1 ? 'an account' : 'accounts'} of
-          this campaign here, so those posts aren&apos;t counted.
-        </p>
-      ) : null}
     </div>
   )
 }

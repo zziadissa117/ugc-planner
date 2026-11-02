@@ -184,6 +184,28 @@ describe('the posting grid', () => {
     expect(await screen.findByText('2 of 2 today')).toBeInTheDocument()
   })
 
+  it('unchecks every tick on a second tap, and only asks on the first', async () => {
+    const user = userEvent.setup()
+    await setUp(2, ['TikTok', 'Instagram', 'YouTube'])
+    renderScreen()
+    await user.click(await screen.findByRole('button', { name: 'Check all 6' }))
+    const uncheck = await screen.findByRole('button', { name: 'Uncheck all 6' })
+
+    await user.click(uncheck)
+    // One tap only asks - nothing has come down.
+    expect(await screen.findByRole('button', { name: 'Tap again to uncheck 6' })).toBeInTheDocument()
+    expect((await boxes('TikTok'))[0]).toHaveAttribute('aria-pressed', 'true')
+
+    await user.click(screen.getByRole('button', { name: 'Tap again to uncheck 6' }))
+    await waitFor(async () => {
+      for (const platform of ['TikTok', 'Instagram', 'YouTube']) {
+        for (const box of await boxes(platform)) expect(box).toHaveAttribute('aria-pressed', 'false')
+      }
+    })
+    expect(await screen.findByText('0 of 2 today')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Uncheck all/ })).toBeNull()
+  })
+
   it('ticks each platform independently, and none of them disappear', async () => {
     const user = userEvent.setup()
     const { campaign } = await setUp()

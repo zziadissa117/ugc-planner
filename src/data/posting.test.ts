@@ -20,6 +20,8 @@ import {
   markAllOwed,
   markPosted,
   openOwedCells,
+  tickedCells,
+  unmarkAllToday,
   nextUnfilledCell,
   pickVideoForSlot,
   tallyBoards,
@@ -784,5 +786,47 @@ describe('check all', () => {
     await ensureTodaysQuota(adapter)
     await markAllOwed(adapter, campaign.id)
     expect(await markAllOwed(adapter, campaign.id)).toBe(0)
+  })
+})
+
+describe('uncheck all', () => {
+  it("takes every one of today's ticks back down, and the money with them", async () => {
+    const { campaign, accounts } = await setUp(2, ['TikTok', 'Instagram', 'Facebook'])
+    await adapter.updateCampaignAccount(accounts[2].id, { bonus_only: true })
+    await ensureTodaysQuota(adapter)
+    await markAllOwed(adapter, campaign.id)
+    // An extra and a bonus-only tick too: uncheck all clears whatever is green.
+    const mid = await state(campaign)
+    const facebook = mid.board.rows.find((r) => r.account.platform === 'Facebook')!.account
+    await markPosted(adapter, mid.board, facebook, 0, mid.videos)
+    expect(tickedCells((await state(campaign)).board)).toHaveLength(5)
+
+    expect(await unmarkAllToday(adapter, campaign.id)).toBe(5)
+
+    const { board, posts } = await state(campaign)
+    expect(tickedCells(board)).toHaveLength(0)
+    expect(posts).toHaveLength(0)
+    expect(board.doneToday).toBe(0)
+    const events = await adapter.listEarningsEvents({ since: localToday() })
+    expect(earnedOnDate(events, localToday())).toBe(0)
+    // Undone by appending reversals, never by erasing what was earned.
+    expect(events.length).toBeGreaterThan(2)
+  })
+
+  it('leaves other campaigns alone', async () => {
+    const first = await setUp(1, ['TikTok'])
+    const other = await adapter.createCampaign({
+      name: 'Other', company: null, default_setup: 'face', approval_mode: 'none',
+      daily_post_quota: 1, pay_per_video_cents: 1000, cycle_size: null,
+    })
+    await adapter.addCampaignAccount({ campaign_id: other.id, platform: 'TikTok', handle: '@o', status: 'ready' })
+    await ensureTodaysQuota(adapter)
+    await markAllOwed(adapter, first.campaign.id)
+    await markAllOwed(adapter, other.id)
+
+    await unmarkAllToday(adapter, first.campaign.id)
+
+    expect(tickedCells((await state(first.campaign)).board)).toHaveLength(0)
+    expect(tickedCells((await state(other)).board)).toHaveLength(1)
   })
 })

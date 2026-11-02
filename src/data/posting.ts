@@ -298,6 +298,40 @@ export async function markAllOwed(
   return ticked
 }
 
+/** The boxes "uncheck all" clears: every tick on the board today, whatever
+ *  the account or column - the exact undo of a day's ticking. */
+export function tickedCells(board: PostingBoard): { account: CampaignAccount; post: VideoPost }[] {
+  return board.rows.flatMap((row) =>
+    row.cells.flatMap((cell) => (cell.post ? [{ account: row.account, post: cell.post }] : [])),
+  )
+}
+
+/** "Uncheck all" on one campaign: takes every one of today's ticks back down
+ *  through unmarkPosted, the same undo a tap makes - each appends its reversal
+ *  to the earnings history rather than erasing anything. Returns how many. */
+export async function unmarkAllToday(
+  data: DataAdapter,
+  campaignId: string,
+  date: string = localToday(),
+): Promise<number> {
+  let removed = 0
+  for (let guard = 0; guard < 500; guard++) {
+    const [campaigns, accounts, videos, posts] = await Promise.all([
+      data.listCampaigns(),
+      data.listCampaignAccounts(),
+      data.listVideos(),
+      data.listAllVideoPosts(),
+    ])
+    const campaign = campaigns.find((c) => c.id === campaignId)
+    if (!campaign) break
+    const next = tickedCells(buildBoard(campaign, accounts, videos, posts, date))[0]
+    if (!next) break
+    await unmarkPosted(data, next.account, next.post)
+    removed++
+  }
+  return removed
+}
+
 /** Records that this deliverable went out on this platform.
  *
  *  Binds the slot to a deliverable if it has none yet - reusing stock where

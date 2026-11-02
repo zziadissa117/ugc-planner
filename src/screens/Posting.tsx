@@ -36,6 +36,8 @@ import {
   markPosted,
   nextUnfilledCell,
   openOwedCells,
+  tickedCells,
+  unmarkAllToday,
   unmarkPosted,
   type PostingBoard,
 } from '../data/posting'
@@ -197,6 +199,22 @@ export function Posting() {
     [data, reload, today],
   )
 
+  // Every one of today's ticks on one campaign back down in one tap. Quiet,
+  // like a single untick: a till over an undo would celebrate the wrong thing.
+  const uncheckAll = useCallback(
+    async (board: PostingBoard) => {
+      if (tickedCells(board).length === 0) return
+      setBusy(`all:${board.campaign.id}`)
+      try {
+        await unmarkAllToday(data, board.campaign.id, today)
+        await reload()
+      } finally {
+        setBusy(null)
+      }
+    },
+    [data, reload, today],
+  )
+
   const postFromNetwork = useCallback(
     (board: PostingBoard) => {
       const next = nextUnfilledCell(board)
@@ -322,6 +340,7 @@ export function Posting() {
                 busy={busy}
                 onToggle={(account, slot, post) => void toggle(board, account, slot, post)}
                 onCheckAll={() => void checkAll(board)}
+                onUncheckAll={() => void uncheckAll(board)}
               />
             </div>
           ))}
@@ -835,17 +854,28 @@ function CampaignBoard({
   busy,
   onToggle,
   onCheckAll,
+  onUncheckAll,
 }: {
   board: PostingBoard
   busy: string | null
   onToggle: (account: CampaignAccount, slot: number, post: VideoPost | null) => void
   onCheckAll: () => void
+  onUncheckAll: () => void
 }) {
   const { campaign, rows, slots, quota, doneToday } = board
   const rate = campaign.pay_per_video_cents
   const filled = doneToday >= quota && quota > 0
   const open = openOwedCells(board).length
+  const ticked = tickedCells(board).length
   const checkingAll = busy === `all:${campaign.id}`
+  // Unchecking a whole day is one tap away from a lot of lost green, so the
+  // first tap only asks; a second within a few seconds does it.
+  const [armed, setArmed] = useState(false)
+  useEffect(() => {
+    if (!armed) return
+    const timer = window.setTimeout(() => setArmed(false), 4000)
+    return () => window.clearTimeout(timer)
+  }, [armed])
 
   return (
     <div className="flex flex-col gap-2">
@@ -861,15 +891,41 @@ function CampaignBoard({
 
       {/* Only while something owed is still open: once the day is done there
           is nothing for it to do, and it never un-ticks anything. */}
-      {open > 1 ? (
-        <button
-          type="button"
-          onClick={onCheckAll}
-          disabled={busy !== null}
-          className="press min-h-tap self-start rounded-full border border-edge-lit px-4 text-sm font-semibold text-text active:bg-surface disabled:opacity-50"
-        >
-          {checkingAll ? 'Checking…' : `Check all ${open}`}
-        </button>
+      {open > 1 || ticked > 1 ? (
+        <div className="flex flex-wrap gap-2">
+          {open > 1 ? (
+            <button
+              type="button"
+              onClick={onCheckAll}
+              disabled={busy !== null}
+              className="press min-h-tap rounded-full border border-edge-lit px-4 text-sm font-semibold text-text active:bg-surface disabled:opacity-50"
+            >
+              {checkingAll ? 'Working…' : `Check all ${open}`}
+            </button>
+          ) : null}
+          {ticked > 1 ? (
+            <button
+              type="button"
+              onClick={() => {
+                if (!armed) {
+                  setArmed(true)
+                  return
+                }
+                setArmed(false)
+                onUncheckAll()
+              }}
+              disabled={busy !== null}
+              className={[
+                'press min-h-tap rounded-full border px-4 text-sm font-semibold active:bg-surface disabled:opacity-50',
+                // Amber while it waits for the second tap: past the point of
+                // a casual tap, asking to be sure.
+                armed ? 'border-state-waiting text-state-waiting' : 'border-edge text-state-later',
+              ].join(' ')}
+            >
+              {armed ? `Tap again to uncheck ${ticked}` : `Uncheck all ${ticked}`}
+            </button>
+          ) : null}
+        </div>
       ) : null}
 
       {rows.length === 0 ? (

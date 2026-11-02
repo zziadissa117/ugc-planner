@@ -536,3 +536,82 @@ describe('the views tracker', () => {
     expect(await screen.findByText(/posted reached 2,500 views/)).toBeInTheDocument()
   })
 })
+
+// The month correction moved here from BRIEFS, which now shows only the day.
+// The figure is an estimate - rate x posts a week x 30/7 - and for two of his
+// campaigns it is simply wrong: Pump.Fun is a monthly retainer and Inflow pays
+// per completed 60-post cycle. So it is marked as an estimate until he types
+// the real number, and his number is marked as his.
+describe('pay per month', () => {
+  async function setPay(patch: { pay_per_video_cents: number | null; monthly_pay_override_cents?: number | null }) {
+    await adapter.updateCampaign(INFLOW_CAMPAIGN_ID, {
+      posts_per_week: 7,
+      monthly_pay_override_cents: null,
+      ...patch,
+    })
+  }
+
+  async function openMonth(user: ReturnType<typeof userEvent.setup>) {
+    await renderBrief()
+    await user.click(screen.getByText('More', { selector: 'summary span' }))
+    return screen.getByLabelText('Pay per month for Inflow')
+  }
+
+  function monthRow() {
+    return within(screen.getByLabelText('Pay per month for Inflow').parentElement as HTMLElement)
+  }
+
+  it('estimates it from the rate and says that it is an estimate', async () => {
+    await setPay({ pay_per_video_cents: 3500 })
+    const user = userEvent.setup()
+    await openMonth(user)
+
+    // $35 x 7 a week x 30/7.
+    expect(screen.getByText(/~\$1050\.00\/mo · estimate/)).toBeInTheDocument()
+  })
+
+  it('says so plainly when there is no rate to estimate from', async () => {
+    await setPay({ pay_per_video_cents: null })
+    const user = userEvent.setup()
+    await openMonth(user)
+
+    expect(screen.getByText(/tap to set pay per month/)).toBeInTheDocument()
+  })
+
+  it('takes his own figure, stores it as integer cents and marks it as his', async () => {
+    await setPay({ pay_per_video_cents: 3500 })
+    const user = userEvent.setup()
+    await user.click(await openMonth(user))
+    await user.type(screen.getByLabelText('Pay per month for Inflow'), '1234.56')
+    await user.click(monthRow().getByRole('button', { name: 'Save' }))
+
+    expect(await screen.findByText(/\$1234\.56\/mo · your figure/)).toBeInTheDocument()
+    expect(screen.queryByText(/~\$1050\.00/)).toBeNull()
+    expect((await adapter.getCampaign(INFLOW_CAMPAIGN_ID))?.monthly_pay_override_cents).toBe(123456)
+  })
+
+  it('puts the estimate back when he resets it - null, never zero', async () => {
+    await setPay({ pay_per_video_cents: 3500, monthly_pay_override_cents: 200000 })
+    const user = userEvent.setup()
+    await openMonth(user)
+    expect(screen.getByText(/\$2000\.00\/mo · your figure/)).toBeInTheDocument()
+
+    await user.click(screen.getByLabelText('Pay per month for Inflow'))
+    await user.click(monthRow().getByRole('button', { name: 'Reset' }))
+
+    expect(await screen.findByText(/~\$1050\.00\/mo · estimate/)).toBeInTheDocument()
+    expect((await adapter.getCampaign(INFLOW_CAMPAIGN_ID))?.monthly_pay_override_cents).toBeNull()
+  })
+
+  it('refuses something that is not an amount, and offers no reset with nothing to reset', async () => {
+    await setPay({ pay_per_video_cents: 3500 })
+    const user = userEvent.setup()
+    await user.click(await openMonth(user))
+    expect(monthRow().queryByRole('button', { name: 'Reset' })).toBeNull()
+
+    await user.type(screen.getByLabelText('Pay per month for Inflow'), 'about two grand')
+    await user.click(monthRow().getByRole('button', { name: 'Save' }))
+
+    expect(screen.getByText(/Enter an amount/)).toBeInTheDocument()
+  })
+})

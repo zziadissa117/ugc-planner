@@ -14,8 +14,9 @@ export interface AuthControls {
   sessionLost: boolean
   requestStatus: 'idle' | 'sending' | 'sent' | 'error'
   requestError: string | null
-  /** Magic-link sign-in: nothing to type but an email address. */
-  requestLink: (email: string) => Promise<void>
+  /** Magic-link sign-in: nothing to type but an email address. With an invite
+   *  code (the /join page) it may also create the account. */
+  requestLink: (email: string, inviteCode?: string) => Promise<void>
   signOut: () => Promise<void>
 }
 

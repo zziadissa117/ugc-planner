@@ -7,6 +7,7 @@ import { EXPORT_REMINDER_DAYS } from '../data'
 import { useData } from '../data/useData'
 import { MAX_ATTEMPTS, useAuth } from '../sync'
 import { AiKeys } from './AiKeys'
+import { InviteLinks } from './InviteLinks'
 type Status =
   | { kind: 'idle' }
   | { kind: 'busy' }
@@ -89,6 +90,8 @@ export function Settings() {
           home screen (src/components/TodayList.tsx). */}
       <div className="flex flex-col border-t border-rule">
         <AccountAndKeys />
+
+        <InviteLinks />
 
         <Disclosure summary="Backup" trailing="Export / import">
           <div className="flex flex-col gap-3 pt-1">

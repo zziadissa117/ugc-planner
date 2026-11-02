@@ -11,6 +11,7 @@ import { Campaign } from './screens/Campaign'
 import { ArchivedCampaigns } from './screens/ArchivedCampaigns'
 import { Campaigns } from './screens/Campaigns'
 import { EarningsHistory } from './screens/EarningsHistory'
+import { Join } from './screens/Join'
 import { Money } from './screens/Money'
 import { NewCampaign } from './screens/NewCampaign'
 import { NotFound } from './screens/NotFound'
@@ -66,6 +67,7 @@ const screens = [
   { path: 'money', element: <Money /> },
   { path: 'money/history', element: <EarningsHistory /> },
   { path: 'settings', element: <Settings /> },
+  { path: 'join/:code', element: <Join /> },
   { path: '*', element: <NotFound /> },
 ]
 

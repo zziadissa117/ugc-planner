@@ -146,11 +146,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [client, data])
 
-  const requestLink = useCallback(async (target: string) => {
+  const requestLink = useCallback(async (target: string, inviteCode?: string) => {
     setRequestStatus('sending')
     setRequestError(null)
     try {
-      await signIn(target)
+      await signIn(target, inviteCode)
       setRequestStatus('sent')
     } catch (caught) {
       setRequestStatus('error')

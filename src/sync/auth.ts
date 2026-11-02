@@ -78,25 +78,55 @@ export async function getAuthState(): Promise<AuthState> {
  *  that dead-ends on a phone. The URL must also be allow-listed under
  *  Authentication -> URL Configuration, or Supabase ignores it and falls back
  *  to Site URL anyway - see docs/DEPLOY.md. */
-export async function signIn(email: string): Promise<void> {
+export async function signIn(email: string, inviteCode?: string): Promise<void> {
   const client = getSupabaseClient()
   if (!client) throw new Error('Supabase is not configured yet.')
 
-  // shouldCreateUser: false - the link signs in an account that exists and
-  // never makes one. It used to make one for any address typed here, which is
-  // how people he had shared the planner with got accounts of their own. The
-  // server refuses new accounts too (docs/migrations/0020_no_new_accounts.sql);
-  // this only keeps a stranger from seeing a database error.
+  // Without an invite the link signs in an account that exists and never makes
+  // one. It used to make one for any address typed here, which is how people
+  // he had shared the planner with got accounts of their own. With one - the
+  // /join/<code> page - it may make one, and the code rides along as user
+  // metadata for the server to check on the new row
+  // (docs/migrations/0021_invite_links.sql). The server is what refuses; the
+  // flag only keeps a stranger from seeing a database error.
   const { error } = await client.auth.signInWithOtp({
     email,
-    options: { emailRedirectTo: window.location.origin, shouldCreateUser: false },
+    options: inviteCode
+      ? { emailRedirectTo: window.location.origin, shouldCreateUser: true, data: { invite_code: inviteCode } }
+      : { emailRedirectTo: window.location.origin, shouldCreateUser: false },
   })
   if (error) {
-    if (/signups? not allowed|new accounts are closed/i.test(error.message)) {
+    if (!inviteCode && /signups? not allowed|new accounts need an invite/i.test(error.message)) {
       throw new Error('There is no account for that email.')
+    }
+    // The auth API hides the invite check's own sentence behind "Database
+    // error saving new user", so ask the link what is wrong with it.
+    if (inviteCode) {
+      const status = await inviteStatus(inviteCode).catch(() => null)
+      if (status !== null && status !== 'open') throw new Error(INVITE_REFUSALS[status])
+      throw new Error('Could not create your account. Try again in a minute.')
     }
     throw new Error(error.message)
   }
+}
+
+export type InviteStatus = 'open' | 'off' | 'full' | 'invalid'
+
+export const INVITE_REFUSALS: Record<Exclude<InviteStatus, 'open'>, string> = {
+  invalid: 'This invite link is not valid.',
+  off: 'This invite link has been switched off.',
+  full: 'This invite link is full.',
+}
+
+/** Whether an invite link can still make an account. Answers only about the
+ *  code it is given (docs/migrations/0021_invite_links.sql). Throws when the
+ *  server cannot be asked. */
+export async function inviteStatus(code: string): Promise<InviteStatus> {
+  const client = getSupabaseClient()
+  if (!client) throw new Error('Supabase is not configured yet.')
+  const { data, error } = await client.rpc('invite_link_status', { p_code: code })
+  if (error) throw new Error(error.message)
+  return data === 'open' || data === 'off' || data === 'full' ? data : 'invalid'
 }
 
 export async function signOut(): Promise<void> {

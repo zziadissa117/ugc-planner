@@ -49,7 +49,13 @@ import { localToday } from '../data'
 import { formatDay } from '../data/payouts'
 import { useData } from '../data/useData'
 import { formatViews, parseViews, viewsTally } from '../data/viewsTracker'
-import { campaignEarnings, formatCents, payingPlatforms } from '../money'
+import {
+  campaignEarnings,
+  formatCents,
+  hasMonthlyOverride,
+  monthlyPayCents,
+  payingPlatforms,
+} from '../money'
 
 interface Loaded {
   campaign: CampaignRow
@@ -245,7 +251,7 @@ export function Campaign() {
 
       {/* Everything else: set once, read by other screens, not needed day to
           day. One fold. */}
-      <Disclosure summary="More" trailing="pay per platform, payouts, rules, notes" className="border-t">
+      <Disclosure summary="More" trailing="pay per month and platform, payouts, rules, notes" className="border-t">
         <div className="flex flex-col gap-5">
           {campaign.brief_is_incomplete ? (
             <p className="border-l-2 border-state-waiting pl-3 text-base text-state-waiting">
@@ -257,6 +263,12 @@ export function Campaign() {
             campaign={campaign}
             accounts={accounts}
             onToggle={(on) => saveColumn({ pays_per_platform: on })}
+          />
+
+          <MonthlyPay
+            campaign={campaign}
+            accounts={accounts}
+            onSave={(cents) => saveColumn({ monthly_pay_override_cents: cents })}
           />
 
           <PayoutSection
@@ -874,6 +886,109 @@ function ViewsTracker({
       <p className="meta text-state-later">
         {tally.under} under{tally.unread > 0 ? ` · ${tally.unread} not read yet` : ''} · read a day, 3 days and a week after posting
       </p>
+    </div>
+  )
+}
+
+/** The month, and a way to correct it.
+ *
+ *  For a deal no per-video rate can express - Pump.Fun is a retainer, Inflow
+ *  pays per completed cycle. An estimate carries a "~" and says so; his own
+ *  number does not. Clearing it puts the estimate back rather than storing a
+ *  zero - a campaign he has un-corrected is not one paying nothing. (This
+ *  used to sit under each name on BRIEFS, which now shows only the day.) */
+function MonthlyPay({
+  campaign,
+  accounts,
+  onSave,
+}: {
+  campaign: CampaignRow
+  accounts: readonly CampaignAccount[]
+  onSave: (cents: number | null) => Promise<void>
+}) {
+  const monthly = monthlyPayCents(campaign, accounts)
+  const mine = hasMonthlyOverride(campaign)
+
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  async function commit(cents: number | null) {
+    setBusy(true)
+    try {
+      await onSave(cents)
+      setEditing(false)
+      setError(null)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function save() {
+    const trimmed = draft.trim()
+    if (trimmed === '') return commit(null)
+    const cents = parseDollarsToCents(trimmed)
+    if (cents === null) {
+      setError('Enter an amount like 1000 or 1000.50.')
+      return
+    }
+    await commit(cents)
+  }
+
+  return (
+    <div>
+      <SectionLabel as="h3">Pay per month</SectionLabel>
+      {editing ? (
+        <span className="mt-2 flex flex-wrap items-center gap-2">
+          <input
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') void save()
+              if (event.key === 'Escape') setEditing(false)
+            }}
+            aria-label={`Pay per month for ${campaign.name}`}
+            inputMode="decimal"
+            placeholder="per month"
+            autoFocus
+            className={`${INPUT_CLASS} w-28 text-base`}
+          />
+          <button
+            type="button"
+            onClick={() => void save()}
+            disabled={busy}
+            className={buttonClass('now', 'small')}
+          >
+            Save
+          </button>
+          {mine ? (
+            <button
+              type="button"
+              onClick={() => void commit(null)}
+              disabled={busy}
+              className={buttonClass('ghost', 'small')}
+            >
+              Reset
+            </button>
+          ) : null}
+          {error ? <span className="meta text-state-blocked">{error}</span> : null}
+        </span>
+      ) : (
+        <button
+          type="button"
+          aria-label={`Pay per month for ${campaign.name}`}
+          onClick={() => {
+            setDraft(monthly === null || !mine ? '' : centsToDollarsInput(monthly))
+            setEditing(true)
+          }}
+          className="press meta mt-2 block whitespace-nowrap rounded text-left tabular-nums text-state-later underline decoration-edge-lit decoration-dotted underline-offset-4 active:opacity-70"
+        >
+          {monthly === null
+            ? 'tap to set pay per month'
+            : `${mine ? '' : '~'}${formatCents(monthly)}/mo · ${mine ? 'your figure' : 'estimate'}`}
+        </button>
+      )}
     </div>
   )
 }

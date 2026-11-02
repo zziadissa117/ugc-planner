@@ -6,10 +6,13 @@ export {
   LOCAL_ROWS_NEED_CLAIMING,
   getAuthState,
   getSupabaseClient,
+  INVITE_REFUSALS,
+  inviteStatus,
   isSupabaseConfigured,
   signIn,
   signOut,
   type AuthState,
+  type InviteStatus,
 } from './auth'
 export { resolveConflict, type Resolution, type Winner } from './conflict'
 export {

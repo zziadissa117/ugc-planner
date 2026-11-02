@@ -374,3 +374,24 @@ Deploy files for each function: `source/index.ts`, `source/deno.json` and every
 `_shared/*.ts` it imports (`claude.ts` for both; `verify.ts`,
 `parserTypes.ts`, `owner.ts` and `pdf.ts` for parse-campaign; `hookPrompt.ts`
 for generate-hooks).
+
+# invites
+
+Invite links: the only way a new account is made. Owner only
+(`_shared/owner.ts`); anyone else gets `{ enabled: false, links: [] }` and the
+SETUP section renders nothing.
+
+    POST { action: 'list' }             -> { enabled, links: [InviteLink] }
+    POST { action: 'create', maxUses }  -> { link: InviteLink }
+    POST { action: 'switch_off', id }   -> { link: InviteLink }
+
+The function does not decide who gets in. The trigger on `auth.users`
+(`docs/migrations/0021_invite_links.sql`) does, on every insert, from the
+`invite_code` the /join page sends as user metadata - so nothing that goes
+around this function gets an account either. `invite_link_status(code)` is the
+one piece the browser may call without signing in: the auth API answers the
+app with "Database error saving new user" whatever the trigger said, so the
+join page asks the link itself whether it is open, off, full or invalid.
+
+Deploy files: `source/index.ts`, `source/deno.json`, `_shared/claude.ts`,
+`_shared/owner.ts`. `verify_jwt: true`.

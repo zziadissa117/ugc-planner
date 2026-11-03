@@ -97,24 +97,23 @@ describe('the board', () => {
     expect(board.doneToday).toBe(0)
   })
 
-  it('leaves out an account that is still warming up', async () => {
-    // "If a campaign is not set to ready then dont put it in the post tab."
-    // Offering a box for an account he must not post brand content from yet is
-    // offering him a mistake; the home screen is where those accounts live.
-    const { campaign, accounts } = await setUp(1, ['Instagram', 'TikTok'])
+  it('shows every account, new and warming ones too', async () => {
+    // "All accounts have to be shown in the post section, even if they're new
+    // or they're warm, whatever." This used to leave warming accounts off.
+    const { campaign, accounts } = await setUp(1, ['Instagram', 'TikTok', 'YouTube'])
     await adapter.updateCampaignAccount(accounts[1].id, { status: 'warming' })
+    await adapter.updateCampaignAccount(accounts[2].id, { status: 'new' })
 
     const { board } = await state(campaign)
-    expect(board.rows).toHaveLength(1)
-    expect(board.rows[0].account.platform).toBe('Instagram')
+    expect(board.rows.map((r) => r.account.platform).sort()).toEqual(['Instagram', 'TikTok', 'YouTube'])
   })
 
-  it('has no rows at all while every account is still warming up', async () => {
-    const { campaign, accounts } = await setUp(1, ['Instagram'])
-    await adapter.updateCampaignAccount(accounts[0].id, { status: 'new' })
+  it('leaves out an account he switched off', async () => {
+    const { campaign, accounts } = await setUp(1, ['Instagram', 'TikTok'])
+    await adapter.updateCampaignAccount(accounts[1].id, { is_active: false })
 
     const { board } = await state(campaign)
-    expect(board.rows).toHaveLength(0)
+    expect(board.rows.map((r) => r.account.platform)).toEqual(['Instagram'])
   })
 
   it('gives a four-a-day campaign four columns on its one platform', async () => {
@@ -325,19 +324,13 @@ describe('the home screen and the Post tab', () => {
     expect(tab).toEqual({ posted: home.posted, owed: home.owed })
   })
 
-  it('do not owe a day he has no way to fill', async () => {
-    // Every account still warming up: the campaign is off the Post tab, so it
-    // must be off the count too. Owing a number with no box behind it is the
-    // one thing this app must never do.
-    const { campaign, accounts } = await setUp(4, ['Instagram'])
+  it('owe a campaign whose only account is still warming up, the same on both', async () => {
+    const { accounts } = await setUp(4, ['Instagram'])
     await adapter.updateCampaignAccount(accounts[0].id, { status: 'warming' })
 
     const { home, tab } = await bothCounts()
-    expect(home.owed).toBe(0)
-    expect(tab.owed).toBe(0)
-    expect(
-      buildBoard(campaign, await adapter.listCampaignAccounts(), [], []).rows,
-    ).toHaveLength(0)
+    expect(home.owed).toBe(4)
+    expect(tab.owed).toBe(4)
   })
 
   it('show a campaign with no accounts at all, so he can add one, without owing him a number he cannot fill', async () => {
@@ -358,10 +351,9 @@ describe('the home screen and the Post tab', () => {
     expect(tab.owed).toBe(0)
   })
 
-  it('keep a YouTube campaign off the tab until he marks it ready', async () => {
-    // "Do not put youtube in the posting section if its warming or new... only
-    // put it in post section when ready." YouTube skipping warm-up says nothing
-    // about whether he is ready to post from the account.
+  it('put a brand-new campaign on the tab the moment it has an account', async () => {
+    // He creates a campaign, adds an account, and it is there to tick - new,
+    // warming or ready.
     const campaign = await adapter.createCampaign({
       name: 'Vertus',
       company: null,
@@ -378,20 +370,9 @@ describe('the home screen and the Post tab', () => {
     })
     expect(account.status).toBe('new')
 
-    const off = await bothCounts()
-    expect(off.home.owed).toBe(0)
-    expect(off.tab.owed).toBe(0)
-
-    // Warming is no different: it is still not an account he posts from.
-    await adapter.updateCampaignAccount(account.id, { status: 'warming' })
-    const stillOff = await bothCounts()
-    expect(stillOff.tab.owed).toBe(0)
-
-    // Ready, and it is owed and postable like anything else.
-    await adapter.updateCampaignAccount(account.id, { status: 'ready' })
-    const on = await bothCounts()
-    expect(on.home.owed).toBe(2)
-    expect(on.tab.owed).toBe(2)
+    const { home, tab } = await bothCounts()
+    expect(home.owed).toBe(2)
+    expect(tab.owed).toBe(2)
   })
 })
 

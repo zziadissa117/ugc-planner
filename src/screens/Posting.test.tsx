@@ -372,16 +372,16 @@ describe('the posting grid', () => {
     expect(screen.getByText('2 of 1 today')).toBeInTheDocument()
   })
 
-  it('leaves out an account that is still warming up', async () => {
-    // He asked for this directly: "If a campaign is not set to ready then dont
-    // put it in the post tab." A box for an account he must not post brand
-    // content from yet is a mistake waiting to be tapped.
+  it('shows an account that is still warming up, ready to tick', async () => {
+    // "All accounts have to be shown in the post section, even if they're new
+    // or they're warm, whatever."
     const { accounts } = await setUp(1, ['Instagram', 'TikTok'])
     await adapter.updateCampaignAccount(accounts[0].id, { status: 'warming' })
     renderScreen()
 
     expect(await screen.findByText('TikTok')).toBeInTheDocument()
-    expect(screen.queryByText('Instagram')).toBeNull()
+    expect(screen.getByText('Instagram')).toBeInTheDocument()
+    expect((await boxes('Instagram'))[0]).toHaveAttribute('aria-pressed', 'false')
   })
 
   it('drops the campaign entirely while none of its accounts are ready', async () => {

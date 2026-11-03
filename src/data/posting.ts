@@ -25,7 +25,6 @@
 import type { DataAdapter } from './DataAdapter'
 import { localToday } from './index'
 import type { Campaign, CampaignAccount, Video, VideoPost } from './schema'
-import { canPostFrom } from './warmup'
 
 export interface PostingCell {
   slot: number
@@ -86,15 +85,13 @@ export function buildBoard(
   posts: readonly VideoPost[],
   date: string = localToday(),
 ): PostingBoard {
-  // Accounts he can actually post from. One still warming up is one he must
-  // not post brand content from yet, so offering it a box is offering him a
-  // mistake - "If a campaign is not set to ready then dont put it in the post
-  // tab." It is not hidden work: the home screen names every account still
-  // warming and takes him straight into warming it up. Platforms that do not
-  // warm up at all (YouTube) are always postable - see canPostFrom.
-  const mine = accounts.filter(
-    (a) => a.campaign_id === campaign.id && a.is_active && canPostFrom(a),
-  )
+  // Every account he has switched on, new, warming or ready. Accounts still
+  // warming used to be left off - "If a campaign is not set to ready then dont
+  // put it in the post tab" - until he reversed it: "All accounts have to be
+  // shown in the post section, even if they're new or they're warm,
+  // whatever." Warming them up is still the home screen's list; it no longer
+  // decides what he may tick.
+  const mine = accounts.filter((a) => a.campaign_id === campaign.id && a.is_active)
   const accountIds = new Set(mine.map((a) => a.id))
 
   const todays = posts.filter(
@@ -208,12 +205,8 @@ export function buildBoard(
  *  this, so the home count IS the Post tab summed, by construction rather than
  *  by two pieces of arithmetic agreeing.
  *
- *  A campaign is on the tab when he can post it (it has an account he can post
- *  from) or when it has no accounts at all - the second says "add one", which
- *  is the only way that gets fixed. A campaign whose every account is still
- *  warming up is off the tab and off the count: it belongs to the warm-up list
- *  on the home screen, and owing him a number he has no way to fill is the
- *  thing this app must never do. */
+ *  A campaign is on the tab when it has an account switched on - whatever its
+ *  warm-up status - or when it has none at all, which says "add one". */
 export function boardsForToday(
   campaigns: readonly Campaign[],
   accounts: readonly CampaignAccount[],

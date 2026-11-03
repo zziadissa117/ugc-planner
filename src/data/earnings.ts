@@ -39,14 +39,13 @@ export function paysPerPlatform(campaign: Campaign, accounts: readonly CampaignA
   )
 }
 
-/** Accounts a deliverable's single rate is shared across: those he can post
- *  from and that are paid per post. */
+/** Accounts a deliverable's single rate is shared across: the paid ones on
+ *  its Post board - every account switched on, whatever its warm-up status,
+ *  so the shares match the boxes he sees. */
 function sharingAccounts(campaign: Campaign, accounts: readonly CampaignAccount[]): number {
   return Math.max(
     1,
-    accounts.filter(
-      (a) => a.campaign_id === campaign.id && a.is_active && !a.bonus_only && canPostFrom(a),
-    ).length,
+    accounts.filter((a) => a.campaign_id === campaign.id && a.is_active && !a.bonus_only).length,
   )
 }
 

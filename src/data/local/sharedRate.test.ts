@@ -33,13 +33,33 @@ describe('a shared rate when an account becomes ready between ticks', () => {
       owed_for_date: null, rate_snapshot_cents: null, posted_at: null,
     })
 
-    // TikTok is the only account he can post from: its tick is the whole $35.
+    // Both accounts are on the Post board whatever their warm-up status, so
+    // the rate is shared between them from the first tick.
+    await adapter.addVideoPost({ video_id: video.id, account_id: tiktok.id, platform: 'TikTok', url: null, view_count: null, view_count_entered_at: null })
+    expect(netCents(await adapter.listEarningsEvents())).toBe(1750)
+
+    // Instagram finishes warming up and the same video is ticked there too:
+    // the other half, never more.
+    await adapter.updateCampaignAccount(instagram.id, { status: 'ready' })
+    await adapter.addVideoPost({ video_id: video.id, account_id: instagram.id, platform: 'Instagram', url: null, view_count: null, view_count_entered_at: null })
+    expect(netCents(await adapter.listEarningsEvents())).toBe(3500)
+  })
+
+  it('never pays more than the rate when an account is added between ticks', async () => {
+    const campaign = await adapter.createCampaign({
+      name: 'Inflow', company: null, default_setup: 'face', approval_mode: 'none',
+      daily_post_quota: 1, pay_per_video_cents: 3500, cycle_size: null,
+    })
+    const tiktok = await adapter.addCampaignAccount({ campaign_id: campaign.id, platform: 'TikTok', handle: null, status: 'ready' })
+    const video = await adapter.createVideo({
+      campaign_id: campaign.id, setup: 'face', angle_id: null, script: null, blocked_reason: null,
+      owed_for_date: null, rate_snapshot_cents: null, posted_at: null,
+    })
     await adapter.addVideoPost({ video_id: video.id, account_id: tiktok.id, platform: 'TikTok', url: null, view_count: null, view_count_entered_at: null })
     expect(netCents(await adapter.listEarningsEvents())).toBe(3500)
 
-    // Instagram finishes warming up and the same video is ticked there too.
-    // Before the cap this paid another $17.50 - $52.50 for a $35 video.
-    await adapter.updateCampaignAccount(instagram.id, { status: 'ready' })
+    // A new account, added after the first tick, ticked for the same video.
+    const instagram = await adapter.addCampaignAccount({ campaign_id: campaign.id, platform: 'Instagram', handle: null, status: 'new' })
     await adapter.addVideoPost({ video_id: video.id, account_id: instagram.id, platform: 'Instagram', url: null, view_count: null, view_count_entered_at: null })
     expect(netCents(await adapter.listEarningsEvents())).toBe(3500)
   })

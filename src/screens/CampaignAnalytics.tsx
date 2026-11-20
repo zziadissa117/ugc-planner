@@ -46,12 +46,17 @@ export function CampaignAnalytics() {
           return
         }
         const now = new Date()
-        const posts = await fetchCutterViews(cutterId, readSince(now))
+        const [posts, accounts] = await Promise.all([
+          fetchCutterViews(cutterId, readSince(now)),
+          data.listCampaignAccounts(found.id),
+        ])
         if (cancelled) return
+        // His accounts on this campaign: only their posts count, never Jake's.
+        const mine = accounts.filter((a) => a.is_active).map((a) => ({ id: a.id, platform: a.platform, handle: a.handle }))
         setState(
           posts === null
             ? { kind: 'error', message: 'Views are only available on your own account.' }
-            : { kind: 'ready', views: summariseViews(posts, now) },
+            : { kind: 'ready', views: summariseViews(posts, mine, now) },
         )
       } catch (error) {
         if (!cancelled) setState({ kind: 'error', message: error instanceof Error ? error.message : String(error) })
@@ -68,7 +73,7 @@ export function CampaignAnalytics() {
         <BackIcon className="h-4 w-4" />
         Post
       </Link>
-      <ScreenHeader title={campaign?.name ?? 'Analytics'} meta="Views, from the cutter's readings" />
+      <ScreenHeader title={campaign?.name ?? 'Analytics'} meta="Your accounts' views, from the cutter's readings" />
 
       {state.kind === 'loading' ? <p className="text-base text-state-later">Reading views…</p> : null}
       {state.kind === 'error' ? <p className="text-base text-state-blocked">{state.message}</p> : null}
@@ -94,7 +99,7 @@ export function CampaignAnalytics() {
           <div className="flex flex-col gap-2">
             <SectionLabel>Last 24 hours</SectionLabel>
             {state.views.accounts.length === 0 ? (
-              <p className="text-base text-state-later">No posts from the cutter for this campaign yet.</p>
+              <p className="text-base text-state-later">No accounts on this campaign yet. Add them on its brief.</p>
             ) : (
               <ul className="flex flex-col divide-y divide-rule border-y border-rule">
                 {state.views.accounts.map((account) => {
@@ -105,10 +110,16 @@ export function CampaignAnalytics() {
                         <span className="flex min-w-0 items-center gap-2">
                           <PlatformGlyph platform={account.platform} className="h-5 w-5 shrink-0 text-state-later" />
                           <span className="text-base font-semibold text-text">{account.platform}</span>
-                          <span className="meta min-w-0 truncate text-state-later">{account.label}</span>
+                          <span className="meta min-w-0 truncate text-state-later">{account.label ?? 'no handle saved'}</span>
                         </span>
                         <span className={`numeric shrink-0 text-base ${account.last24 === null ? 'text-state-later' : 'text-text'}`}>
-                          {account.last24 === null ? (account.posts === 0 ? 'no post' : 'not read yet') : `${count(account.last24)} views`}
+                          {account.label === null
+                            ? 'add its handle'
+                            : account.last24 === null
+                              ? account.posts === 0
+                                ? 'no post'
+                                : 'not read yet'
+                              : `${count(account.last24)} views`}
                         </span>
                       </span>
                       {flag !== null ? (

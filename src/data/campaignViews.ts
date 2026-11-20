@@ -11,6 +11,9 @@
 //     read again later, so that window is the one whose number IS its first
 //     day.
 //
+// Only his own accounts count - the ones saved on the planner campaign,
+// matched by exact handle (see mineFor). The cutter is shared with Jake.
+//
 // And one flag per account, the lowest of his three lines it is under:
 // "In the past 24 hours, we had less than 200 views for this account."
 
@@ -22,10 +25,19 @@ export interface CutterViewsPost {
   views: Record<string, number | null | undefined>
 }
 
+/** One of his accounts on the campaign, as the planner knows it. */
+export interface MyAccount {
+  id: string
+  platform: string
+  handle: string | null
+}
+
 export interface AccountDay {
   key: string
   platform: string
-  label: string
+  /** "@handle", or null when he has not saved one - then nothing can be told
+   *  to be his, and nothing is counted for it. */
+  label: string | null
   /** First-24-hours views of its posts from 24 to 48 hours ago; null when
    *  none of them has been read. */
   last24: number | null
@@ -61,44 +73,70 @@ export function readSince(now: Date): string {
   return new Date(Math.min(monthStart(now), now.getTime() - 48 * HOUR)).toISOString()
 }
 
-export function summariseViews(posts: readonly CutterViewsPost[], now: Date = new Date()): CampaignViews {
+const ROOTS = ['tiktok', 'instagram', 'youtube', 'facebook', 'twitter', 'linkedin', 'threads', 'pinterest']
+
+function platformRoot(platform: string): string {
+  const flat = platform.toLowerCase().replace(/[^a-z0-9]/g, '')
+  return ROOTS.find((root) => flat.startsWith(root)) ?? flat
+}
+
+/** A handle as it compares: "@Ziad.Moneytalks " and "ziad.moneytalks" alike. */
+function handleKey(handle: string | null | undefined): string {
+  return (handle ?? '').trim().replace(/^@+/, '').toLowerCase().replace(/\s+/g, '')
+}
+
+/** Which of his accounts a cutter account is: same platform and exactly the
+ *  same handle, or none. The cutter is shared with Jake - one login, each
+ *  posting through his own Postiz key - so a campaign's posts there are both
+ *  of theirs. Nothing is guessed: no "only account on that platform", no
+ *  near-miss spelling. An account that does not match exactly is someone
+ *  else's and is left out of every number. */
+export function mineFor(mine: readonly MyAccount[], sent: { name: string; platform: string; profile: string }): MyAccount | null {
+  const keys = [handleKey(sent.profile), handleKey(sent.name)].filter(Boolean)
+  if (keys.length === 0) return null
+  const root = platformRoot(sent.platform)
+  return mine.find((a) => platformRoot(a.platform) === root && handleKey(a.handle) !== '' && keys.includes(handleKey(a.handle))) ?? null
+}
+
+export function summariseViews(
+  posts: readonly CutterViewsPost[],
+  mine: readonly MyAccount[],
+  now: Date = new Date(),
+): CampaignViews {
   const start = monthStart(now)
   const end = new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime()
   let monthViews = 0
   let monthPosts = 0
   let monthUnread = 0
-  const accounts = new Map<string, AccountDay>()
+  const accounts = new Map<string, AccountDay>(
+    mine.map((a) => [
+      a.id,
+      { key: a.id, platform: a.platform, label: handleKey(a.handle) ? `@${handleKey(a.handle)}` : null, last24: null, posts: 0 },
+    ]),
+  )
 
   for (const post of posts) {
     const at = Date.parse(post.postedAt)
     if (!Number.isFinite(at)) continue
     const age = now.getTime() - at
-
-    for (const account of post.accounts) {
-      const key = `${account.platform}|${account.name}`
-      if (!accounts.has(key)) {
-        accounts.set(key, {
-          key,
-          platform: account.platform,
-          label: account.profile ? `@${account.profile.replace(/^@/, '')}` : account.name,
-          last24: null,
-          posts: 0,
-        })
-      }
-    }
+    // Only the accounts on this post that are his.
+    const his = post.accounts
+      .map((sent) => ({ sent, account: mineFor(mine, sent) }))
+      .filter((m): m is { sent: (typeof post.accounts)[number]; account: MyAccount } => m.account !== null)
+    if (his.length === 0) continue
 
     if (at >= start && at < end) {
       monthPosts++
-      const read = post.accounts.map((a) => post.views[a.name]).filter((v): v is number => typeof v === 'number')
+      const read = his.map((m) => post.views[m.sent.name]).filter((v): v is number => typeof v === 'number')
       if (read.length === 0) monthUnread++
       monthViews += read.reduce((sum, v) => sum + v, 0)
     }
 
     if (age >= 24 * HOUR && age < 48 * HOUR) {
-      for (const account of post.accounts) {
-        const day = accounts.get(`${account.platform}|${account.name}`)!
+      for (const { sent, account } of his) {
+        const day = accounts.get(account.id)!
         day.posts++
-        const v = post.views[account.name]
+        const v = post.views[sent.name]
         if (typeof v === 'number') day.last24 = (day.last24 ?? 0) + v
       }
     }
@@ -108,7 +146,7 @@ export function summariseViews(posts: readonly CutterViewsPost[], now: Date = ne
     monthViews,
     monthPosts,
     monthUnread,
-    accounts: [...accounts.values()].sort((a, b) => a.platform.localeCompare(b.platform) || a.label.localeCompare(b.label)),
+    accounts: [...accounts.values()].sort((a, b) => a.platform.localeCompare(b.platform) || (a.label ?? '').localeCompare(b.label ?? '')),
   }
 }
 

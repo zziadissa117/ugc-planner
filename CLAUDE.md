@@ -179,6 +179,11 @@ button (owner only) that reads the cutter's own per-post view readings through
 `cutter-posted` and shows the month's views and each account's last 24 hours,
 flagged under 100, 200 or 500 (`src/data/campaignViews.ts`,
 `src/screens/CampaignAnalytics.tsx`). It writes nothing and ticks nothing.
+The cutter is shared with Jake (one login, each posting through his own
+Postiz key), so a cutter campaign holds both their posts: only accounts that
+match one of his saved handles exactly, on the same platform, are counted
+(`mineFor`) - never "the only account on that platform", which once put
+Jake's posts on his accounts.
 
 **Posting is never gated on filming.** He films on his phone, edits elsewhere
 and posts things this app never saw. A tick with no video behind it creates

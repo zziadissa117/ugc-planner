@@ -30,6 +30,9 @@ beforeEach(async () => {
     daily_post_quota: 1, pay_per_video_cents: 2000, cycle_size: null,
   })
   campaignId = campaign.id
+  // His accounts on the campaign - the only ones whose views count.
+  await adapter.addCampaignAccount({ campaign_id: campaign.id, platform: 'TikTok', handle: '@login.tt', status: 'ready' })
+  await adapter.addCampaignAccount({ campaign_id: campaign.id, platform: 'Instagram', handle: 'login.ig', status: 'ready' })
   listCutterCampaigns.mockResolvedValue([{ id: 'cut-login', name: 'Login' }])
 })
 
@@ -58,10 +61,18 @@ describe('campaign analytics', () => {
         ],
         views: { 'Login TT': 150, 'Login IG': 2400 },
       },
+      {
+        // Jake's post on the same cutter campaign: left out entirely.
+        id: 'jake',
+        postedAt: yesterday,
+        accounts: [{ name: 'Jake TT', platform: 'TikTok', profile: 'hooksandmike' }],
+        views: { 'Jake TT': 90000 },
+      },
     ])
     renderScreen()
 
     expect(await screen.findByText('2,550')).toBeInTheDocument()
+    expect(screen.queryByText(/hooksandmike/)).toBeNull()
     expect(fetchCutterViews).toHaveBeenCalledWith('cut-login', expect.any(String))
     expect(screen.getByText('In the past 24 hours, we had less than 200 views for this account.')).toBeInTheDocument()
     // Only the TikTok account is under a line.

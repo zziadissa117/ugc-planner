@@ -15,6 +15,7 @@ import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 
 import {
+  ChartIcon,
   CheckIcon,
   ChevronDownIcon,
   ListIcon,
@@ -361,6 +362,7 @@ export function Posting() {
               <CampaignBoard
                 board={board}
                 busy={busy}
+                owner={owner}
                 onToggle={(account, slot, post) => void toggle(board, account, slot, post)}
                 onCheckAll={() => void checkAll(board)}
                 onUncheckAll={() => void uncheckAll(board)}
@@ -875,12 +877,15 @@ function NeuralView({
 function CampaignBoard({
   board,
   busy,
+  owner = false,
   onToggle,
   onCheckAll,
   onUncheckAll,
 }: {
   board: PostingBoard
   busy: string | null
+  /** His own account: the views (read from the cutter) are his only. */
+  owner?: boolean
   onToggle: (account: CampaignAccount, slot: number, post: VideoPost | null) => void
   onCheckAll: () => void
   onUncheckAll: () => void
@@ -903,7 +908,18 @@ function CampaignBoard({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <h2 className="display min-w-0 break-words text-3xl text-text">{campaign.name}</h2>
+        <span className="flex min-w-0 items-center gap-2">
+          <h2 className="display min-w-0 break-words text-3xl text-text">{campaign.name}</h2>
+          {owner ? (
+            <Link
+              to={`/post/${campaign.id}/analytics`}
+              aria-label={`Analytics for ${campaign.name}`}
+              className="press flex size-10 shrink-0 items-center justify-center rounded-full border border-edge text-state-later active:bg-surface"
+            >
+              <ChartIcon className="h-5 w-5" />
+            </Link>
+          ) : null}
+        </span>
         <p className="numeric meta text-state-later">
           <span className={filled ? 'text-state-posted' : 'text-text'}>
             {doneToday} of {quota} today

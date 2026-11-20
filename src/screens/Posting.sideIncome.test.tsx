@@ -74,4 +74,19 @@ describe('detailing and media maxing on the Post screen', () => {
     await screen.findByText('Inflow')
     expect(screen.queryByRole('button', { name: /Add detailing or media maxing/ })).toBeNull()
   })
+
+  it('puts an analytics button beside the campaign name, for him only', async () => {
+    owner = true
+    const first = renderScreen()
+    expect(await screen.findByRole('link', { name: 'Analytics for Inflow' })).toHaveAttribute(
+      'href',
+      expect.stringMatching(/\/post\/.+\/analytics$/),
+    )
+    first.unmount()
+
+    owner = false
+    renderScreen()
+    await screen.findByText('Inflow')
+    expect(screen.queryByRole('link', { name: 'Analytics for Inflow' })).toBeNull()
+  })
 })

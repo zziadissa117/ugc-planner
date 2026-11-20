@@ -171,8 +171,14 @@ that ticks, schedules or marks Post boxes without his tap. Making his own
 ticking faster is welcome: each campaign has a "Check all" button
 (`markAllOwed`) that ticks every open owed box through the same `markPosted`
 a tap uses. `campaigns.cutter_campaign_id` and `min_views` stay in the schema;
-the first is read only by the Postiz channel list when archiving, the second
-is a term of the deal shown on the brief.
+the first is read by the Postiz channel list when archiving and by Analytics,
+the second is a term of the deal shown on the brief.
+
+**Views are read, never acted on.** Each campaign on Post has an Analytics
+button (owner only) that reads the cutter's own per-post view readings through
+`cutter-posted` and shows the month's views and each account's last 24 hours,
+flagged under 100, 200 or 500 (`src/data/campaignViews.ts`,
+`src/screens/CampaignAnalytics.tsx`). It writes nothing and ticks nothing.
 
 **Posting is never gated on filming.** He films on his phone, edits elsewhere
 and posts things this app never saw. A tick with no video behind it creates

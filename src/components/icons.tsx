@@ -186,6 +186,16 @@ export function MutedIcon(props: IconProps) {
 }
 
 /** The Post screen's second view - a core with three linked points. */
+/** Analytics: three bars on a baseline. */
+export function ChartIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M4.5 19.5h15" />
+      <path d="M7.5 16.5v-4M12 16.5V7.5M16.5 16.5v-6.5" />
+    </Icon>
+  )
+}
+
 export function NetworkIcon(props: IconProps) {
   return (
     <Icon {...props}>

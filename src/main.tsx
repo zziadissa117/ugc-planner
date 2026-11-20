@@ -9,6 +9,7 @@ import './index.css'
 import { installSprings } from './motion'
 import { Campaign } from './screens/Campaign'
 import { ArchivedCampaigns } from './screens/ArchivedCampaigns'
+import { CampaignAnalytics } from './screens/CampaignAnalytics'
 import { Campaigns } from './screens/Campaigns'
 import { EarningsHistory } from './screens/EarningsHistory'
 import { Join } from './screens/Join'
@@ -64,6 +65,7 @@ const screens = [
   { path: 'campaigns/archived', element: <ArchivedCampaigns /> },
   { path: 'campaigns/:campaignId', element: <Campaign /> },
   { path: 'campaigns/:campaignId/update', element: <UpdateCampaign /> },
+  { path: 'post/:campaignId/analytics', element: <CampaignAnalytics /> },
   { path: 'money', element: <Money /> },
   { path: 'money/history', element: <EarningsHistory /> },
   { path: 'settings', element: <Settings /> },

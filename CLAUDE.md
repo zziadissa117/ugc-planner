@@ -133,6 +133,11 @@ be found (the rate on the brief page). He turned down frosted, layered cards.
   inside a fixed-width slot that holds a name - that is how "Instagram" became
   "Insta...".
 - No sounds beyond the Post till and the warm-up chime.
+- **The exception is the student onboarding (`/start`):** the welcome and the
+  quiz are UGC Roadmap brand pages, in his sales-call deck's look brought up to
+  date (`src/components/roadmap.tsx`, `RoadmapWelcome.tsx`, `WeekCalendar.tsx`;
+  spec in the cutter repo's `docs/UGC_ROADMAP_STYLE.md`). Its blue is the brand,
+  not a state, and stays on those pages.
 
 ## The model
 

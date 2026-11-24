@@ -60,6 +60,17 @@
   --spacing-tap: 3.5rem;
 }
 
+/* Anything that can be tapped shows the hand. Tailwind's base resets buttons
+   to the plain arrow, so on a laptop no button in the app looked clickable. */
+button:not(:disabled),
+[role='button']:not([aria-disabled='true']),
+[role='radio'],
+summary,
+select,
+label:has(> input[type='checkbox']) {
+  cursor: pointer;
+}
+
 html {
   color-scheme: dark;
   /* The address bar and the app should not disagree about where the page ends. */

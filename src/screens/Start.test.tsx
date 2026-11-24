@@ -51,7 +51,7 @@ describe('the onboarding quiz', () => {
     expect(next).toBeDisabled()
     for (const slot of ['Mon 6:00 pm', 'Wed 6:00 pm', 'Fri 6:00 pm']) await user.click(screen.getByRole('button', { name: slot }))
     // Three placed: it moves on to ideate days by itself.
-    expect(screen.getByRole('button', { name: 'Ideate · A/B test' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Ideate' })).toHaveAttribute('aria-pressed', 'true')
     await user.click(screen.getByRole('button', { name: 'Sat 10:00 am' }))
     await user.click(screen.getByRole('button', { name: 'Next' }))
 
@@ -60,7 +60,9 @@ describe('the onboarding quiz', () => {
     await user.type(screen.getByLabelText(/one thing we could do/), 'More examples')
     await user.click(screen.getByRole('button', { name: 'Next' }))
 
-    expect(screen.getByText('Friday 6:00 pm - 1h Trybe videos, then 1h Media maxing')).toBeInTheDocument()
+    expect(screen.getByText('Friday · 6:00 pm')).toBeInTheDocument()
+    expect(screen.getByText('1h Trybe videos, then 1h Media maxing')).toBeInTheDocument()
+    expect(screen.getAllByText('1h Trybe videos, then 1h Base UGC')).toHaveLength(2)
     expect(screen.getByText(/put this in your own Google Calendar/)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Looks good' }))
 

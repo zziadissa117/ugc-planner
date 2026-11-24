@@ -119,7 +119,10 @@ export function App() {
         </main>
 
         {/* Black glass with a hairline edge, so the page visibly carries on
-            underneath rather than the bar reading as the end of the screen. */}
+            underneath rather than the bar reading as the end of the screen.
+            Not on the onboarding quiz: it is a full-screen page of its own,
+            and the tabs behind it are not his to use until it is done. */}
+        {section === 'start' ? null : (
         <nav
           className="sticky bottom-0 z-30 border-t border-rule bg-ink/85 backdrop-blur-xl"
           style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
@@ -167,6 +170,7 @@ export function App() {
             ))}
           </ul>
         </nav>
+        )}
       </WarmupTimersProvider>
     </div>
   )

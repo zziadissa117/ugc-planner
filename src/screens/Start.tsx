@@ -10,13 +10,27 @@
 //   4. About you             - name, time zone, goal, one thing to improve
 //   5. Review                - the week as it will run; "Looks good" saves it
 
-import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 
 import { RoadmapWelcome } from '../components/RoadmapWelcome'
+import { CalendarIcon } from '../components/icons'
+import {
+  ChoiceCard,
+  Field,
+  GhostButton,
+  HIGHLIGHT,
+  Heading,
+  INPUT,
+  INPUT_STYLE,
+  PrimaryButton,
+  R,
+  RoadmapPage,
+  StepNav,
+  TextInput,
+  cardStyle,
+} from '../components/roadmap'
 import { WeekCalendar } from '../components/WeekCalendar'
-import { INPUT_CLASS } from '../components/styles'
-import { Button, ScreenHeader, SectionLabel } from '../components/ui'
 import { useData } from '../data/useData'
 import {
   KIND_LABEL,
@@ -29,6 +43,7 @@ import {
   planIcs,
   planProblems,
   segmentsFor,
+  trybeMinutes,
   type DraftBlock,
 } from '../data/weeklyPlan'
 import { sendQuizFinished } from '../sync/quizFinished'
@@ -36,12 +51,8 @@ import { sendQuizFinished } from '../sync/quizFinished'
 type Step = 'why' | 'hours' | 'week' | 'you' | 'review'
 const STEPS: Step[] = ['why', 'hours', 'week', 'you', 'review']
 
-const MINUTE_LABEL: Record<number, string> = {
-  60: '1 hour',
-  90: '1.5 hours',
-  120: '2 hours · recommended',
-  180: "3 hours · if you're really locked in",
-}
+const MINUTE_TITLE: Record<number, string> = { 60: '1 hour', 90: '1.5 hours', 120: '2 hours', 180: '3 hours' }
+const MINUTE_BADGE: Record<number, string | undefined> = { 120: 'Recommended', 180: "If you're really locked in" }
 
 function browserTimezone(): string {
   try {
@@ -151,136 +162,179 @@ export function Start() {
     }
   }
 
-  const nav = (canGo: boolean, label = 'Next') => (
-    <div className="flex items-center gap-2 pt-2">
-      {index > 0 ? (
-        <Button variant="ghost" onClick={back}>
-          Back
-        </Button>
-      ) : null}
-      <Button variant="now" disabled={!canGo} onClick={next}>
-        {label}
-      </Button>
-    </div>
+  // Leaving: first time, a way to sign in instead (a week saved on another
+  // device arrives once he does); changing it later, a way back out.
+  const aside = firstTime ? (
+    <Link to="/settings" className="hidden text-[13px] font-semibold transition-colors hover:text-[#F4F3EF] sm:inline" style={{ color: R.dim }}>
+      Sign in
+    </Link>
+  ) : (
+    <Link to="/settings" className="text-[13px] font-semibold transition-colors hover:text-[#F4F3EF]" style={{ color: R.dim }}>
+      Cancel
+    </Link>
   )
 
-  // The welcome is a cover page of its own, edge to edge.
-  if (step === 'why') return <RoadmapWelcome onStart={next} editing={!firstTime} />
+  // The welcome is a cover page of its own; the four questions are steps 1-4.
+  if (step === 'why') return <RoadmapWelcome onStart={next} editing={!firstTime} aside={aside} />
+  const stepNumber = index
+  const total = STEPS.length - 1
+  const kicker = (label: string) => `Step ${String(stepNumber).padStart(2, '0')} · ${label}`
 
   return (
-    <section className="mx-auto flex max-w-3xl flex-col gap-6">
-      <p className="label text-state-later">
-        Step {index + 1} of {STEPS.length}
-      </p>
+    <RoadmapPage step={stepNumber} steps={total} aside={aside}>
+      <div key={step} className="flex flex-col gap-8 pt-10 sm:pt-14">
+        {step === 'hours' ? (
+          <>
+            <Heading kicker={kicker('Your time')} title="How long is each recording day?" lead="The more time you give it, the faster you scale. Every session starts with Trybe videos." />
+            <div role="radiogroup" aria-label="Time per recording day" className="flex flex-col gap-3">
+              {MINUTES_PER_DAY_OPTIONS.map((value, i) => {
+                const trybe = trybeMinutes(value)
+                return (
+                  <ChoiceCard
+                    key={value}
+                    index={i}
+                    selected={minutes === value}
+                    onSelect={() => changeMinutes(value)}
+                    title={MINUTE_TITLE[value]}
+                    badge={MINUTE_BADGE[value]}
+                  >
+                    <span className="flex items-center gap-3">
+                      {/* The split, drawn: Trybe first, then the rest. */}
+                      <span aria-hidden className="flex h-1.5 w-24 shrink-0 overflow-hidden rounded-full" style={{ background: R.edge }}>
+                        <span style={{ width: `${(trybe / value) * 100}%`, background: R.blue }} />
+                        <span style={{ width: `${((value - trybe) / value) * 100}%`, background: '#3B5BDB' }} />
+                      </span>
+                      <span className="text-[13.5px]" style={{ color: R.body }}>
+                        {hours(trybe)} Trybe + {hours(value - trybe)} base UGC or media maxing · {hours(value * 3)} a week
+                      </span>
+                    </span>
+                  </ChoiceCard>
+                )
+              })}
+            </div>
+            <StepNav onBack={back} next={<PrimaryButton onClick={next}>Next</PrimaryButton>} />
+          </>
+        ) : null}
 
-      {step === 'hours' ? (
-        <>
-          <ScreenHeader title="How long is each recording day?" meta="The more time, the faster you scale." />
-          <div role="radiogroup" aria-label="Time per recording day" className="flex flex-col gap-2">
-            {MINUTES_PER_DAY_OPTIONS.map((value) => (
-              <button
-                key={value}
-                type="button"
-                role="radio"
-                aria-checked={minutes === value}
-                onClick={() => changeMinutes(value)}
-                className={[
-                  'press min-h-tap rounded-xl border px-4 py-3 text-left',
-                  minutes === value ? 'border-state-now bg-surface-raised text-text' : 'border-edge text-text-dim active:bg-surface',
-                ].join(' ')}
-              >
-                <span className="block text-base font-semibold">{MINUTE_LABEL[value]}</span>
-                <span className="meta block text-state-later">
-                  {hours(value >= 120 ? 60 : value / 2)} Trybe videos + {hours(value - (value >= 120 ? 60 : value / 2))} base UGC or media maxing
-                  · {hours(value * 3)} a week
-                </span>
-              </button>
-            ))}
-          </div>
-          {nav(true)}
-        </>
-      ) : null}
+        {step === 'week' ? (
+          <>
+            <Heading
+              kicker={kicker('Your week')}
+              title="Place your week"
+              lead="Your three recording sessions at the time you reserve for them, your ideate days, and a backup day if you want one."
+            />
+            <WeekCalendar blocks={blocks} minutesPerDay={minutes} onChange={setBlocks} />
+            {problems.length > 0 ? (
+              <ul className="flex flex-col gap-2">
+                {problems.map((p) => (
+                  <li key={p} className="flex items-center gap-3 text-[14px]" style={{ color: R.body }}>
+                    <span aria-hidden className="size-1.5 shrink-0 rounded-full" style={{ background: R.line }} />
+                    {p}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            <StepNav onBack={back} next={<PrimaryButton disabled={problems.length > 0} onClick={next}>Next</PrimaryButton>} />
+          </>
+        ) : null}
 
-      {step === 'week' ? (
-        <>
-          <ScreenHeader title="Place your week" meta="Your three recording sessions, your ideate days, and a backup day if you want one." />
-          <WeekCalendar blocks={blocks} minutesPerDay={minutes} onChange={setBlocks} />
-          {problems.length > 0 ? (
-            <ul className="flex flex-col gap-1">
-              {problems.map((p) => (
-                <li key={p} className="text-sm text-state-later">
-                  {p}
+        {step === 'you' ? (
+          <>
+            <Heading kicker={kicker('About you')} title="Tell us about you" lead="So we know who you are and what you're working toward." />
+            <div className="flex flex-col gap-5 rounded-2xl p-5 sm:p-6" style={cardStyle(false)}>
+              <Field label="Your name">{({ id }) => <TextInput id={id} value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" />}</Field>
+              <Field label="Time zone" hint="Filled in from your phone - change it if it's wrong.">
+                {({ id }) => (
+                  <select id={id} className={`${INPUT} h-12 appearance-none`} style={INPUT_STYLE} value={timezone} onChange={(e) => setTimezone(e.target.value)}>
+                    {timezones(timezone).map((tz) => (
+                      <option key={tz} value={tz}>
+                        {tz.replace(/_/g, ' ')}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </Field>
+              <Field label="Your goal">
+                {({ id }) => <TextInput id={id} value={goal} onChange={(e) => setGoal(e.target.value)} placeholder="e.g. land my first campaign, $1k a month" />}
+              </Field>
+              <Field label="If there was one thing we could do to make your experience as good as possible, what would it be?">
+                {({ id }) => <textarea id={id} className={`${INPUT} min-h-28 py-3`} style={INPUT_STYLE} value={wish} onChange={(e) => setWish(e.target.value)} />}
+              </Field>
+            </div>
+            <StepNav onBack={back} next={<PrimaryButton disabled={name.trim() === '' || goal.trim() === ''} onClick={next}>Next</PrimaryButton>} />
+          </>
+        ) : null}
+
+        {step === 'review' ? (
+          <>
+            <Heading kicker={kicker('Review')} title="Your week" lead={`${hours(minutes)} a recording day · ${timezone.replace(/_/g, ' ')}`} />
+            <WeekCalendar blocks={blocks} minutesPerDay={minutes} readOnly />
+            {/* The deck's rows: dark bars, a blue number, bold white name, grey text. */}
+            <ol className="flex flex-col gap-2">
+              {sortedBlocks(blocks).map((b, i) => (
+                <li
+                  key={`${b.weekday}-${b.start_minute}`}
+                  className="settle-in flex items-center gap-4 rounded-2xl px-4 py-3.5"
+                  style={{ ...cardStyle(false), '--i': i } as CSSProperties}
+                >
+                  <span
+                    aria-hidden
+                    className="flex size-9 shrink-0 items-center justify-center rounded-full text-[13px] font-bold"
+                    style={b.kind === 'record' ? { background: HIGHLIGHT, color: '#fff' } : { background: 'rgba(134,168,255,0.10)', color: R.blue, boxShadow: 'inset 0 0 0 1px rgba(134,168,255,0.28)' }}
+                  >
+                    {WEEKDAYS[b.weekday].slice(0, 2)}
+                  </span>
+                  <span className="flex min-w-0 flex-col">
+                    <span className="text-[15px] font-semibold" style={{ color: R.title }}>
+                      {WEEKDAYS[b.weekday]} · {clock(b.start_minute)}
+                    </span>
+                    <span className="text-[13.5px]" style={{ color: R.body }}>
+                      {describe(b, blocks)}
+                    </span>
+                  </span>
                 </li>
               ))}
-            </ul>
-          ) : null}
-          {nav(problems.length === 0)}
-        </>
-      ) : null}
-
-      {step === 'you' ? (
-        <>
-          <ScreenHeader title="About you" />
-          <label className="flex flex-col gap-1">
-            <span className="label text-state-later">Your name</span>
-            <input className={INPUT_CLASS} value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="label text-state-later">Time zone</span>
-            <select className={INPUT_CLASS} value={timezone} onChange={(e) => setTimezone(e.target.value)}>
-              {timezones(timezone).map((tz) => (
-                <option key={tz} value={tz}>
-                  {tz.replace(/_/g, ' ')}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="label text-state-later">Your goal</span>
-            <input
-              className={INPUT_CLASS}
-              value={goal}
-              onChange={(e) => setGoal(e.target.value)}
-              placeholder="e.g. land my first campaign, $1k a month"
+            </ol>
+            <div className="flex flex-col gap-4 rounded-2xl p-5 sm:flex-row sm:items-center" style={cardStyle(false)}>
+              <span
+                aria-hidden
+                className="flex size-10 shrink-0 items-center justify-center rounded-full"
+                style={{ background: 'rgba(134,168,255,0.10)', color: R.blue, boxShadow: 'inset 0 0 0 1px rgba(134,168,255,0.28)' }}
+              >
+                <CalendarIcon className="h-5 w-5" />
+              </span>
+              <p className="flex-1 text-[14px] leading-relaxed" style={{ color: R.body }}>
+                * I recommend you put this in your own Google Calendar. It can help you.
+              </p>
+              <GhostButton onClick={downloadIcs}>Add to my calendar (.ics)</GhostButton>
+            </div>
+            {error ? (
+              <p className="text-[14px]" style={{ color: '#F2564C' }}>
+                {error}
+              </p>
+            ) : null}
+            <StepNav
+              onBack={back}
+              next={
+                <PrimaryButton disabled={saving || problems.length > 0} onClick={() => void save()}>
+                  {saving ? 'Saving…' : 'Looks good'}
+                </PrimaryButton>
+              }
             />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="label text-state-later">If there was one thing we could do to make your experience as good as possible, what would it be?</span>
-            <textarea className={`${INPUT_CLASS} min-h-24 py-2`} value={wish} onChange={(e) => setWish(e.target.value)} />
-          </label>
-          {nav(name.trim() !== '' && goal.trim() !== '')}
-        </>
-      ) : null}
-
-      {step === 'review' ? (
-        <>
-          <ScreenHeader title="Your week" meta={`${hours(minutes)} a recording day · ${timezone.replace(/_/g, ' ')}`} />
-          <WeekCalendar blocks={blocks} minutesPerDay={minutes} readOnly />
-          <ul className="flex flex-col divide-y divide-rule border-y border-rule">
-            {weekLines(blocks).map((line) => (
-              <li key={line} className="py-2 text-base text-text">
-                {line}
-              </li>
-            ))}
-          </ul>
-          <div className="flex flex-col gap-2">
-            <SectionLabel>Your calendar</SectionLabel>
-            <p className="text-sm text-text-dim">* I recommend you put this in your own Google Calendar. It can help you.</p>
-            <Button variant="ghost" className="self-start" onClick={downloadIcs}>
-              Add to my calendar (.ics)
-            </Button>
-          </div>
-          {error ? <p className="text-sm text-state-blocked">{error}</p> : null}
-          <div className="flex items-center gap-2 pt-2">
-            <Button variant="ghost" onClick={back}>
-              Back
-            </Button>
-            <Button variant="now" disabled={saving || problems.length > 0} onClick={() => void save()}>
-              {saving ? 'Saving…' : 'Looks good'}
-            </Button>
-          </div>
-        </>
-      ) : null}
-    </section>
+          </>
+        ) : null}
+      </div>
+    </RoadmapPage>
   )
+}
+
+function sortedBlocks(blocks: readonly DraftBlock[]): DraftBlock[] {
+  return [...blocks].sort((a, b) => a.weekday - b.weekday || a.start_minute - b.start_minute)
+}
+
+/** What a block holds, in words: "1h Trybe videos, then 1h Media maxing". */
+function describe(b: DraftBlock, blocks: readonly DraftBlock[]): string {
+  return b.kind === 'record'
+    ? segmentsFor(b, blocks).map((s) => `${hours(s.duration_minutes)} ${SEGMENT_LABEL[s.kind]}`).join(', then ')
+    : `${hours(b.duration_minutes)} ${KIND_LABEL[b.kind]}`
 }

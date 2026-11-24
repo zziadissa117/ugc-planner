@@ -13,6 +13,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import { RoadmapWelcome } from '../components/RoadmapWelcome'
 import { WeekCalendar } from '../components/WeekCalendar'
 import { INPUT_CLASS } from '../components/styles'
 import { Button, ScreenHeader, SectionLabel } from '../components/ui'
@@ -163,33 +164,14 @@ export function Start() {
     </div>
   )
 
+  // The welcome is a cover page of its own, edge to edge.
+  if (step === 'why') return <RoadmapWelcome onStart={next} editing={!firstTime} />
+
   return (
     <section className="mx-auto flex max-w-3xl flex-col gap-6">
       <p className="label text-state-later">
         Step {index + 1} of {STEPS.length}
       </p>
-
-      {step === 'why' ? (
-        <>
-          <ScreenHeader title={firstTime ? 'Your recording week' : 'Edit your week'} />
-          <div className="flex flex-col gap-4 text-base text-text-dim">
-            <p>
-              <span className="text-text">You record three days a week. Not every day.</span> Recording every day leads to
-              burnout, and to posting everything at 11 pm because the day got away from you.
-            </p>
-            <p>
-              Instead you record in batches, on three set days, at a time you reserve for it. Be strict with that time.
-              The other days are for ideating, A/B testing and improving your content - you don't have to post every
-              day, and you get a better feedback loop when you're not rushed.
-            </p>
-            <p>
-              Each recording session starts with <span className="text-text">Trybe videos</span>: practice videos you
-              don't post. Set the timer and make as many as you can. Then base UGC - or media maxing on your third day.
-            </p>
-          </div>
-          {nav(true, "Let's set it up")}
-        </>
-      ) : null}
 
       {step === 'hours' ? (
         <>

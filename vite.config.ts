@@ -17,7 +17,7 @@ export default defineConfig({
         // file is fetched over the network and the one screen he taps on a
         // train is silent - the app has to work with the network off, and
         // that includes the part that tells him he just earned something.
-        globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2,mp3}'],
+        globPatterns: ['**/*.{js,css,html,svg,png,jpeg,ico,woff2,mp3}'],
         navigateFallback: '/index.html',
       },
       devOptions: {

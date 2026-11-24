@@ -11,6 +11,7 @@
 // often on a different tab or device.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import type { Session } from '@supabase/supabase-js'
 
 import { useData } from '../data/useData'
 import { AuthContext, type AuthControls } from './AuthContext'
@@ -18,6 +19,7 @@ import { announceDataChanged } from '../data/changed'
 import { claimLocalRows } from './claim'
 import { drainOutbox, pullChanges } from './engine'
 import { getSupabaseClient, signIn, signOut as signOutRemote } from './auth'
+import { applyDraft, forgetDraft, forgetInvite, keepDraft, markDraftSaved, waitingDraft } from './onboardingDraft'
 import { sessionExpired } from './session'
 import { SupabaseSyncTarget } from './supabaseTarget'
 
@@ -46,6 +48,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const client = useMemo(() => getSupabaseClient(), [])
 
   const [email, setEmail] = useState<string | null>(null)
+  const [ready, setReady] = useState(client === null)
+  const [settingUp, setSettingUp] = useState(false)
+  // The sync pass, so a fresh sign-in can start one at once rather than at
+  // the next tick - the quiz screen is waiting on it.
+  const runNow = useRef<(() => Promise<void>) | null>(null)
   const [requestStatus, setRequestStatus] = useState<AuthControls['requestStatus']>('idle')
   const [requestError, setRequestError] = useState<string | null>(null)
   const [sessionLost, setSessionLost] = useState(false)
@@ -89,8 +96,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const drained = await drainOutbox(data, target)
         const pulled = await pullChanges(data, target, localStorage.getItem(SYNC_CURSOR_KEY))
         if (pulled.serverTime) localStorage.setItem(SYNC_CURSOR_KEY, pulled.serverTime)
-        // Another device's edits landed: the open screen reads again.
-        if (pulled.appliedRows > 0 || drained.conflicts > 0) announceDataChanged()
+
+        // A quiz finished before the account existed: saved now, after the
+        // pull, so it replaces a week the account already had instead of
+        // landing beside it. Taken off the shelf first, so a second tab's
+        // pass cannot save it twice; put back if saving fails.
+        const carried = session.user.user_metadata?.onboarding
+        const draft = waitingDraft(session.user.id, carried)
+        if (draft) {
+          forgetDraft()
+          try {
+            await applyDraft(data, draft)
+          } catch (error) {
+            keepDraft(draft)
+            throw error
+          }
+          markDraftSaved(session.user.id)
+          await drainOutbox(data, target)
+        }
+        if (carried !== undefined && carried !== null) void client.auth.updateUser({ data: { onboarding: null } }).catch(() => undefined)
+        // Signed in: the invite that brought him here has done its job.
+        forgetInvite()
+
+        // Another device's edits landed, or the waiting week did: the open
+        // screen reads again - before the quiz stops waiting, so it moves on
+        // rather than showing its welcome for a moment.
+        if (pulled.appliedRows > 0 || drained.conflicts > 0 || draft !== null) announceDataChanged()
+        setSettingUp(false)
       } catch (error) {
         // Offline, or the server refused a read: the next pass tries again.
         // Never an unhandled rejection - those surface as error text.
@@ -99,18 +131,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         running = false
       }
     }
+    runNow.current = run
     void run()
     const timer = window.setInterval(() => void run(), 30_000)
     window.addEventListener('online', run)
-    return () => { window.clearInterval(timer); window.removeEventListener('online', run) }
+    return () => {
+      runNow.current = null
+      window.clearInterval(timer)
+      window.removeEventListener('online', run)
+    }
   }, [client, data])
 
   useEffect(() => {
     if (!client) return
     let cancelled = false
 
+    const waiting = (session: Session | null) => session !== null && waitingDraft(session.user.id, session.user.user_metadata?.onboarding) !== null
+
     void client.auth.getSession().then(({ data: { session } }) => {
-      if (!cancelled) setEmail(session?.user.email ?? null)
+      if (cancelled) return
+      setEmail(session?.user.email ?? null)
+      setSettingUp(waiting(session))
+      setReady(true)
     })
 
     // supabase-js renews the token well before it runs out. One that is past
@@ -133,10 +175,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (event === 'SIGNED_OUT' && !leaving.current) setSessionLost(true)
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') setSessionLost(false)
       setEmail((current) => session?.user.email ?? (event === 'SIGNED_OUT' && !leaving.current ? current : null))
+      if (event === 'SIGNED_IN') setSettingUp(waiting(session))
       const userId = session?.user.id ?? null
       if (userId) {
         void claimLocalRows(data, { getAuthState: async () => ({ userId }) })
       }
+      // Not inside the callback itself: supabase-js holds its lock until the
+      // callback returns, and the pass reads the session again.
+      if (event === 'SIGNED_IN') window.setTimeout(() => void runNow.current?.(), 0)
     })
 
     return () => {
@@ -146,11 +192,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [client, data])
 
-  const requestLink = useCallback(async (target: string, inviteCode?: string) => {
+  const requestLink = useCallback(async (target: string, inviteCode?: string, onboarding?: unknown) => {
     setRequestStatus('sending')
     setRequestError(null)
     try {
-      await signIn(target, inviteCode)
+      await signIn(target, inviteCode, onboarding)
       setRequestStatus('sent')
     } catch (caught) {
       setRequestStatus('error')
@@ -171,8 +217,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const value = useMemo<AuthControls>(
-    () => ({ configured: client !== null, email, sessionLost, requestStatus, requestError, requestLink, signOut }),
-    [client, email, requestError, requestLink, requestStatus, sessionLost, signOut],
+    () => ({ configured: client !== null, ready, email, settingUp, sessionLost, requestStatus, requestError, requestLink, signOut }),
+    [client, email, ready, requestError, requestLink, requestStatus, sessionLost, settingUp, signOut],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

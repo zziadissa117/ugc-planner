@@ -10,8 +10,13 @@
 //   2h   -> 1h Trybe  + 1h      (recommended)
 //   3h   -> 1h Trybe  + 2h      (if he is really locked in)
 //
-// Other days he picks are for ideating, A/B testing and improving content, and
-// one optional backup day catches a missed session.
+// Ideating, A/B testing and improving content goes on other days - never on a
+// recording day - 2 to 4 hours a week recommended, at least one session. One
+// optional backup day catches a missed session.
+//
+// The week starts on Sunday, the way he reads a calendar. Storage does not:
+// `weekday` is 0 = Monday (migration 0023), so Sunday is 6 and is put first
+// only where the week is shown or put in order (weekPosition).
 
 import type { PlanBlock, PlanBlockKind } from './schema'
 
@@ -20,9 +25,30 @@ export type MinutesPerDay = (typeof MINUTES_PER_DAY_OPTIONS)[number]
 export const RECOMMENDED_MINUTES: MinutesPerDay = 120
 export const RECORDING_DAYS = 3
 export const IDEATE_MINUTES = 60
+/** Ideating a week, recommended: 2 to 4 hours. A recommendation, not a rule -
+ *  one session is the minimum. */
+export const IDEATE_RECOMMENDED = { min: 120, max: 240 } as const
 
 export const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as const
 export const WEEKDAYS_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const
+
+/** The stored weekdays in the order the week is shown: Sunday first. */
+export const WEEK_ORDER = [6, 0, 1, 2, 3, 4, 5] as const
+
+/** Where a stored weekday falls in a week that starts on Sunday: 0 = Sunday. */
+export function weekPosition(weekday: number): number {
+  return (weekday + 1) % 7
+}
+
+/** Blocks in the order the week runs: Sunday first, then by time. */
+export function sortByWeek<T extends DraftBlock>(blocks: readonly T[]): T[] {
+  return [...blocks].sort((a, b) => weekPosition(a.weekday) - weekPosition(b.weekday) || a.start_minute - b.start_minute)
+}
+
+/** How long he has set aside for ideating, across the week. */
+export function ideateMinutes(blocks: readonly DraftBlock[]): number {
+  return blocks.filter((b) => b.kind === 'ideate').reduce((sum, b) => sum + b.duration_minutes, 0)
+}
 
 export type SegmentKind = 'trybe' | 'base' | 'media_maxing'
 
@@ -46,9 +72,10 @@ export function trybeMinutes(minutesPerDay: number): number {
   return minutesPerDay >= 120 ? 60 : minutesPerDay / 2
 }
 
-/** The recording blocks in week order: the third is the media maxing day. */
+/** The recording blocks in week order, Sunday first: the third is the media
+ *  maxing day. */
 export function recordingOrder<T extends DraftBlock>(blocks: readonly T[]): T[] {
-  return blocks.filter((b) => b.kind === 'record').sort((a, b) => a.weekday - b.weekday || a.start_minute - b.start_minute)
+  return sortByWeek(blocks.filter((b) => b.kind === 'record'))
 }
 
 /** What a recording block holds, in order. */
@@ -80,6 +107,7 @@ export function planProblems(blocks: readonly DraftBlock[]): string[] {
   if (record.length > RECORDING_DAYS) problems.push(`Three recording days only - remove ${record.length - RECORDING_DAYS}.`)
   if (new Set(record.map((b) => b.weekday)).size !== record.length) problems.push('Put each recording session on a different day.')
   if (!blocks.some((b) => b.kind === 'ideate')) problems.push('Pick at least one day to ideate, A/B test and improve.')
+  if (blocks.some((b) => b.kind === 'ideate' && record.some((r) => r.weekday === b.weekday))) problems.push("Move your ideating to a day you don't record.")
   if (blocks.filter((b) => b.kind === 'backup').length > 1) problems.push('One backup day at most.')
   if (blocks.some((b) => end(b) > 24 * 60)) problems.push('A session runs past midnight - start it earlier.')
   return problems
@@ -94,9 +122,22 @@ export function cannotPlace(blocks: readonly DraftBlock[], block: DraftBlock): s
     const record = blocks.filter((b) => b.kind === 'record')
     if (record.length >= RECORDING_DAYS) return 'You already have your three recording days. Tap one to remove it first.'
     if (record.some((b) => b.weekday === block.weekday)) return 'One recording session a day.'
+    if (blocks.some((b) => b.kind === 'ideate' && b.weekday === block.weekday)) return "That's an ideate day - record on another day."
+  }
+  if (block.kind === 'ideate' && blocks.some((b) => b.kind === 'record' && b.weekday === block.weekday)) {
+    return "That's a recording day - ideate on a day you don't record."
   }
   if (block.kind === 'backup' && blocks.some((b) => b.kind === 'backup')) return 'One backup day at most.'
   return null
+}
+
+/** Whether a block can move to a new start on its own day: the same checks,
+ *  against everything but itself. Null when it can, else why not. */
+export function cannotMove(blocks: readonly DraftBlock[], block: DraftBlock, start: number): string | null {
+  return cannotPlace(
+    blocks.filter((b) => b !== block),
+    { ...block, start_minute: start },
+  )
 }
 
 export function durationFor(kind: PlanBlockKind, minutesPerDay: number): number {
@@ -126,6 +167,18 @@ export const KIND_LABEL: Record<PlanBlockKind, string> = {
   record: 'Record',
   ideate: 'Ideate · A/B test · improve',
   backup: 'Backup day',
+}
+
+/** What a block holds, in words: "1h Trybe videos, then 1h Media maxing". */
+export function describeBlock(block: DraftBlock, blocks: readonly DraftBlock[]): string {
+  return block.kind === 'record'
+    ? segmentsFor(block, blocks).map((s) => `${hours(s.duration_minutes)} ${SEGMENT_LABEL[s.kind]}`).join(', then ')
+    : `${hours(block.duration_minutes)} ${KIND_LABEL[block.kind]}`
+}
+
+/** The week in words, one line a block, Sunday first - his Telegram. */
+export function weekLines(blocks: readonly DraftBlock[]): string[] {
+  return sortByWeek(blocks).map((b) => `${WEEKDAYS[b.weekday]} ${clock(b.start_minute)} - ${describeBlock(b, blocks)}`)
 }
 
 const ICS_DAYS = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU']

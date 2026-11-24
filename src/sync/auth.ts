@@ -78,7 +78,7 @@ export async function getAuthState(): Promise<AuthState> {
  *  that dead-ends on a phone. The URL must also be allow-listed under
  *  Authentication -> URL Configuration, or Supabase ignores it and falls back
  *  to Site URL anyway - see docs/DEPLOY.md. */
-export async function signIn(email: string, inviteCode?: string): Promise<void> {
+export async function signIn(email: string, inviteCode?: string, onboarding?: unknown): Promise<void> {
   const client = getSupabaseClient()
   if (!client) throw new Error('Supabase is not configured yet.')
 
@@ -89,10 +89,19 @@ export async function signIn(email: string, inviteCode?: string): Promise<void> 
   // metadata for the server to check on the new row
   // (docs/migrations/0021_invite_links.sql). The server is what refuses; the
   // flag only keeps a stranger from seeing a database error.
+  //
+  // A quiz finished before the account existed rides along too, so the week
+  // is not lost when the link opens in another browser (onboardingDraft.ts).
+  // Metadata is only written when the account is made; the app clears it once
+  // the week is saved.
   const { error } = await client.auth.signInWithOtp({
     email,
     options: inviteCode
-      ? { emailRedirectTo: window.location.origin, shouldCreateUser: true, data: { invite_code: inviteCode } }
+      ? {
+          emailRedirectTo: window.location.origin,
+          shouldCreateUser: true,
+          data: onboarding === undefined ? { invite_code: inviteCode } : { invite_code: inviteCode, onboarding },
+        }
       : { emailRedirectTo: window.location.origin, shouldCreateUser: false },
   })
   if (error) {

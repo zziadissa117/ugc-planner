@@ -7,7 +7,19 @@ import type { CSSProperties, ReactNode } from 'react'
 import { CalendarIcon } from './icons'
 import { Blue, Heading, InfoCard, PrimaryButton, R, RoadmapPage, cardStyle } from './roadmap'
 
-export function RoadmapWelcome({ onStart, editing = false, aside }: { onStart: () => void; editing?: boolean; aside?: ReactNode }) {
+export function RoadmapWelcome({
+  onStart,
+  editing = false,
+  aside,
+  onSignIn,
+}: {
+  onStart: () => void
+  editing?: boolean
+  aside?: ReactNode
+  /** Signed out: someone with an account signs in here instead of starting
+   *  over - his week arrives once he does. */
+  onSignIn?: () => void
+}) {
   return (
     <RoadmapPage wide aside={aside}>
       <div className="flex flex-col items-center gap-10 pt-10 sm:pt-16">
@@ -56,10 +68,18 @@ export function RoadmapWelcome({ onStart, editing = false, aside }: { onStart: (
           </p>
         </div>
 
-        <div className="settle-in" style={{ '--i': 5 } as CSSProperties}>
+        <div className="settle-in flex flex-col items-center gap-5" style={{ '--i': 5 } as CSSProperties}>
           <PrimaryButton onClick={onStart} className="min-h-14 px-9 text-base">
             {editing ? 'Change my week' : "Let's set it up"}
           </PrimaryButton>
+          {onSignIn ? (
+            <p className="text-[14px]" style={{ color: R.dim }}>
+              Already have an account?{' '}
+              <button type="button" onClick={onSignIn} className="font-semibold underline-offset-4 hover:underline" style={{ color: R.blue }}>
+                Sign in
+              </button>
+            </p>
+          ) : null}
         </div>
       </div>
     </RoadmapPage>

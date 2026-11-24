@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { InviteLink } from '../sync/invites'
+import { readInvite } from '../sync/onboardingDraft'
 import { InviteLinks } from './InviteLinks'
 import { Join } from './Join'
 
@@ -47,6 +48,7 @@ function link(overrides: Partial<InviteLink> = {}): InviteLink {
 }
 
 beforeEach(() => {
+  localStorage.clear()
   auth = { ...auth, configured: true, email: 'me@example.com', requestStatus: 'idle', requestError: null }
   listInvites.mockReset().mockResolvedValue([])
   createInvite.mockReset()
@@ -117,41 +119,36 @@ describe('Join', () => {
       <MemoryRouter initialEntries={['/join/abcDEF123456ghiJKL']}>
         <Routes>
           <Route path="/join/:code" element={<Join />} />
+          <Route path="/start" element={<p>the quiz</p>} />
         </Routes>
       </MemoryRouter>,
     )
   }
 
-  it('sends the code from the link along with the email', async () => {
+  it('keeps the code from the link and opens the quiz, where the account is made at the end', async () => {
     auth = { ...auth, email: null }
-    const user = userEvent.setup()
     renderJoin()
-    await user.type(screen.getByLabelText('Email'), ' student@example.com ')
-    await user.click(screen.getByRole('button', { name: 'Send link' }))
-    expect(requestLink).toHaveBeenCalledWith('student@example.com', 'abcDEF123456ghiJKL')
+    expect(await screen.findByText('the quiz')).toBeInTheDocument()
+    expect(readInvite()).toBe('abcDEF123456ghiJKL')
+    expect(requestLink).not.toHaveBeenCalled()
   })
 
-  it('says a full link is full before asking for an email', async () => {
+  it('says a full link is full before anyone starts', async () => {
     auth = { ...auth, email: null }
     inviteStatus.mockResolvedValue('full')
     renderJoin()
     expect(await screen.findByText(/This invite link is full\./)).toBeInTheDocument()
     expect(inviteStatus).toHaveBeenCalledWith('abcDEF123456ghiJKL')
-    expect(screen.queryByLabelText('Email')).toBeNull()
+    expect(screen.queryByText('the quiz')).toBeNull()
+    expect(readInvite()).toBeNull()
   })
 
-  it('still offers the email box when the link cannot be checked', async () => {
+  it('still opens the quiz when the link cannot be checked - the server decides', async () => {
     auth = { ...auth, email: null }
     inviteStatus.mockRejectedValue(new Error('offline'))
     renderJoin()
-    await vi.waitFor(() => expect(inviteStatus).toHaveBeenCalled())
-    expect(screen.getByLabelText('Email')).toBeInTheDocument()
-  })
-
-  it("shows the server's refusal as it comes", () => {
-    auth = { ...auth, email: null, requestStatus: 'error', requestError: 'This invite link is full.' }
-    renderJoin()
-    expect(screen.getByText('This invite link is full.')).toBeInTheDocument()
+    expect(await screen.findByText('the quiz')).toBeInTheDocument()
+    expect(readInvite()).toBe('abcDEF123456ghiJKL')
   })
 
   it('does not ask someone already signed in to join', () => {

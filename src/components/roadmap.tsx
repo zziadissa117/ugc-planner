@@ -340,7 +340,7 @@ export function Field({
   const id = `f-${label.replace(/\W+/g, '-').toLowerCase()}`
   return (
     <div className="flex flex-col gap-2">
-      <label htmlFor={id} className="text-[13px] font-semibold" style={{ color: R.title }}>
+      <label htmlFor={id} className="text-[15.5px] font-semibold leading-snug" style={{ color: R.title }}>
         {label}
       </label>
       {children({ id })}

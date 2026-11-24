@@ -56,6 +56,10 @@ create type document_kind as enum ('brief', 'contract', 'other');
 -- How often a campaign pays out. 'none' = no payout date saved yet.
 create type payout_schedule as enum ('none', 'one_off', 'weekly', 'biweekly', 'monthly');
 
+-- A block on a student's weekly plan: a reserved recording session, an
+-- ideate / A-B test / improve session, or the backup day (plan_blocks).
+create type plan_block_kind as enum ('record', 'ideate', 'backup');
+
 -- Income he makes outside UGC campaigns, entered by hand (side_income).
 create type side_income_source as enum ('detailing', 'media_maxing');
 create type currency_code as enum ('USD', 'CAD');
@@ -629,8 +633,36 @@ create table user_settings (
   -- Ships null on purpose: the user fills it, we never guess.
   opening_unedited_count integer check (opening_unedited_count >= 0),
   last_export_at         timestamptz,
+  -- The onboarding quiz. Everyone answers it once - him included - and the
+  -- planner sends them to it until onboarded_at is set. Typed by the person,
+  -- never inferred.
+  student_name           text default null,
+  timezone               text default null,
+  goal                   text default null,
+  wish                   text default null,
+  -- How long each of the three recording days runs: 1h, 1.5h, 2h or 3h.
+  minutes_per_day        integer default null check (minutes_per_day in (60, 90, 120, 180)),
+  onboarded_at           timestamptz default null,
   updated_at             timestamptz not null default now()
 );
+
+-- His week, as he placed it on the calendar: three recording sessions at a
+-- reserved time, the days he ideates and A/B tests, and an optional backup
+-- day. What a recording session holds (Trybe videos, base UGC, media maxing)
+-- is worked out by fixed rules from minutes_per_day, never stored.
+create table plan_blocks (
+  id               uuid primary key default gen_random_uuid(),
+  user_id          uuid not null references auth.users(id) on delete cascade,
+  kind             plan_block_kind not null,
+  -- 0 = Monday ... 6 = Sunday.
+  weekday          integer not null check (weekday between 0 and 6),
+  -- Minutes after midnight, in his own time zone.
+  start_minute     integer not null check (start_minute between 0 and 1439),
+  duration_minutes integer not null check (duration_minutes > 0 and duration_minutes <= 720),
+  updated_at       timestamptz not null default now()
+);
+
+create index on plan_blocks (user_id);
 
 -- ---------------------------------------------------------------------------
 -- Row level security
@@ -653,6 +685,7 @@ alter table bonus_claims       enable row level security;
 alter table earnings_events    enable row level security;
 alter table campaign_payouts   enable row level security;
 alter table side_income        enable row level security;
+alter table plan_blocks        enable row level security;
 alter table time_estimates     enable row level security;
 alter table user_settings      enable row level security;
 
@@ -662,7 +695,7 @@ begin
   foreach t in array array[
     'campaigns','campaign_accounts','campaign_documents','campaign_fields','campaign_angles','campaign_hooks',
     'campaign_rules','videos','video_posts','bonus_tiers','bonus_claims',
-    'time_estimates','work_sessions','campaign_payouts','side_income'
+    'time_estimates','work_sessions','campaign_payouts','side_income','plan_blocks'
   ]
   loop
     execute format(

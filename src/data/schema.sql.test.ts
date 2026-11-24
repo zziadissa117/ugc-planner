@@ -22,6 +22,7 @@ import MIGRATION_0018 from '../../docs/migrations/0018_campaign_archive.sql?raw'
 import MIGRATION_0017 from '../../docs/migrations/0017_cutter_campaign_link.sql?raw'
 import MIGRATION_0019 from '../../docs/migrations/0019_campaign_min_views.sql?raw'
 import MIGRATION_0022 from '../../docs/migrations/0022_side_income.sql?raw'
+import MIGRATION_0023 from '../../docs/migrations/0023_weekly_plan.sql?raw'
 import SCHEMA_BEFORE_0016 from '../../docs/migrations/fixtures/schema.before-0016.sql?raw'
 
 /** The pieces Supabase supplies that plain Postgres does not. */
@@ -78,6 +79,7 @@ describe('docs/schema.sql', () => {
       'campaigns',
       'earnings_events',
       'phase_events',
+      'plan_blocks',
       'side_income',
       'time_estimates',
       'user_settings',
@@ -101,6 +103,7 @@ describe('docs/schema.sql', () => {
       'field_source',
       'hook_source',
       'payout_schedule',
+      'plan_block_kind',
       'session_type',
       'setup_type',
       'side_income_source',
@@ -115,7 +118,7 @@ describe('docs/schema.sql', () => {
        join pg_namespace n on n.oid = c.relnamespace
        where n.nspname = 'public' and c.relkind = 'r' and c.relrowsecurity`,
     )
-    expect(rls.rows).toHaveLength(19)
+    expect(rls.rows).toHaveLength(20)
   })
 
   it.each(['phase_events', 'warmup_events', 'earnings_events'])(
@@ -425,6 +428,30 @@ describe('side_income', () => {
   })
 })
 
+describe('plan_blocks', () => {
+  const insert = (kind: string, weekday: number, start: number, duration: number) =>
+    db.exec(`insert into plan_blocks (user_id, kind, weekday, start_minute, duration_minutes)
+             values ('${USER}', '${kind}', ${weekday}, ${start}, ${duration})`)
+
+  it('takes a recording session on a weekday at a time', async () => {
+    await insert('record', 0, 18 * 60, 120)
+    await insert('ideate', 3, 10 * 60, 60)
+  })
+
+  it('refuses a day, a time or a length outside the week', async () => {
+    await expect(insert('record', 7, 600, 60)).rejects.toThrow()
+    await expect(insert('record', 0, 1440, 60)).rejects.toThrow()
+    await expect(insert('record', 0, 600, 0)).rejects.toThrow()
+    await expect(insert('lunch', 0, 600, 60)).rejects.toThrow()
+  })
+
+  it('takes only 1h, 1.5h, 2h or 3h a recording day on the settings', async () => {
+    await expect(
+      db.exec(`insert into user_settings (user_id, minutes_per_day) values ('${USER}', 45)`),
+    ).rejects.toThrow()
+  })
+})
+
 describe('docs/migrations/0022_side_income.sql', () => {
   it('adds the table to a database without it, and can be run twice', async () => {
     const fresh = new PGlite()
@@ -515,6 +542,8 @@ describe('docs/migrations/0016_weekly_pay_payouts_earnings.sql', () => {
       await migrated.exec(MIGRATION_0019)
       await migrated.exec(MIGRATION_0022)
       await migrated.exec(MIGRATION_0022)
+      await migrated.exec(MIGRATION_0023)
+      await migrated.exec(MIGRATION_0023)
       // If the migration and schema.sql ever describe different tables, a
       // fresh project and an upgraded one would not be the same project.
       expect((await columns(migrated)).rows).toEqual((await columns(db)).rows)

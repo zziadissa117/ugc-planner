@@ -21,6 +21,7 @@ import {
   EARNINGS_SOURCE_VALUES,
   FIELD_SOURCE_VALUES,
   PAYOUT_SCHEDULE_VALUES,
+  PLAN_BLOCK_KIND_VALUES,
   SESSION_TYPE_VALUES,
   SETUP_TYPE_VALUES,
   SIDE_INCOME_SOURCE_VALUES,
@@ -39,6 +40,7 @@ import {
   type CampaignField,
   type CampaignRule,
   type PhaseEvent,
+  type PlanBlock,
   type SideIncome,
   type TableName,
   type TableRowMap,
@@ -389,6 +391,20 @@ export function assertCampaignPayout(row: CampaignPayout): void {
   timestamp(t, 'updated_at', row.updated_at, { nullable: false })
 }
 
+export function assertPlanBlock(row: PlanBlock): void {
+  const t: TableName = 'plan_blocks'
+  text(t, 'id', row.id, { nullable: false })
+  text(t, 'user_id', row.user_id, { nullable: false })
+  isEnum(t, 'kind', row.kind, PLAN_BLOCK_KIND_VALUES, false)
+  integer(t, 'weekday', row.weekday, { min: 0, nullable: false })
+  if (row.weekday > 6) fail(t, 'weekday_check', 'weekday must be 0 (Monday) to 6 (Sunday)')
+  integer(t, 'start_minute', row.start_minute, { min: 0, nullable: false })
+  if (row.start_minute > 1439) fail(t, 'start_minute_check', 'start_minute must be within the day')
+  integer(t, 'duration_minutes', row.duration_minutes, { exclusiveMin: 0, nullable: false })
+  if (row.duration_minutes > 720) fail(t, 'duration_minutes_check', 'a block is at most 12 hours')
+  timestamp(t, 'updated_at', row.updated_at, { nullable: false })
+}
+
 export function assertSideIncome(row: SideIncome): void {
   const t: TableName = 'side_income'
   text(t, 'id', row.id, { nullable: false })
@@ -465,6 +481,14 @@ export function assertUserSettings(row: UserSettings): void {
   // would be indistinguishable from a real count.
   integer(t, 'opening_unedited_count', row.opening_unedited_count, { min: 0, nullable: true })
   timestamp(t, 'last_export_at', row.last_export_at, { nullable: true })
+  text(t, 'student_name', row.student_name, { nullable: true })
+  text(t, 'timezone', row.timezone, { nullable: true })
+  text(t, 'goal', row.goal, { nullable: true })
+  text(t, 'wish', row.wish, { nullable: true })
+  if (row.minutes_per_day !== null && ![60, 90, 120, 180].includes(row.minutes_per_day as number)) {
+    fail(t, 'minutes_per_day_check', 'minutes_per_day must be 60, 90, 120 or 180')
+  }
+  timestamp(t, 'onboarded_at', row.onboarded_at, { nullable: true })
   timestamp(t, 'updated_at', row.updated_at, { nullable: false })
 }
 
@@ -486,6 +510,7 @@ const VALIDATORS = {
   earnings_events: assertEarningsEvent,
   campaign_payouts: assertCampaignPayout,
   side_income: assertSideIncome,
+  plan_blocks: assertPlanBlock,
   bonus_tiers: assertBonusTier,
   bonus_claims: assertBonusClaim,
   time_estimates: assertTimeEstimate,

@@ -40,7 +40,9 @@ import type {
   CampaignField,
   CampaignHook,
   CampaignPayout,
+  NewPlanBlock,
   NewSideIncome,
+  PlanBlock,
   SideIncome,
   CampaignRule,
   EarningsEvent,
@@ -1107,6 +1109,37 @@ export class LocalAdapter implements DataAdapter {
     })
   }
 
+  async listPlanBlocks(): Promise<PlanBlock[]> {
+    const rows = await this.db.plan_blocks.toArray()
+    return rows.sort((a, b) => a.weekday - b.weekday || a.start_minute - b.start_minute)
+  }
+
+  async replacePlanBlocks(blocks: NewPlanBlock[]): Promise<PlanBlock[]> {
+    const timestamp = now()
+    const rows: PlanBlock[] = blocks.map((b) => ({
+      id: b.id ?? newId(),
+      user_id: this.userId,
+      kind: b.kind,
+      weekday: b.weekday,
+      start_minute: b.start_minute,
+      duration_minutes: b.duration_minutes,
+      updated_at: b.updated_at ?? timestamp,
+    }))
+    rows.forEach((row) => assertRow('plan_blocks', row))
+    await this.tx([this.db.plan_blocks, this.db._outbox], async (tx) => {
+      const old = (await tx.table('plan_blocks').toArray()) as PlanBlock[]
+      for (const row of old) {
+        await tx.table('plan_blocks').delete(row.id)
+        this.enqueue(tx, 'plan_blocks', row.id, 'delete', row)
+      }
+      for (const row of rows) {
+        await tx.table('plan_blocks').add(row)
+        this.enqueue(tx, 'plan_blocks', row.id, 'insert', row)
+      }
+    })
+    return this.listPlanBlocks()
+  }
+
   async listSideIncome(options: { on?: string } = {}): Promise<SideIncome[]> {
     const rows = options.on
       ? await this.db.side_income.where('earned_on').equals(options.on).toArray()
@@ -1575,6 +1608,12 @@ export class LocalAdapter implements DataAdapter {
       // real one he had entered.
       opening_unedited_count: null,
       last_export_at: null,
+      student_name: null,
+      timezone: null,
+      goal: null,
+      wish: null,
+      minutes_per_day: null,
+      onboarded_at: null,
       updated_at: now(),
     }
     assertRow('user_settings', row)
@@ -1658,6 +1697,7 @@ export class LocalAdapter implements DataAdapter {
       earnings_events,
       campaign_payouts,
       side_income,
+      plan_blocks,
       bonus_tiers,
       bonus_claims,
       time_estimates,
@@ -1678,6 +1718,7 @@ export class LocalAdapter implements DataAdapter {
       this.db.earnings_events.toArray(),
       this.db.campaign_payouts.toArray(),
       this.db.side_income.toArray(),
+      this.db.plan_blocks.toArray(),
       this.db.bonus_tiers.toArray(),
       this.db.bonus_claims.toArray(),
       this.db.time_estimates.toArray(),
@@ -1702,6 +1743,7 @@ export class LocalAdapter implements DataAdapter {
       earnings_events,
       campaign_payouts,
       side_income,
+      plan_blocks,
       bonus_tiers,
       bonus_claims,
       time_estimates,

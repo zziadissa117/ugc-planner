@@ -21,7 +21,9 @@ import type {
   CampaignAccount,
   CampaignAngle,
   CampaignPayout,
+  NewPlanBlock,
   NewSideIncome,
+  PlanBlock,
   SideIncome,
   EarningsEvent,
   CampaignDocument,
@@ -72,6 +74,7 @@ export interface BackupSnapshot {
   earnings_events: EarningsEvent[]
   campaign_payouts: CampaignPayout[]
   side_income: SideIncome[]
+  plan_blocks: PlanBlock[]
   bonus_tiers: BonusTier[]
   bonus_claims: BonusClaim[]
   time_estimates: TimeEstimate[]
@@ -319,6 +322,15 @@ export interface DataAdapter {
    *  Idempotent and safe on every device: the two rows' ids come from the
    *  reversal's own. Returns whether it wrote them. */
   redateReversal(reversalId: string): Promise<boolean>
+
+  // --- Weekly plan ----------------------------------------------------------
+
+  /** His week as placed on the calendar. */
+  listPlanBlocks(): Promise<PlanBlock[]>
+
+  /** Replaces the whole week in one go: every old block deleted, every new
+   *  one inserted, all queued for the server. */
+  replacePlanBlocks(blocks: NewPlanBlock[]): Promise<PlanBlock[]>
 
   // --- Side income ---------------------------------------------------------
 

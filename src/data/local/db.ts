@@ -21,6 +21,7 @@ import type {
   CampaignDocument,
   CampaignField,
   CampaignPayout,
+  PlanBlock,
   SideIncome,
   CampaignRule,
   CampaignHook,
@@ -79,6 +80,7 @@ export class LocalDatabase extends Dexie {
   earnings_events!: EntityTable<EarningsEvent, 'id'>
   campaign_payouts!: EntityTable<CampaignPayout, 'id'>
   side_income!: EntityTable<SideIncome, 'id'>
+  plan_blocks!: EntityTable<PlanBlock, 'id'>
   bonus_tiers!: EntityTable<BonusTier, 'id'>
   bonus_claims!: EntityTable<BonusClaim, 'id'>
   time_estimates!: EntityTable<TimeEstimate, 'id'>
@@ -321,6 +323,27 @@ export class LocalDatabase extends Dexie {
     this.version(11).stores({
       side_income: 'id, user_id, earned_on',
     })
+
+    // v12 adds plan_blocks (his weekly plan) and the quiz columns on
+    // user_settings. A settings row saved before them gets each column's own
+    // default (completeRow), so the validator never refuses it.
+    this.version(12)
+      .stores({
+        plan_blocks: 'id, user_id',
+      })
+      .upgrade(async (tx) => {
+        try {
+          await tx
+            .table('user_settings')
+            .toCollection()
+            .modify((row: Record<string, unknown>) => {
+              const full = completeRow('user_settings', row) as unknown as Record<string, unknown>
+              for (const key of Object.keys(full)) if (row[key] === undefined) row[key] = full[key]
+            })
+        } catch (error) {
+          console.error('v12 upgrade could not fill user_settings; continuing.', error)
+        }
+      })
   }
 }
 
@@ -463,6 +486,7 @@ export const MIRRORED_TABLES: readonly TableName[] = [
   'earnings_events',
   'campaign_payouts',
   'side_income',
+  'plan_blocks',
   'bonus_tiers',
   'bonus_claims',
   'time_estimates',

@@ -141,6 +141,17 @@ export const PAYOUT_SCHEDULE_VALUES = [
   'monthly',
 ] as const satisfies readonly PayoutSchedule[]
 
+export type PlanBlockKind =
+  | 'record'
+  | 'ideate'
+  | 'backup'
+
+export const PLAN_BLOCK_KIND_VALUES = [
+  'record',
+  'ideate',
+  'backup',
+] as const satisfies readonly PlanBlockKind[]
+
 export type SideIncomeSource =
   | 'detailing'
   | 'media_maxing'
@@ -522,13 +533,35 @@ export interface UserSettings {
   setup_switch_minutes: number
   opening_unedited_count: number | null
   last_export_at: string | null
+  student_name: string | null
+  timezone: string | null
+  goal: string | null
+  wish: string | null
+  minutes_per_day: number | null
+  onboarded_at: string | null
   updated_at: string
 }
 
 /** `user_settings` as supplied by a caller: user_id comes from the session, and
  *  columns the database defaults are optional. */
-export type NewUserSettings = Omit<UserSettings, 'user_id' | 'setup_switch_minutes' | 'updated_at'> &
-  Partial<Pick<UserSettings, 'setup_switch_minutes' | 'updated_at'>>
+export type NewUserSettings = Omit<UserSettings, 'user_id' | 'setup_switch_minutes' | 'student_name' | 'timezone' | 'goal' | 'wish' | 'minutes_per_day' | 'onboarded_at' | 'updated_at'> &
+  Partial<Pick<UserSettings, 'setup_switch_minutes' | 'student_name' | 'timezone' | 'goal' | 'wish' | 'minutes_per_day' | 'onboarded_at' | 'updated_at'>>
+
+/** Mirrors `plan_blocks`. */
+export interface PlanBlock {
+  id: string
+  user_id: string
+  kind: PlanBlockKind
+  weekday: number
+  start_minute: number
+  duration_minutes: number
+  updated_at: string
+}
+
+/** `plan_blocks` as supplied by a caller: user_id comes from the session, and
+ *  columns the database defaults are optional. */
+export type NewPlanBlock = Omit<PlanBlock, 'user_id' | 'id' | 'updated_at'> &
+  Partial<Pick<PlanBlock, 'id' | 'updated_at'>>
 
 // --- Table registry ------------------------------------------------------
 
@@ -554,6 +587,7 @@ export const TABLE_NAMES = [
   'side_income',
   'time_estimates',
   'user_settings',
+  'plan_blocks',
 ] as const
 
 export type TableName = (typeof TABLE_NAMES)[number]
@@ -579,6 +613,7 @@ export interface TableRowMap {
   side_income: SideIncome
   time_estimates: TimeEstimate
   user_settings: UserSettings
+  plan_blocks: PlanBlock
 }
 
 // --- Constraints carried over from the SQL --------------------------------
@@ -691,6 +726,12 @@ export const SQL_COLUMN_CHECKS: Readonly<Record<string, Readonly<Record<string, 
   user_settings: {
     setup_switch_minutes: ["check (setup_switch_minutes >= 0)"],
     opening_unedited_count: ["check (opening_unedited_count >= 0)"],
+    minutes_per_day: ["check (minutes_per_day in (60, 90, 120, 180))"],
+  },
+  plan_blocks: {
+    weekday: ["check (weekday between 0 and 6)"],
+    start_minute: ["check (start_minute between 0 and 1439)"],
+    duration_minutes: ["check (duration_minutes > 0 and duration_minutes <= 720)"],
   },
 }
 
@@ -925,6 +966,21 @@ export const SQL_COLUMNS: Readonly<Record<TableName, readonly { name: string; nu
     { name: 'setup_switch_minutes', nullable: false, sqlDefault: "10" },
     { name: 'opening_unedited_count', nullable: true, sqlDefault: null },
     { name: 'last_export_at', nullable: true, sqlDefault: null },
+    { name: 'student_name', nullable: true, sqlDefault: "null" },
+    { name: 'timezone', nullable: true, sqlDefault: "null" },
+    { name: 'goal', nullable: true, sqlDefault: "null" },
+    { name: 'wish', nullable: true, sqlDefault: "null" },
+    { name: 'minutes_per_day', nullable: true, sqlDefault: "null" },
+    { name: 'onboarded_at', nullable: true, sqlDefault: "null" },
+    { name: 'updated_at', nullable: false, sqlDefault: "now()" },
+  ],
+  plan_blocks: [
+    { name: 'id', nullable: false, sqlDefault: "gen_random_uuid()" },
+    { name: 'user_id', nullable: false, sqlDefault: null },
+    { name: 'kind', nullable: false, sqlDefault: null },
+    { name: 'weekday', nullable: false, sqlDefault: null },
+    { name: 'start_minute', nullable: false, sqlDefault: null },
+    { name: 'duration_minutes', nullable: false, sqlDefault: null },
     { name: 'updated_at', nullable: false, sqlDefault: "now()" },
   ],
 }

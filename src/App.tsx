@@ -4,6 +4,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { BriefsIcon, MoneyIcon, NowIcon, PostIcon, SetupIcon } from './components/icons'
 import { isDataFailure, plainError } from './data/errorText'
 import { useData } from './data/useData'
+import { useLoaded } from './data/useLoaded'
 import { Button } from './components/ui'
 import { AuthContext } from './sync/AuthContext'
 import { WarmupTimersProvider } from './warmupTimers'
@@ -54,6 +55,21 @@ export function App() {
       cancelled = true
     }
   }, [data])
+
+  // Everyone answers the onboarding quiz and places their week once - every
+  // student, and him. Until a week is saved, the planner sends them there.
+  // Setup stays open so a student can sign in first (and a signed-in week
+  // arrives by sync instead of being asked for again), and so does the join
+  // link. Checked by reading only: nothing is written until he saves.
+  const location = useLocation()
+  const go = useNavigate()
+  const [planned] = useLoaded(async () => (await data.listPlanBlocks()).length > 0, [data])
+  useEffect(() => {
+    if (planned !== false) return
+    const path = location.pathname
+    if (path === '/start' || path.startsWith('/join') || path.startsWith('/settings')) return
+    void go('/start', { replace: true })
+  }, [planned, location.pathname, go])
 
   // Read directly rather than through useAuth: the shell also renders in
   // tests with no sign-in at all, and then there is nothing to warn about.

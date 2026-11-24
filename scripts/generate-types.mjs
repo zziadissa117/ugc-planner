@@ -202,6 +202,7 @@ const ROW_TYPE_NAMES = {
   earnings_events: 'EarningsEvent',
   campaign_payouts: 'CampaignPayout',
   side_income: 'SideIncome',
+  plan_blocks: 'PlanBlock',
   bonus_tiers: 'BonusTier',
   bonus_claims: 'BonusClaim',
   time_estimates: 'TimeEstimate',

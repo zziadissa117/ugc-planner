@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 
 import { CopyIcon, UploadIcon } from '../components/icons'
 import { Button, Disclosure, ScreenHeader } from '../components/ui'
@@ -92,6 +93,11 @@ export function Settings() {
         <AccountAndKeys />
 
         <InviteLinks />
+
+        <Link to="/start" className="press flex min-h-tap items-center justify-between border-b border-rule py-4 text-base text-text active:bg-surface">
+          <span>Edit my recording week</span>
+          <span className="meta text-state-later">days, times, hours</span>
+        </Link>
 
         <Disclosure summary="Backup" trailing="Export / import">
           <div className="flex flex-col gap-3 pt-1">

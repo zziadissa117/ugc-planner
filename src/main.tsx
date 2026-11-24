@@ -10,6 +10,7 @@ import { installSprings } from './motion'
 import { Campaign } from './screens/Campaign'
 import { ArchivedCampaigns } from './screens/ArchivedCampaigns'
 import { CampaignAnalytics } from './screens/CampaignAnalytics'
+import { Start } from './screens/Start'
 import { Campaigns } from './screens/Campaigns'
 import { EarningsHistory } from './screens/EarningsHistory'
 import { Join } from './screens/Join'
@@ -59,6 +60,7 @@ registerSW({
 // works - instead of the router's developer page taking the whole window.
 const screens = [
   { index: true, element: <Now /> },
+  { path: 'start', element: <Start /> },
   { path: 'post', element: <Posting /> },
   { path: 'campaigns', element: <Campaigns /> },
   { path: 'campaigns/new', element: <NewCampaign /> },

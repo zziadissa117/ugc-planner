@@ -1,33 +1,31 @@
-// TODAY - the home screen.
+// TODAY - the home screen, in the order he asked for:
 //
-// He signed in and "nothing happens": the home screen was a FILM and a POST
-// tile, a dictation list and a wall of warm-up accounts, none of which said
-// what today was for. It now opens on today off the week he placed in the quiz
-// - the session on now, or the next one - and the things a recording day
-// needs:
+//   1. My week        - the week he placed in the quiz, as a calendar, "on
+//                       top of everything"
+//   2. Going out      - every post Postiz has going out today (or this week),
+//                       read only (GoingOut.tsx)
+//   3. Today          - the session on now or next, and the day's sessions
+//   4. Trybe videos   - the Trybe timer, "+1 video", today's and the week's count
+//   5. Timer          - a plain countdown, used for warm-ups
+//   6. Hooks          - one button into hook generation (/hooks)
 //
-//   - today's sessions at their times, the one on now lit
-//   - the Trybe timer, with "+1 video" and today's and this week's count
-//   - how today's posts stand, one tap from POST
-//   - a plain countdown, used for warm-ups
-//   - a way into hooks for each campaign
-//   - the week, as a calendar, with a way to change it
-//
-// Gone, deleted rather than left dark: the FILM console, the FILM and POST
-// tiles, the "Mark edited" button, the per-account warm-up queue and its "All
-// accounts" list, the dictated to-do list and the work clock.
+// No posts row: "Don't have a Posts button in the Today section. It makes no
+// sense." Gone before that, deleted rather than left dark: the FILM console,
+// the FILM and POST tiles, the "Mark edited" button, the per-account warm-up
+// queue and its "All accounts" list, the dictated to-do list and the work
+// clock.
 
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
-import { ChevronRightIcon, SparkIcon } from '../components/icons'
+import { GoingOut } from '../components/GoingOut'
+import { SparkIcon } from '../components/icons'
 import { TrybeTimer, WarmupCountdown } from '../components/TodayTimers'
 import { WeekCalendar } from '../components/WeekCalendar'
 import { Card, ScreenHeader, SectionLabel, StateDot } from '../components/ui'
-import { CARD_CLASS, buttonClass } from '../components/styles'
-import type { Campaign, PlanBlock } from '../data'
+import { buttonClass } from '../components/styles'
+import type { PlanBlock } from '../data'
 import { localToday } from '../data'
-import { ensureTodaysQuota, summariseToday } from '../data/today'
 import { useData } from '../data/useData'
 import { useLoaded } from '../data/useLoaded'
 import {
@@ -39,8 +37,6 @@ import {
   segmentsFor,
   trybeMinutes,
 } from '../data/weeklyPlan'
-import { hookGenerationAvailable } from '../hooks/generateHooks'
-import { inPostOrder } from '../money'
 import {
   describeNext,
   headline,
@@ -84,24 +80,13 @@ export function Now() {
     return () => setOnScreen(false)
   }, [setOnScreen])
 
-  // Today's obligation is raised as rows before anything is counted - the
-  // same first step the Post screen takes - so the posts line is never
-  // briefly wrong. Read again when the day turns over.
   const [snapshot] = useLoaded(async () => {
-    await ensureTodaysQuota(data, day)
-    const [blocks, settings, campaigns, accounts, videos, posts] = await Promise.all([
-      data.listPlanBlocks(),
-      data.getUserSettings(),
-      data.listCampaigns(),
-      data.listCampaignAccounts(),
-      data.listVideos(),
-      data.listAllVideoPosts(),
-    ])
-    return { blocks, settings, campaigns, accounts, videos, posts }
+    const [blocks, settings] = await Promise.all([data.listPlanBlocks(), data.getUserSettings()])
+    return { blocks, settings }
   }, [data, day])
 
   if (!snapshot) return null
-  const { blocks, settings, campaigns, accounts, videos, posts } = snapshot
+  const { blocks, settings } = snapshot
 
   const sessions = sessionsToday(blocks, now)
   const recordingNow = sessions.some((s) => s.state === 'now' && s.block.kind === 'record')
@@ -109,12 +94,24 @@ export function Now() {
   // it on its recording blocks instead.
   const minutesPerDay =
     settings.minutes_per_day ?? blocks.find((b) => b.kind === 'record')?.duration_minutes ?? RECOMMENDED_MINUTES
-  // The same figure the Post tab is built from (summariseToday reads its
-  // boards), so the two screens cannot disagree.
-  const { posted, owed } = summariseToday(campaigns, accounts, videos, posts, day)
 
   return (
     <section className="mx-auto flex w-full max-w-3xl flex-col gap-8">
+      <section className="flex flex-col gap-3" aria-label="My week">
+        <SectionLabel
+          trailing={
+            <Link to="/start" className="text-brand transition-colors duration-200 hover:text-text">
+              Edit my week
+            </Link>
+          }
+        >
+          My week
+        </SectionLabel>
+        <WeekCalendar blocks={blocks} minutesPerDay={minutesPerDay} readOnly />
+      </section>
+
+      <GoingOut now={now} />
+
       <ScreenHeader
         kicker="Today"
         title={headline(sessions)}
@@ -125,24 +122,9 @@ export function Now() {
 
       <TrybeTimer minutes={trybeMinutes(minutesPerDay)} now={now} lit={recordingNow} />
 
-      <PostsToday posted={posted} owed={owed} />
-
       <WarmupCountdown />
 
-      <Hooks campaigns={inPostOrder(campaigns, accounts)} />
-
-      <section className="flex flex-col gap-3" aria-label="Your week">
-        <SectionLabel
-          trailing={
-            <Link to="/start" className="text-brand transition-colors duration-200 hover:text-text">
-              Edit my week
-            </Link>
-          }
-        >
-          Your week
-        </SectionLabel>
-        <WeekCalendar blocks={blocks} minutesPerDay={minutesPerDay} readOnly />
-      </section>
+      <HookGeneration />
     </section>
   )
 }
@@ -236,66 +218,18 @@ function SessionRow({ session, blocks, minute }: { session: TodaySession<PlanBlo
   )
 }
 
-/** How today's posts stand - the Post tab's own count, summed. Green once
- *  the day is filled, the same state the boxes use. */
-function PostsToday({ posted, owed }: { posted: number; owed: number }) {
-  const done = owed > 0 && posted >= owed
-  return (
-    <Link
-      to="/post"
-      className={`${CARD_CLASS} press group flex min-h-tap items-center justify-between gap-4 px-5 py-3 transition-colors duration-200 hover:border-edge-lit`}
-    >
-      <span className="text-base font-semibold text-text">Posts</span>
-      <span className="flex min-w-0 items-center gap-2">
-        {owed === 0 && posted === 0 ? (
-          <span className="meta text-state-later">Nothing owed today</span>
-        ) : (
-          <span className="numeric text-lg">
-            <span className={`font-semibold ${done ? 'text-state-posted' : 'text-text'}`}>{posted}</span>
-            <span className="text-state-later">{owed > 0 ? ` of ${owed}` : ''} posted today</span>
-          </span>
-        )}
-        <ChevronRightIcon className="h-4 w-4 shrink-0 text-brand transition-transform duration-200 group-hover:translate-x-0.5" />
-      </span>
-    </Link>
-  )
-}
-
-/** A way into each campaign's hooks. Writing and generating them happens on
- *  the campaign's page. */
-function Hooks({ campaigns }: { campaigns: Campaign[] }) {
-  const generate = hookGenerationAvailable()
+/** One way into hook generation - not a row per campaign. The campaign is
+ *  picked on the Hooks screen. */
+function HookGeneration() {
   return (
     <section className="flex flex-col gap-3" aria-label="Hooks">
       <SectionLabel>Hooks</SectionLabel>
-      {campaigns.length === 0 ? (
-        <Card className="flex flex-col items-start gap-3 p-5">
-          <p className="text-base text-text-dim">No campaigns yet.</p>
-          <Link to="/campaigns/new" className={buttonClass('quiet', 'small')}>
-            Add a campaign
-          </Link>
-        </Card>
-      ) : (
-        <Card className="px-5">
-          <ul className="flex flex-col divide-y divide-rule">
-            {campaigns.map((campaign) => (
-              <li key={campaign.id}>
-                <Link
-                  to={`/campaigns/${campaign.id}#hooks`}
-                  className="press group flex min-h-tap items-center justify-between gap-3 py-2"
-                >
-                  <span className="min-w-0 truncate text-base font-semibold text-text">{campaign.name}</span>
-                  <span className="flex shrink-0 items-center gap-1.5 text-text-dim transition-colors duration-200 group-hover:text-text">
-                    {generate ? <SparkIcon className="h-4 w-4" /> : null}
-                    <span className="meta">{generate ? 'Generate hooks' : 'Write hooks'}</span>
-                    <ChevronRightIcon className="h-4 w-4 text-brand transition-transform duration-200 group-hover:translate-x-0.5" />
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      )}
+      <div>
+        <Link to="/hooks" className={buttonClass('quiet')}>
+          <SparkIcon className="h-4 w-4" />
+          Hook generation
+        </Link>
+      </div>
     </section>
   )
 }

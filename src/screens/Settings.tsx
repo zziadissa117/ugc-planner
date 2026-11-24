@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 
 import { ChevronRightIcon, CopyIcon, UploadIcon } from '../components/icons'
 import { Button, Disclosure, ScreenHeader } from '../components/ui'
@@ -7,7 +7,7 @@ import { CARD_CLASS, INPUT_CLASS } from '../components/styles'
 import { EXPORT_REMINDER_DAYS } from '../data'
 import { useData } from '../data/useData'
 import { MAX_ATTEMPTS, useAuth } from '../sync'
-import { AiKeys } from './AiKeys'
+import { AiKeys, PostizKey } from './AiKeys'
 import { InviteLinks } from './InviteLinks'
 type Status =
   | { kind: 'idle' }
@@ -139,21 +139,28 @@ export function Settings() {
   )
 }
 
-/** Account and AI key, set once and then not needed day to day: folded,
- *  with who is signed in on the fold. Open when nobody is signed in, since
- *  that is the one time it needs doing. */
+/** Account, AI key and Postiz key, set once and then not needed day to day:
+ *  folded, with who is signed in on the fold. Open when nobody is signed in,
+ *  since that is the one time it needs doing, and when IDEATE sent him here
+ *  to add his Postiz key (/settings#postiz). */
 function AccountAndKeys() {
   const auth = useAuth()
+  const { hash } = useLocation()
+  const toPostiz = hash === '#postiz'
+  useEffect(() => {
+    if (toPostiz) document.getElementById('postiz')?.scrollIntoView?.({ block: 'start' })
+  }, [toPostiz])
   if (!auth.configured) return null
   return (
     <Disclosure
-      summary="Account and AI key"
+      summary="Account and keys"
       trailing={auth.email ?? 'Not signed in'}
-      open={auth.email ? undefined : true}
+      open={auth.email && !toPostiz ? undefined : true}
     >
       <div className="flex flex-col gap-6">
         <Account />
         <AiKeys />
+        <PostizKey />
       </div>
     </Disclosure>
   )

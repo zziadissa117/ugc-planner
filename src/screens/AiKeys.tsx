@@ -41,6 +41,29 @@ export function AiKeys() {
   )
 }
 
+/** His or a student's Postiz key, so IDEATE can read their own posts and
+ *  views (src/sync/postizPosts.ts). Kept exactly like the AI key - checked
+ *  and encrypted by the server, never shown back beyond its last four
+ *  characters. `id="postiz"` is where IDEATE's "Add your Postiz key" lands. */
+export function PostizKey() {
+  const auth = useAuth()
+  if (!auth.configured) return null
+
+  return (
+    <div id="postiz" className="flex scroll-mt-24 flex-col gap-3">
+      <SectionLabel>Postiz</SectionLabel>
+      {auth.email ? (
+        <>
+          <p className="text-base text-text-dim">So IDEATE can show your videos and their views.</p>
+          <ProviderKey id="postiz" label="Postiz" placeholder="Your Postiz API key" />
+        </>
+      ) : (
+        <p className="text-base text-text-dim">Sign in above to add your Postiz key.</p>
+      )}
+    </div>
+  )
+}
+
 function ProviderKey({ id, label, placeholder }: { id: AiProvider; label: string; placeholder: string }) {
   const [saved, setSaved] = useState<SavedKey | null | undefined>(undefined)
   const [draft, setDraft] = useState('')

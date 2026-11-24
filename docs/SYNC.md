@@ -21,6 +21,14 @@ investigation.
   every later write on one laptop from Sep 9 to Oct 12 while each pass
   reported nothing wrong. Each device retries what was stuck once
   (`outbox_retried_at_v1` in `AuthProvider.tsx`).
+- **Pull-only tables** (`PULL_ONLY_TABLES` in `src/data/local/db.ts`; today
+  only `coach_notes`). The server writes them and RLS gives the browser
+  SELECT and nothing else, so a queued write would be refused forever. They
+  are pulled and exported like any mirrored table, but the adapter's enqueue
+  refuses them, and `backfillOutbox`, `claimRowsForUser`, `retryStuckWrites`
+  and `importAll` skip them (an import keeps the device's copy rather than the
+  backup's). Like every table, a pull never deletes: a note the coach deletes
+  stays on the student's device.
 - **Conflict rules** (`src/sync/conflict.ts`). Last-write-wins on `updated_at`,
   with two exceptions: history is never rewritten, and a locked-in
   `rate_snapshot_cents` survives the merge whichever side wins the row.

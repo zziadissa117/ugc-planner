@@ -24,6 +24,9 @@ export const PULL_CURSOR_COLUMN: Readonly<Record<TableName, string>> = {
   // a pull needs, where made_at can be backdated.
   trybe_videos: 'updated_at',
   ideate_notes: 'updated_at',
+  // Pull-only: the coach function writes it and must bump updated_at on every
+  // edit, or the edit never reaches the student.
+  coach_notes: 'updated_at',
   bonus_tiers: 'updated_at',
   bonus_claims: 'updated_at',
   time_estimates: 'updated_at',

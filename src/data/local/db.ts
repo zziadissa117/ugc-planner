@@ -21,6 +21,7 @@ import type {
   CampaignDocument,
   CampaignField,
   CampaignPayout,
+  CoachNote,
   IdeateNote,
   PlanBlock,
   SideIncome,
@@ -85,6 +86,7 @@ export class LocalDatabase extends Dexie {
   plan_blocks!: EntityTable<PlanBlock, 'id'>
   trybe_videos!: EntityTable<TrybeVideo, 'id'>
   ideate_notes!: EntityTable<IdeateNote, 'id'>
+  coach_notes!: EntityTable<CoachNote, 'id'>
   bonus_tiers!: EntityTable<BonusTier, 'id'>
   bonus_claims!: EntityTable<BonusClaim, 'id'>
   time_estimates!: EntityTable<TimeEstimate, 'id'>
@@ -357,6 +359,13 @@ export class LocalDatabase extends Dexie {
       trybe_videos: 'id, user_id, made_at',
       ideate_notes: 'id, user_id, campaign_id, account_id, week_start, [campaign_id+week_start]',
     })
+
+    // v14 adds coach_notes: notes the coach writes to a student, which reach
+    // the device only by the sync pull (see PULL_ONLY_TABLES). A new table
+    // with nothing to fill, so no upgrade() is needed.
+    this.version(14).stores({
+      coach_notes: 'id, user_id, campaign_id, created_at',
+    })
   }
 }
 
@@ -502,8 +511,21 @@ export const MIRRORED_TABLES: readonly TableName[] = [
   'plan_blocks',
   'trybe_videos',
   'ideate_notes',
+  'coach_notes',
   'bonus_tiers',
   'bonus_claims',
   'time_estimates',
   'user_settings',
 ]
+
+/** Mirrored tables this device only ever reads.
+ *
+ *  The server writes them - coach_notes by the `coach` Edge Function, with
+ *  the service role - and RLS gives the browser a SELECT policy and nothing
+ *  else. A write to one queued here would be refused by the server forever
+ *  and sit stuck in the outbox. So they are pulled like any other table and
+ *  included in the backup export, but every path that queues rows or rewrites
+ *  their owner leaves them out: the adapter's enqueue refuses them outright,
+ *  and backfillOutbox, claimRowsForUser, retryStuckWrites and importAll skip
+ *  them (src/data/local/LocalAdapter.ts). */
+export const PULL_ONLY_TABLES: ReadonlySet<TableName> = new Set<TableName>(['coach_notes'])

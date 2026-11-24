@@ -12,7 +12,9 @@ import { ArchivedCampaigns } from './screens/ArchivedCampaigns'
 import { CampaignAnalytics } from './screens/CampaignAnalytics'
 import { Start } from './screens/Start'
 import { Campaigns } from './screens/Campaigns'
+import { Coach, CoachStudent } from './screens/Coach'
 import { EarningsHistory } from './screens/EarningsHistory'
+import { Hooks } from './screens/Hooks'
 import { Ideate } from './screens/Ideate'
 import { Join } from './screens/Join'
 import { NewCampaign } from './screens/NewCampaign'
@@ -67,6 +69,9 @@ const screens = [
   { path: 'campaigns/:campaignId', element: <Campaign /> },
   { path: 'post/:campaignId/analytics', element: <CampaignAnalytics /> },
   { path: 'ideate', element: <Ideate /> },
+  { path: 'coach', element: <Coach /> },
+  { path: 'coach/:studentId', element: <CoachStudent /> },
+  { path: 'hooks', element: <Hooks /> },
   { path: 'money/history', element: <EarningsHistory /> },
   { path: 'settings', element: <Settings /> },
   { path: 'join/:code', element: <Join /> },

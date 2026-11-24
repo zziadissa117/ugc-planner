@@ -6,9 +6,10 @@
 // constraint enforcement, without needing Docker or a provisioned project.
 //
 // What this does NOT cover: Supabase's own machinery. auth.users and auth.uid()
-// are stubbed below, and RLS policies are created but never exercised, because
-// there is no authenticated role here to exercise them as. Those need the real
-// project.
+// are stubbed below. RLS policies are mostly created but not exercised; the
+// exception is coach_notes, whose whole point is a policy, and which is run as
+// the `authenticated` role with a stubbed JWT claim (RLS_STUB). The HTTP layer
+// still needs the real project.
 
 import { PGlite } from '@electric-sql/pglite'
 import { beforeAll, afterAll, describe, expect, it } from 'vitest'
@@ -24,6 +25,7 @@ import MIGRATION_0019 from '../../docs/migrations/0019_campaign_min_views.sql?ra
 import MIGRATION_0022 from '../../docs/migrations/0022_side_income.sql?raw'
 import MIGRATION_0023 from '../../docs/migrations/0023_weekly_plan.sql?raw'
 import MIGRATION_0024 from '../../docs/migrations/0024_trybe_and_ideate.sql?raw'
+import MIGRATION_0025 from '../../docs/migrations/0025_coach_notes.sql?raw'
 import SCHEMA_BEFORE_0016 from '../../docs/migrations/fixtures/schema.before-0016.sql?raw'
 
 /** The pieces Supabase supplies that plain Postgres does not. */
@@ -78,6 +80,7 @@ describe('docs/schema.sql', () => {
       'campaign_payouts',
       'campaign_rules',
       'campaigns',
+      'coach_notes',
       'earnings_events',
       'ideate_notes',
       'phase_events',
@@ -121,7 +124,7 @@ describe('docs/schema.sql', () => {
        join pg_namespace n on n.oid = c.relnamespace
        where n.nspname = 'public' and c.relkind = 'r' and c.relrowsecurity`,
     )
-    expect(rls.rows).toHaveLength(22)
+    expect(rls.rows).toHaveLength(23)
   })
 
   it.each(['phase_events', 'warmup_events', 'earnings_events'])(
@@ -581,6 +584,187 @@ describe('docs/migrations/0024_trybe_and_ideate.sql', () => {
   }, 120_000)
 })
 
+/** auth.uid() the way Supabase defines it - the `sub` claim PostgREST sets on
+ *  each request - so a test can act as one user and then another. Plus the
+ *  grants Supabase gives `authenticated` on every table, so a refusal below is
+ *  RLS refusing and not a missing grant. */
+const RLS_STUB = `
+create schema if not exists auth;
+create table auth.users (id uuid primary key);
+create or replace function auth.uid() returns uuid language sql stable as $$
+  select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
+$$;
+create role authenticated;
+`
+const RLS_GRANTS = `
+grant usage on schema public, auth to authenticated;
+grant select, insert, update, delete on all tables in schema public to authenticated;
+grant usage on all sequences in schema public to authenticated;
+`
+
+const COACH = '22222222-2222-4222-8222-222222222222'
+const STRANGER = '33333333-3333-4333-8333-333333333333'
+
+/** Runs `sql` as a signed-in user through the policies, then drops back to
+ *  the superuser (which, like the service role, bypasses RLS). */
+async function asUser<T>(target: PGlite, userId: string, sql: string) {
+  await target.exec(`set role authenticated; select set_config('request.jwt.claim.sub', '${userId}', false);`)
+  try {
+    return await target.query<T>(sql)
+  } finally {
+    await target.exec(`reset role; select set_config('request.jwt.claim.sub', '', false);`)
+  }
+}
+
+/** A Postgres with the RLS stub, the three users, and `ddl` applied. */
+async function rlsDatabase(ddl: string[]): Promise<PGlite> {
+  const target = new PGlite()
+  await target.exec(RLS_STUB)
+  await target.exec(`insert into auth.users (id) values ('${USER}'), ('${COACH}'), ('${STRANGER}')`)
+  for (const sql of ddl) await target.exec(sql)
+  await target.exec(RLS_GRANTS)
+  return target
+}
+
+/** One policy: SELECT, for the student the note is for. Nothing that writes. */
+async function expectSelectOnly(target: PGlite) {
+  const policies = await target.query<{ policyname: string; cmd: string; qual: string; with_check: string | null }>(
+    `select policyname, cmd, qual, with_check from pg_policies where tablename = 'coach_notes'`,
+  )
+  expect(policies.rows).toHaveLength(1)
+  const [policy] = policies.rows
+  expect(policy.policyname).toBe('coach_notes_read')
+  expect(policy.cmd).toBe('SELECT')
+  expect(policy.qual).toMatch(/user_id = \( SELECT auth\.uid\(\)/i)
+  expect(policy.with_check).toBeNull()
+}
+
+/** The student reads their own note and can do nothing else to it; nobody
+ *  else - not another student, not the coach through the API - reads it. */
+async function expectStudentReadsOnly(target: PGlite) {
+  const written = await target.query<{ id: string }>(
+    `insert into coach_notes (user_id, author_id, body) values ('${USER}', '${COACH}', 'Lead with the product') returning id`,
+  )
+  const id = written.rows[0].id
+
+  const mine = await asUser<{ id: string; body: string }>(target, USER, `select id, body from coach_notes`)
+  expect(mine.rows).toEqual([{ id, body: 'Lead with the product' }])
+
+  await expect(
+    asUser(target, USER, `insert into coach_notes (user_id, author_id, body) values ('${USER}', '${USER}', 'Forged')`),
+  ).rejects.toThrow(/row-level security/)
+  // No UPDATE or DELETE policy: the row is invisible to both, so they touch nothing.
+  const updated = await asUser(target, USER, `update coach_notes set body = 'Changed' where id = '${id}'`)
+  expect(updated.affectedRows ?? 0).toBe(0)
+  const deleted = await asUser(target, USER, `delete from coach_notes where id = '${id}'`)
+  expect(deleted.affectedRows ?? 0).toBe(0)
+
+  expect((await asUser(target, STRANGER, `select id from coach_notes`)).rows).toEqual([])
+  expect((await asUser(target, COACH, `select id from coach_notes`)).rows).toEqual([])
+  await expect(
+    asUser(target, COACH, `insert into coach_notes (user_id, author_id, body) values ('${USER}', '${COACH}', 'Through the API')`),
+  ).rejects.toThrow(/row-level security/)
+
+  // Untouched, as the server (bypassing RLS) sees it.
+  const after = await target.query<{ body: string }>(`select body from coach_notes`)
+  expect(after.rows).toEqual([{ body: 'Lead with the product' }])
+}
+
+describe('coach_notes', () => {
+  // 2026-11-22 is a Sunday.
+  const insert = (columns: Record<string, string>) => {
+    const all = { user_id: `'${USER}'`, author_id: `'${USER}'`, body: `'A note'`, ...columns }
+    return db.exec(`insert into coach_notes (${Object.keys(all).join(', ')}) values (${Object.values(all).join(', ')})`)
+  }
+
+  it('takes a note about a campaign, a video, a week - or none of them', async () => {
+    const campaign = await insertCampaign()
+    await insert({})
+    await insert({ campaign_id: `'${campaign}'` })
+    await insert({ post_id: `'post-1'`, post_url: `'https://www.tiktok.com/@v/video/1'` })
+    await insert({ week_start: `'2026-11-22'` })
+    await insert({ body: `repeat('a', 4000)` })
+    const defaults = await db.query<{ created_at: unknown; updated_at: unknown; week_start: unknown }>(
+      `select created_at, updated_at, week_start from coach_notes where user_id = '${USER}' limit 1`,
+    )
+    expect(defaults.rows[0].created_at).not.toBeNull()
+    expect(defaults.rows[0].updated_at).not.toBeNull()
+  })
+
+  it('refuses a week that does not start on Sunday, an empty note, one over 4000 characters, and no author', async () => {
+    await expect(insert({ week_start: `'2026-11-23'` })).rejects.toThrow()
+    await expect(insert({ body: `''` })).rejects.toThrow()
+    await expect(insert({ body: `repeat('a', 4001)` })).rejects.toThrow()
+    await expect(insert({ body: 'null' })).rejects.toThrow()
+    await expect(insert({ author_id: 'null' })).rejects.toThrow()
+  })
+
+  it('goes with its campaign', async () => {
+    const campaign = await insertCampaign()
+    await insert({ campaign_id: `'${campaign}'`, body: `'About the campaign'` })
+    const count = async () =>
+      (await db.query<{ n: number }>(`select count(*)::int as n from coach_notes where campaign_id = '${campaign}'`)).rows[0].n
+    expect(await count()).toBe(1)
+    await db.exec(`delete from campaigns where id = '${campaign}'`)
+    expect(await count()).toBe(0)
+  })
+
+  it('has one policy, SELECT for the student, and nothing that writes', async () => {
+    await expectSelectOnly(db)
+  })
+
+  it('lets the student read their own note and nothing more, and nobody else read it', async () => {
+    const target = await rlsDatabase([SCHEMA])
+    try {
+      await expectStudentReadsOnly(target)
+    } finally {
+      await target.close()
+    }
+  }, 120_000)
+})
+
+describe('docs/migrations/0025_coach_notes.sql', () => {
+  it('adds the table to a database at 0024, can be run twice, and leaves it read-only for the student', async () => {
+    const old = await rlsDatabase([
+      SCHEMA_BEFORE_0016,
+      MIGRATION_0016,
+      MIGRATION_0017,
+      MIGRATION_0018,
+      MIGRATION_0019,
+      MIGRATION_0022,
+      MIGRATION_0023,
+      MIGRATION_0024,
+    ])
+    try {
+      await old.exec(MIGRATION_0025)
+      await old.exec(MIGRATION_0025)
+      // The grants again: Supabase gives them to every new table.
+      await old.exec(RLS_GRANTS)
+
+      await expectSelectOnly(old)
+      await expectStudentReadsOnly(old)
+      await expect(
+        old.exec(`insert into coach_notes (user_id, author_id, week_start, body)
+                  values ('${USER}', '${COACH}', '2026-11-23', 'Monday')`),
+      ).rejects.toThrow()
+    } finally {
+      await old.close()
+    }
+  }, 120_000)
+
+  it('runs on a schema that already has it', async () => {
+    const full = new PGlite()
+    try {
+      await full.exec(SUPABASE_STUB)
+      await full.exec(SCHEMA)
+      await full.exec(MIGRATION_0025)
+      await expectSelectOnly(full)
+    } finally {
+      await full.close()
+    }
+  }, 120_000)
+})
+
 describe('docs/migrations/0022_side_income.sql', () => {
   it('adds the table to a database without it, and can be run twice', async () => {
     const fresh = new PGlite()
@@ -675,6 +859,8 @@ describe('docs/migrations/0016_weekly_pay_payouts_earnings.sql', () => {
       await migrated.exec(MIGRATION_0023)
       await migrated.exec(MIGRATION_0024)
       await migrated.exec(MIGRATION_0024)
+      await migrated.exec(MIGRATION_0025)
+      await migrated.exec(MIGRATION_0025)
       // If the migration and schema.sql ever describe different tables, a
       // fresh project and an upgraded one would not be the same project.
       expect((await columns(migrated)).rows).toEqual((await columns(db)).rows)

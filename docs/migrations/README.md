@@ -49,6 +49,16 @@ shows `cutter_*` entries that have no file here.
 0023 (`weekly_plan`: quiz columns on user_settings, plan_blocks) was applied on 2026-11-24 by the owner in the SQL editor; checked through the REST API. The `quiz-finished` function and its TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID secrets were set the same day.
 0022 (`side_income`) was applied on 2026-11-02 by the owner himself, pasted into the SQL editor; checked afterwards through the REST API (the table answers).
 0024 (`trybe_and_ideate`: trybe_videos, ideate_notes) is written but NOT yet applied to the live project.
+0025 (`coach_notes`: notes the coach writes to a student) is written but NOT yet applied to the live project.
+It must be applied before a build with Dexie v14 ships: the pull reads every
+mirrored table and fails the whole pass at the first one the server does not
+have. coach_notes is **pull-only** - written by the `coach` Edge Function with
+the service role, SELECT-only for the student under RLS - so it is in
+`MIRRORED_TABLES` but also in `PULL_ONLY_TABLES` (`src/data/local/db.ts`), which
+keeps it out of every path that queues writes.
+0026 (`postiz_posts`: postiz_posts, postiz_state - what the planner read from each
+user's own Postiz, and its hourly request count) is written but NOT yet applied.
+Server-only like 0015, so not in `schema.sql`; see `docs/POSTIZ_AND_COACH.md`.
 
 0016 (`weekly_pay_payouts_earnings`) is a DRAFT, not yet applied: weekly posting
 rate, per-account pay, payout schedule, `campaign_payouts`, `earnings_events`.

@@ -40,6 +40,7 @@ import type {
   CampaignField,
   CampaignHook,
   CampaignPayout,
+  CoachNote,
   IdeateNote,
   NewPlanBlock,
   NewSideIncome,
@@ -68,7 +69,7 @@ import type {
   WarmupEvent,
   WorkSession,
 } from '../schema'
-import { LocalDatabase, MIRRORED_TABLES, type OutboxEntry } from './db'
+import { LocalDatabase, MIRRORED_TABLES, PULL_ONLY_TABLES, type OutboxEntry } from './db'
 
 /** Raised for things the schema cannot express: advancing past the end of a
  *  chain, a foreign key pointing at nothing, a row that is not there. */
@@ -208,6 +209,12 @@ export class LocalAdapter implements DataAdapter {
     op: OutboxEntry['op'],
     payload: unknown,
   ): void {
+    // The server writes these and RLS refuses every write from here, so a
+    // queued one would sit stuck forever. Thrown, not skipped: it rolls back
+    // the write it came with, and a path that tries this is a bug.
+    if (PULL_ONLY_TABLES.has(table_name)) {
+      throw new DataError(`${table_name} is written only by the server; this device never queues a write to it`)
+    }
     // Fire-and-forget inside the transaction: it commits or rolls back with
     // the row it describes, so the queue can never disagree with the store.
     void tx.table('_outbox').add({
@@ -1259,6 +1266,26 @@ export class LocalAdapter implements DataAdapter {
     })
   }
 
+  // --- Coach notes -------------------------------------------------------
+  //
+  // Read only. The server writes them and the pull brings them down
+  // (applyRemoteRow); there is no write intent, and enqueue refuses the table.
+
+  async listCoachNotes(options: { campaignId?: string } = {}): Promise<CoachNote[]> {
+    const rows =
+      options.campaignId !== undefined
+        ? await this.db.coach_notes.where('campaign_id').equals(options.campaignId).toArray()
+        : await this.db.coach_notes.toArray()
+    // Notes for whoever is signed in. Claiming leaves these rows alone, so a
+    // device that changed accounts may still hold notes to the previous one.
+    // Compared as instants: the server spells timestamps its own way.
+    // A note the coach deleted arrives dated (deleted_at) - pulls never
+    // remove rows - and is not shown.
+    return rows
+      .filter((row) => row.user_id === this.userId && !row.deleted_at)
+      .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at) || b.id.localeCompare(a.id))
+  }
+
   // --- Side income -------------------------------------------------------
 
   async listSideIncome(options: { on?: string } = {}): Promise<SideIncome[]> {
@@ -1821,6 +1848,7 @@ export class LocalAdapter implements DataAdapter {
       plan_blocks,
       trybe_videos,
       ideate_notes,
+      coach_notes,
       bonus_tiers,
       bonus_claims,
       time_estimates,
@@ -1844,6 +1872,7 @@ export class LocalAdapter implements DataAdapter {
       this.db.plan_blocks.toArray(),
       this.db.trybe_videos.toArray(),
       this.db.ideate_notes.toArray(),
+      this.db.coach_notes.toArray(),
       this.db.bonus_tiers.toArray(),
       this.db.bonus_claims.toArray(),
       this.db.time_estimates.toArray(),
@@ -1871,6 +1900,7 @@ export class LocalAdapter implements DataAdapter {
       plan_blocks,
       trybe_videos,
       ideate_notes,
+      coach_notes,
       bonus_tiers,
       bonus_claims,
       time_estimates,
@@ -1886,7 +1916,12 @@ export class LocalAdapter implements DataAdapter {
     // of record, and a half-applied restore is worse than a refused one.
     const counts: Record<string, number> = {}
     const rowsByTable = {} as Record<TableName, unknown[]>
-    for (const table of MIRRORED_TABLES) {
+    // Pull-only tables are the server's, so the device keeps what the pull
+    // brought down: it is at least as new as any backup, and a row cleared
+    // here would not come down again until the coach next edited it. Nothing
+    // of theirs is restored from the snapshot, and nothing is queued.
+    const restored = MIRRORED_TABLES.filter((table) => !PULL_ONLY_TABLES.has(table))
+    for (const table of restored) {
       // A backup from an older build lacks the columns added since. They are
       // filled the way the database would fill them (completeRow) rather than
       // refused, or restored as undefined for a screen to trip over.
@@ -1905,8 +1940,8 @@ export class LocalAdapter implements DataAdapter {
       rowsByTable[table] = rows
     }
 
-    await this.tx([...MIRRORED_TABLES.map((t) => this.db.table(t)), this.db._outbox], async (tx) => {
-        for (const table of MIRRORED_TABLES) {
+    await this.tx([...restored.map((t) => this.db.table(t)), this.db._outbox], async (tx) => {
+        for (const table of restored) {
           await tx.table(table).clear()
           await tx.table(table).bulkAdd(rowsByTable[table] as never[])
         }
@@ -1950,8 +1985,11 @@ export class LocalAdapter implements DataAdapter {
   }
 
   async retryStuckWrites(): Promise<number> {
+    // A write to a pull-only table is refused every time; reviving it would
+    // only burn another five tries. (None can be queued - enqueue refuses
+    // them - so this guards against one that got in some other way.)
     return this.db._outbox
-      .filter((entry) => entry.attempts > 0)
+      .filter((entry) => entry.attempts > 0 && !PULL_ONLY_TABLES.has(entry.table_name))
       .modify((entry) => {
         entry.attempts = 0
       })
@@ -1990,6 +2028,9 @@ export class LocalAdapter implements DataAdapter {
       [...MIRRORED_TABLES.map((t) => this.db.table(t)), this.db._outbox],
       async (tx) => {
         for (const table of MIRRORED_TABLES) {
+          // The server wrote these; it has them, and would refuse them back.
+          if (PULL_ONLY_TABLES.has(table)) continue
+
           const rows = (await tx.table(table).toArray()) as {
             user_id: string
             id?: string | number
@@ -2030,6 +2071,10 @@ export class LocalAdapter implements DataAdapter {
       [...MIRRORED_TABLES.map((t) => this.db.table(t)), this.db._outbox],
       async (tx) => {
         for (const table of MIRRORED_TABLES) {
+          // Their user_id is the server's word on whom a note is for, never a
+          // local id to replace, and they are never queued.
+          if (PULL_ONLY_TABLES.has(table)) continue
+
           const rows = (await tx.table(table).toArray()) as {
             user_id: string
             id?: string
@@ -2061,6 +2106,7 @@ export class LocalAdapter implements DataAdapter {
         // alone they would reach the server and be refused by RLS.
         const queued = (await tx.table("_outbox").toArray()) as OutboxEntry[]
         for (const entry of queued) {
+          if (PULL_ONLY_TABLES.has(entry.table_name)) continue
           const payload = entry.payload as { user_id?: string } | null
           if (!payload || payload.user_id !== previousUserId) continue
           await tx.table("_outbox").put({

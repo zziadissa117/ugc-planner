@@ -205,6 +205,7 @@ const ROW_TYPE_NAMES = {
   plan_blocks: 'PlanBlock',
   trybe_videos: 'TrybeVideo',
   ideate_notes: 'IdeateNote',
+  coach_notes: 'CoachNote',
   bonus_tiers: 'BonusTier',
   bonus_claims: 'BonusClaim',
   time_estimates: 'TimeEstimate',

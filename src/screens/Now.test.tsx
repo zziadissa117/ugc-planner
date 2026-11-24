@@ -1,7 +1,8 @@
-// TODAY, the home screen: today off the week he placed, the Trybe timer and
-// its count, the posts line, a countdown for warm-ups, a way into hooks and
-// the week as a calendar. The FILM console, the FILM and POST tiles, "Mark
-// edited", the warm-up queue and the dictated list are gone, and tested gone.
+// TODAY, the home screen, top to bottom: the week as a calendar, what is going
+// out, today off the week he placed, the Trybe timer and its count, a
+// countdown for warm-ups, and one way into hook generation. The FILM console,
+// the FILM and POST tiles, "Mark edited", the warm-up queue, the dictated list
+// and the posts row are gone, and tested gone.
 
 import 'fake-indexeddb/auto'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -20,6 +21,8 @@ import { WarmupTimersProvider } from '../warmupTimers'
 import { Now } from './Now'
 
 vi.mock('../sound', () => ({ playWarmupDone: vi.fn(), unlockAudio: vi.fn() }))
+const loadPostizPosts = vi.fn()
+vi.mock('../sync/postizPosts', () => ({ loadPostizPosts: (range: unknown) => loadPostizPosts(range) }))
 
 const USER = '11111111-1111-4111-8111-111111111111'
 let adapter: DataAdapter
@@ -45,6 +48,7 @@ beforeEach(async () => {
   await ensureSeeded(adapter)
   await adapter.replacePlanBlocks(WEEK)
   await adapter.updateUserSettings({ minutes_per_day: 120 })
+  loadPostizPosts.mockReset().mockResolvedValue({ connected: false, posts: [], reading: 0 })
 })
 
 afterEach(() => {
@@ -103,7 +107,7 @@ describe("today's sessions, from the week he placed", () => {
 
   it('shows the week as a calendar, with a way to change it', async () => {
     renderScreen()
-    const week = within(await screen.findByRole('region', { name: 'Your week' }))
+    const week = within(await screen.findByRole('region', { name: 'My week' }))
     expect(week.getByRole('link', { name: 'Edit my week' })).toHaveAttribute('href', '/start')
     expect(week.getByRole('button', { name: 'Tue 6:00 pm Record' })).toBeDisabled()
   })
@@ -186,49 +190,70 @@ describe('the rest of today', () => {
     expect(timer.getByRole('button', { name: 'Start a 5 minute timer' })).toBeInTheDocument()
   })
 
-  it("counts today's posts the way the Post tab does, one tap from it", async () => {
-    renderScreen()
-    // Inflow's seed owes one a day, and nothing has gone out.
-    const posts = await screen.findByRole('link', { name: /^Posts/ })
-    expect(posts).toHaveAttribute('href', '/post')
-    expect(posts).toHaveTextContent('0 of 1 posted today')
-  })
-
-  it('counts a deliverable once however many platforms it went out on', async () => {
-    const accounts = await adapter.listCampaignAccounts(INFLOW_CAMPAIGN_ID)
-    const video = await adapter.createVideo({
-      campaign_id: INFLOW_CAMPAIGN_ID,
-      setup: 'face',
-      angle_id: null,
-      script: null,
-      blocked_reason: null,
-      owed_for_date: null,
-      rate_snapshot_cents: null,
-      posted_at: null,
-    })
-    for (const account of accounts) {
-      await adapter.addVideoPost({
-        video_id: video.id,
-        account_id: account.id,
-        platform: account.platform,
-        url: null,
-        view_count: null,
-        view_count_entered_at: null,
-      })
-    }
-    expect(accounts.length).toBeGreaterThan(1)
-
-    renderScreen()
-    expect(await screen.findByRole('link', { name: /^Posts/ })).toHaveTextContent('1 of 1 posted today')
-  })
-
-  it("links each campaign to its hooks", async () => {
+  it('has one button into hook generation, not a row per campaign', async () => {
     renderScreen()
     const hooks = within(await screen.findByRole('region', { name: 'Hooks' }))
-    const link = hooks.getByRole('link', { name: /Inflow/ })
-    expect(link).toHaveAttribute('href', `/campaigns/${INFLOW_CAMPAIGN_ID}#hooks`)
-    // No hook generator deployed in tests: he writes them.
-    expect(link).toHaveTextContent('Write hooks')
+    expect(hooks.getByRole('link', { name: 'Hook generation' })).toHaveAttribute('href', '/hooks')
+    expect(hooks.queryByRole('link', { name: /Inflow/ })).toBeNull()
+  })
+
+  it('puts the week on top, what is going out under it, and the timer and hooks at the bottom', async () => {
+    renderScreen()
+    await screen.findByRole('region', { name: 'Hooks' })
+    const order = ['My week', 'Going out', "Today's sessions", 'Trybe videos', 'Hooks'].map((name) => screen.getByRole('region', { name }))
+    for (let i = 1; i < order.length; i++) {
+      expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    }
+    const timer = screen.getByText('Used for warm-ups')
+    expect(order[3].compareDocumentPosition(timer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(timer.compareDocumentPosition(order[4]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+})
+
+describe('going out', () => {
+  const post = (over: Record<string, unknown>) => ({
+    id: 'p1',
+    platform: 'Instagram',
+    handle: 'test.insta',
+    url: null,
+    preview: null,
+    previewKind: null,
+    caption: 'First line\nmore',
+    status: 'scheduled',
+    publishedAt: at(24, 20).toISOString(),
+    views: null,
+    viewsAt: null,
+    ...over,
+  })
+
+  it("lists today's posts from his Postiz in time order, the posted ones linking out", async () => {
+    loadPostizPosts.mockResolvedValue({
+      connected: true,
+      reading: 0,
+      posts: [post({ id: 'b', publishedAt: at(24, 21).toISOString() }), post({ id: 'a', status: 'posted', url: 'https://instagram.com/p/x', publishedAt: at(24, 9).toISOString() })],
+    })
+    renderScreen()
+    const going = within(await screen.findByRole('region', { name: 'Going out' }))
+    const rows = await going.findAllByRole('listitem')
+    expect(rows[0]).toHaveTextContent('9:00am')
+    expect(rows[0]).toHaveTextContent('Out')
+    expect(within(rows[0]).getByRole('link')).toHaveAttribute('href', 'https://instagram.com/p/x')
+    expect(rows[1]).toHaveTextContent('Scheduled')
+    // Today's range: midnight to midnight.
+    expect(loadPostizPosts).toHaveBeenCalledWith({ from: at(24, 0).toISOString(), to: at(25, 0).toISOString() })
+  })
+
+  it('switches to this week, Sunday to Sunday', async () => {
+    renderScreen()
+    const going = within(await screen.findByRole('region', { name: 'Going out' }))
+    fireEvent.click(going.getByRole('tab', { name: 'This week' }))
+    await waitFor(() => expect(loadPostizPosts).toHaveBeenCalledWith({ from: at(22, 0).toISOString(), to: at(29, 0).toISOString() }))
+  })
+
+  it('says where to add a Postiz key when there is none', async () => {
+    renderScreen()
+    const going = within(await screen.findByRole('region', { name: 'Going out' }))
+    expect(await going.findByRole('link', { name: 'Add your Postiz key' })).toHaveAttribute('href', '/settings')
   })
 })
 
@@ -261,6 +286,7 @@ describe('what is gone', () => {
     expect(screen.queryByRole('textbox', { name: 'Add a line by hand' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Start working' })).toBeNull()
     expect(screen.queryByText(/Start filming/)).toBeNull()
+    expect(screen.queryByRole('link', { name: /^Posts/ })).toBeNull()
   })
 
   it('reads the day again when a sync brings new rows', async () => {

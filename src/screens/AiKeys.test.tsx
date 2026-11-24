@@ -3,7 +3,8 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AiError } from '../ai/errors'
-import { AiKeys } from './AiKeys'
+import { AI_PROVIDERS } from '../ai/keys'
+import { AiKeys, PostizKey } from './AiKeys'
 
 const listKeys = vi.fn()
 const saveKey = vi.fn()
@@ -90,5 +91,55 @@ describe('AiKeys', () => {
     listKeys.mockRejectedValue(new AiError('Invalid or expired session.'))
     render(<AiKeys />)
     expect(await screen.findByText(/invalid or expired session/i)).toBeInTheDocument()
+  })
+})
+
+describe('PostizKey', () => {
+  const POSTIZ_KEY = 'pz_live_SECRETSECRET9876'
+
+  it('is not offered as an AI key', async () => {
+    expect(AI_PROVIDERS.map((p) => p.id)).not.toContain('postiz')
+    render(<AiKeys />)
+    await screen.findByLabelText(/anthropic api key/i)
+    expect(screen.queryByLabelText(/postiz/i)).toBeNull()
+  })
+
+  it('says what it is for, and asks to sign in first when signed out', () => {
+    auth = { configured: true, email: null }
+    render(<PostizKey />)
+    expect(screen.getByText(/sign in above to add your postiz key/i)).toBeInTheDocument()
+    expect(listKeys).not.toHaveBeenCalled()
+  })
+
+  it('saves a pasted Postiz key, shows only its last four, and empties the box', async () => {
+    saveKey.mockResolvedValue({ provider: 'postiz', last4: '9876', updated_at: '2026-11-24T00:00:00Z' })
+    const user = userEvent.setup()
+    const { container } = render(<PostizKey />)
+
+    expect(screen.getByText('So IDEATE can show your videos and their views.')).toBeInTheDocument()
+    const box = await screen.findByLabelText('Postiz API key')
+    expect(box).toHaveAttribute('type', 'password')
+    await user.type(box, POSTIZ_KEY)
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(saveKey).toHaveBeenCalledWith('postiz', POSTIZ_KEY)
+    expect(await screen.findByText(/9876/)).toBeInTheDocument()
+    expect(container.textContent).not.toContain('SECRET')
+    expect(screen.queryByLabelText('Postiz API key')).toBeNull()
+  })
+
+  it('shows a saved Postiz key masked, and removes it', async () => {
+    listKeys.mockResolvedValue([
+      { provider: 'anthropic', last4: '1234', updated_at: '2026-10-02T00:00:00Z' },
+      { provider: 'postiz', last4: '9876', updated_at: '2026-11-24T00:00:00Z' },
+    ])
+    const user = userEvent.setup()
+    render(<PostizKey />)
+
+    expect(await screen.findByText(/9876/)).toBeInTheDocument()
+    expect(screen.queryByText(/1234/)).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Remove' }))
+    await waitFor(() => expect(removeKey).toHaveBeenCalledWith('postiz'))
+    expect(await screen.findByText(/no key saved/i)).toBeInTheDocument()
   })
 })

@@ -36,6 +36,7 @@ import {
   type CampaignPayout,
   type EarningsEvent,
   type CampaignHook,
+  type CoachNote,
   type IdeateNote,
   type CampaignDocument,
   type CampaignField,
@@ -441,6 +442,36 @@ export function assertIdeateNote(row: IdeateNote): void {
   timestamp(t, 'updated_at', row.updated_at, { nullable: false })
 }
 
+/** The longest coach note the SQL takes: `char_length(body) between 1 and 4000`. */
+export const COACH_NOTE_MAX_LENGTH = 4000
+
+/** A coach_notes row. The planner only ever receives these (from the pull),
+ *  never writes them; they are checked all the same, like any row pulled from
+ *  the server, so a bad one is skipped rather than shown. */
+export function assertCoachNote(row: CoachNote): void {
+  const t: TableName = 'coach_notes'
+  text(t, 'id', row.id, { nullable: false })
+  text(t, 'user_id', row.user_id, { nullable: false })
+  text(t, 'author_id', row.author_id, { nullable: false })
+  text(t, 'campaign_id', row.campaign_id, { nullable: true })
+  text(t, 'post_id', row.post_id, { nullable: true })
+  text(t, 'post_url', row.post_url, { nullable: true })
+  dateOnly(t, 'week_start', row.week_start, { nullable: true })
+  // week_start is null or extract(dow from week_start) = 0, read as UTC
+  // midnight for the same reason as ideate_notes.
+  if (row.week_start != null && new Date(`${row.week_start}T00:00:00Z`).getUTCDay() !== 0) {
+    fail(t, 'week_start_check', `week_start must be a Sunday, got ${row.week_start}`)
+  }
+  text(t, 'body', row.body, { nullable: false })
+  // Characters, not UTF-16 units, as char_length counts them.
+  const length = Array.from(row.body).length
+  if (length < 1 || length > COACH_NOTE_MAX_LENGTH) {
+    fail(t, 'body_check', `body must be 1 to ${COACH_NOTE_MAX_LENGTH} characters, got ${length}`)
+  }
+  timestamp(t, 'created_at', row.created_at, { nullable: false })
+  timestamp(t, 'updated_at', row.updated_at, { nullable: false })
+}
+
 export function assertSideIncome(row: SideIncome): void {
   const t: TableName = 'side_income'
   text(t, 'id', row.id, { nullable: false })
@@ -549,6 +580,7 @@ const VALIDATORS = {
   plan_blocks: assertPlanBlock,
   trybe_videos: assertTrybeVideo,
   ideate_notes: assertIdeateNote,
+  coach_notes: assertCoachNote,
   bonus_tiers: assertBonusTier,
   bonus_claims: assertBonusClaim,
   time_estimates: assertTimeEstimate,

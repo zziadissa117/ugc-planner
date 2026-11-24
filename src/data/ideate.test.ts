@@ -1,53 +1,54 @@
 import { describe, expect, it } from 'vitest'
 
-import type { CutterViewsPost } from './campaignViews'
+import type { PostizPostView } from '../sync/postizPosts'
 import {
   addDays,
-  campaignWeek,
+  campaignsInOrder,
   dayLabel,
-  ideateTimeLine,
-  inWeek,
-  notesFor,
-  shortClock,
+  hasHandles,
+  periodRange,
+  postsForCampaign,
   sundayOf,
+  videoStats,
+  videosForCampaign,
+  viewsComingIn,
   weekName,
   weekRange,
-  weekViewsByAccount,
 } from './ideate'
-import type { Campaign, CampaignAccount, EarningsEvent, IdeateNote, Video, VideoPost } from './schema'
+import type { Campaign, CampaignAccount } from './schema'
 
 // 2026-11-22 is a Sunday; the app's weeks start on Sunday.
 const SUNDAY = '2026-11-22'
 const TODAY = '2026-11-24'
 
-const campaign = { id: 'c1', name: 'Login', pay_per_video_cents: 2000, pays_per_platform: false, posts_per_week: 7, min_views: 1000 } as Campaign
-const account = (id: string, platform: string, extra: Partial<CampaignAccount> = {}) =>
-  ({ id, campaign_id: 'c1', platform, handle: `${id}.handle`, is_active: true, bonus_only: false, pay_per_post_cents: null, ...extra }) as CampaignAccount
-const tiktok = account('tt', 'TikTok')
-const instagram = account('ig', 'Instagram')
-const facebook = account('fb', 'Facebook', { bonus_only: true })
-const accounts = [tiktok, instagram, facebook]
+const account = (id: string, platform: string, handle: string | null, extra: Partial<CampaignAccount> = {}) =>
+  ({ id, campaign_id: 'c1', platform, handle, is_active: true, bonus_only: false, pay_per_post_cents: null, ...extra }) as CampaignAccount
+const tiktok = account('tt', 'TikTok', '@Login.TT')
+const instagram = account('ig', 'Instagram', 'login.ig')
+const accounts = [tiktok, instagram, account('other', 'TikTok', 'elsewhere', { campaign_id: 'c2' })]
 
-/** Local noon on a calendar day, as a timestamp. */
-const at = (date: string, hour = 12) => {
-  const [y, m, d] = date.split('-').map(Number)
-  return new Date(y, m - 1, d, hour).toISOString()
-}
-const post = (id: string, video: string, acc: CampaignAccount, date: string, hour = 12) =>
-  ({ id, video_id: video, account_id: acc.id, platform: acc.platform, posted_at: at(date, hour), url: null, view_count: null }) as VideoPost
-const video = (id: string, extra: Partial<Video> = {}) => ({ id, campaign_id: 'c1', script: null, angle_id: null, ...extra }) as Video
-const earned = (id: string, acc: string | null, cents: number, on: string, extra: Partial<EarningsEvent> = {}) =>
-  ({ id, campaign_id: 'c1', video_id: 'v', account_id: acc, platform: 'TikTok', amount_cents: cents, source: 'checkoff', earned_on: on, reverses_id: null, ...extra }) as EarningsEvent
+const post = (id: string, extra: Partial<PostizPostView> = {}): PostizPostView => ({
+  id,
+  group: null,
+  platform: 'TikTok',
+  handle: 'login.tt',
+  url: `https://www.tiktok.com/@login.tt/video/${id}`,
+  preview: null,
+  previewKind: null,
+  caption: '',
+  status: 'posted',
+  publishedAt: '2026-11-23T15:00:00.000Z',
+  views: null,
+  viewsAt: null,
+  ...extra,
+})
 
-describe('the week', () => {
-  it('starts on the Sunday and runs to Saturday', () => {
+describe('days and weeks', () => {
+  it('starts the week on the Sunday', () => {
     expect(sundayOf('2026-11-24')).toBe(SUNDAY)
     expect(sundayOf(SUNDAY)).toBe(SUNDAY)
     expect(sundayOf('2026-11-28')).toBe(SUNDAY)
     expect(sundayOf('2026-11-29')).toBe('2026-11-29')
-    expect(inWeek('2026-11-28', SUNDAY)).toBe(true)
-    expect(inWeek('2026-11-29', SUNDAY)).toBe(false)
-    expect(inWeek('2026-11-21', SUNDAY)).toBe(false)
     expect(addDays('2026-11-29', 7)).toBe('2026-12-06')
   })
 
@@ -57,159 +58,170 @@ describe('the week', () => {
     expect(weekName('2026-11-08', TODAY)).toBe('Nov 8 – 14')
     expect(weekRange('2026-11-29', TODAY)).toBe('Nov 29 – Dec 5')
     expect(weekRange('2025-12-28', TODAY)).toBe('Dec 28, 2025 – Jan 3')
-    expect(weekRange('2026-12-27', TODAY)).toBe('Dec 27 – Jan 2, 2027')
-    expect(weekRange('2025-11-02', TODAY)).toBe('Nov 2 – 8, 2025')
     expect(dayLabel('2026-11-24')).toBe('Tue, Nov 24')
   })
 })
 
-describe('ideate time', () => {
-  it('reads his ideate sessions off the saved week, Sunday first, against 2-4h', () => {
-    // Stored Monday = 0: 1 is Tuesday, 3 is Thursday.
-    const blocks = [
-      { kind: 'ideate' as const, weekday: 3, start_minute: 600, duration_minutes: 60 },
-      { kind: 'record' as const, weekday: 0, start_minute: 1080, duration_minutes: 120 },
-      { kind: 'ideate' as const, weekday: 1, start_minute: 600, duration_minutes: 60 },
-    ]
-    expect(ideateTimeLine(blocks)).toBe('Your ideate time this week: Tue 10 am, Thu 10 am · 2h of 2–4h recommended')
-    expect(ideateTimeLine(blocks.filter((b) => b.kind === 'record'))).toBeNull()
-    expect(shortClock(18 * 60 + 30)).toBe('6:30 pm')
-    expect(shortClock(0)).toBe('12 am')
+describe('the period', () => {
+  // Tuesday afternoon, local time.
+  const now = new Date(2026, 10, 24, 15, 0)
+  const local = (y: number, m: number, d: number) => new Date(y, m - 1, d).toISOString()
+
+  it('runs this week from Sunday midnight to the next Sunday', () => {
+    expect(periodRange('week', now)).toEqual({ from: local(2026, 11, 22), to: local(2026, 11, 29), weekStart: SUNDAY })
+  })
+
+  it('runs last week up to this Sunday, and files its notes under that week', () => {
+    expect(periodRange('last-week', now)).toEqual({ from: local(2026, 11, 15), to: local(2026, 11, 22), weekStart: '2026-11-15' })
+  })
+
+  it('runs 30 days as today and the 29 before it', () => {
+    expect(periodRange('30-days', now)).toEqual({ from: local(2026, 10, 26), to: local(2026, 11, 25), weekStart: SUNDAY })
   })
 })
 
-describe("one campaign's week", () => {
-  const videos = [video('v0'), video('v1', { script: 'Hook: stop scrolling' }), video('v2')]
-  const posts = [
-    // Last Thursday: not this week.
-    post('p0', 'v0', tiktok, '2026-11-19'),
-    // v1 went to all three on Monday - one video, three ticks.
-    post('p1', 'v1', tiktok, '2026-11-23', 10),
-    post('p2', 'v1', instagram, '2026-11-23', 11),
-    post('p3', 'v1', facebook, '2026-11-23', 12),
-    post('p4', 'v2', tiktok, '2026-11-24'),
-    // Someone else's campaign entirely.
-    { ...post('px', 'vx', tiktok, '2026-11-24'), account_id: 'other' },
-  ]
-  const events = [
-    earned('e0', 'tt', 1000, '2026-11-19'),
-    earned('e1', 'tt', 1000, '2026-11-23'),
-    earned('e2', 'ig', 1000, '2026-11-23'),
-    earned('e3', 'tt', 1000, '2026-11-24'),
-    // Unticked the same day: a reversal nets it out.
-    earned('e4', 'tt', -1000, '2026-11-24', { source: 'reversal', reverses_id: 'e3' }),
-    // A tick with no account behind it (older history).
-    earned('e5', null, 500, '2026-11-25'),
-    { ...earned('e6', 'tt', 9999, '2026-11-24'), campaign_id: 'c2' },
-  ]
-
-  it("counts each account's ticks in the week, and the money each one earned", () => {
-    const week = campaignWeek(campaign, accounts, videos, posts, events, SUNDAY)
-    const byPlatform = Object.fromEntries(week.accounts.map((a) => [a.account.platform, a]))
-    expect(byPlatform.TikTok.posts.map((p) => p.post.id)).toEqual(['p1', 'p4'])
-    expect(byPlatform.Instagram.posts.map((p) => p.post.id)).toEqual(['p2'])
-    expect(byPlatform.Facebook.posts.map((p) => p.post.id)).toEqual(['p3'])
-
-    expect(byPlatform.TikTok.cents).toBe(1000)
-    expect(byPlatform.Instagram.cents).toBe(1000)
-    expect(byPlatform.Facebook.cents).toBe(0)
-    expect(week.cents).toBe(2500)
-    expect(week.unlistedCents).toBe(500)
-  })
-
-  it('numbers the week\'s videos once, whichever account they went to', () => {
-    const week = campaignWeek(campaign, accounts, videos, posts, events, SUNDAY)
-    const all = week.accounts.flatMap((a) => a.posts)
-    expect(all.find((p) => p.post.id === 'p1')).toMatchObject({ videoNumber: 1, alsoOn: ['Instagram', 'Facebook'], day: '2026-11-23' })
-    expect(all.find((p) => p.post.id === 'p3')?.videoNumber).toBe(1)
-    expect(all.find((p) => p.post.id === 'p4')?.videoNumber).toBe(2)
-    expect(all.find((p) => p.post.id === 'p1')?.video?.script).toBe('Hook: stop scrolling')
-    // Two deliverables went out, not four ticks' worth.
-    expect(week.videosPosted).toBe(2)
-  })
-
-  it('does not count a bonus-only post as a deliverable, or a video first posted the week before', () => {
-    const extra = [
-      ...posts,
-      post('p5', 'v3', facebook, '2026-11-25'),
-      // v0 went out last week; cross-posting it this week is not a new video.
-      post('p6', 'v0', instagram, '2026-11-25'),
+describe("a campaign's posts", () => {
+  it('keeps only posts that went out on one of its accounts, matched by platform and exact handle', () => {
+    const posts = [
+      post('older', { publishedAt: '2026-11-22T10:00:00.000Z' }),
+      post('ig', { platform: 'Instagram', handle: 'LOGIN.IG', publishedAt: '2026-11-24T10:00:00.000Z' }),
+      // Same handle, wrong platform: not this campaign's.
+      post('wrong-platform', { platform: 'YouTube' }),
+      // Another campaign's account.
+      post('elsewhere', { handle: 'elsewhere' }),
+      // A near miss is someone else's.
+      post('near-miss', { handle: 'login.tt2' }),
+      // Not out yet, or never went out.
+      post('scheduled', { status: 'scheduled' }),
+      post('failed', { status: 'failed' }),
     ]
-    const week = campaignWeek(campaign, accounts, [...videos, video('v3')], extra, events, SUNDAY)
-    expect(week.videosPosted).toBe(2)
-    expect(week.accounts.find((a) => a.account.id === 'ig')?.posts).toHaveLength(2)
+    const mine = postsForCampaign(posts, accounts, 'c1')
+    expect(mine.map((p) => [p.post.id, p.accountId])).toEqual([
+      ['older', 'tt'],
+      ['ig', 'ig'],
+    ])
   })
 
-  it('reads last week the same way', () => {
-    const week = campaignWeek(campaign, accounts, videos, posts, events, '2026-11-15')
-    expect(week.accounts.find((a) => a.account.id === 'tt')?.posts.map((p) => p.post.id)).toEqual(['p0'])
-    expect(week.cents).toBe(1000)
-    expect(week.videosPosted).toBe(1)
+  it('matches nothing for an account switched off, or a campaign with no handles', () => {
+    expect(postsForCampaign([post('a')], [account('tt', 'TikTok', 'login.tt', { is_active: false })], 'c1')).toEqual([])
+    expect(postsForCampaign([post('a')], [account('tt', 'TikTok', null)], 'c1')).toEqual([])
+    expect(hasHandles([account('tt', 'TikTok', ' @ ')], 'c1')).toBe(false)
+    expect(hasHandles(accounts, 'c1')).toBe(true)
   })
 })
 
-describe('views', () => {
-  const mine = [
-    { id: 'tt', platform: 'TikTok', handle: '@login.tt' },
-    { id: 'ig', platform: 'Instagram', handle: 'login.ig' },
-  ]
-  const { from, to } = { from: Date.parse(at(SUNDAY, 0)), to: Date.parse(at('2026-11-29', 0)) }
-  const cut = (id: string, date: string, views: Record<string, number | null>, accounts = [
-    { name: 'Login TT', platform: 'TikTok', profile: 'login.tt' },
-    { name: 'Login IG', platform: 'Instagram', profile: 'login.ig' },
-  ]): CutterViewsPost => ({ id, postedAt: at(date), accounts, views })
+describe("a campaign's videos", () => {
+  const ig = (id: string, extra: Partial<PostizPostView> = {}) =>
+    post(id, { platform: 'Instagram', handle: 'login.ig', preview: null, previewKind: null, url: `https://www.instagram.com/reel/${id}`, ...extra })
 
-  it("adds up each of his accounts' readings in the week, and only his", () => {
-    const result = weekViewsByAccount(
+  it('makes one video of the posts that share a group, newest first, and one of a post with none', () => {
+    const videos = videosForCampaign(
       [
-        cut('a', '2026-11-23', { 'Login TT': 1500, 'Login IG': 400 }),
-        cut('b', '2026-11-24', { 'Login TT': 300, 'Login IG': null }),
-        // Last week: not counted.
-        cut('c', '2026-11-20', { 'Login TT': 99999, 'Login IG': 99999 }),
-        // Jake's post on the same cutter campaign.
-        cut('d', '2026-11-24', { 'Jake TT': 50000 }, [{ name: 'Jake TT', platform: 'TikTok', profile: 'hooksandmike' }]),
+        post('tt-1', { group: 'g1', publishedAt: '2026-11-23T10:00:00Z', views: 900, preview: 'https://cdn/x.jpg', previewKind: 'image' }),
+        ig('ig-1', { group: 'g1', publishedAt: '2026-11-23T10:01:00Z', views: 300 }),
+        post('alone', { publishedAt: '2026-11-24T09:00:00Z', views: 50 }),
+        // In the group, but not out.
+        ig('ig-2', { group: 'g1', status: 'failed', views: 99999 }),
       ],
-      mine,
-      from,
-      to,
-      1000,
+      accounts,
+      'c1',
     )
-    expect(result.get('tt')).toEqual({ posts: 2, read: 2, views: 1800, reachedMin: 1 })
-    expect(result.get('ig')).toEqual({ posts: 2, read: 1, views: 400, reachedMin: 0 })
+    expect(videos.map((v) => v.id)).toEqual(['alone', 'g1'])
+    const g1 = videos[1]
+    // Instagram first; one deliverable, its platforms' views added up.
+    expect(g1.posts.map((p) => p.post.id)).toEqual(['ig-1', 'tt-1'])
+    expect(g1.views).toBe(1200)
+    expect(g1.publishedAt).toBe('2026-11-23T10:00:00Z')
   })
 
-  it('leaves views null when nothing was read - never a zero', () => {
-    const result = weekViewsByAccount([], mine, from, to, null)
-    expect(result.get('tt')).toEqual({ posts: 0, read: 0, views: null, reachedMin: 0 })
+  it("opens on Instagram when it went there, and borrows another platform's preview", () => {
+    const [video] = videosForCampaign(
+      [post('tt', { group: 'g', preview: 'https://cdn/tt.jpg', previewKind: 'image' }), ig('ig', { group: 'g' })],
+      accounts,
+      'c1',
+    )
+    expect(video.primary.post.id).toBe('ig')
+    expect(video.preview).toEqual({ src: 'https://cdn/tt.jpg', kind: 'image' })
+  })
+
+  it('opens wherever there is a link when Instagram has none, and has no preview when none of its posts does', () => {
+    const [video] = videosForCampaign(
+      [post('tt', { group: 'g', preview: null, previewKind: null }), ig('ig', { group: 'g', url: null })],
+      accounts,
+      'c1',
+    )
+    expect(video.primary.post.id).toBe('tt')
+    expect(video.preview).toBeNull()
+  })
+
+  it('leaves views unknown until one of its platforms has been read, and counts the platforms still to come', () => {
+    const [partly, none] = videosForCampaign(
+      [
+        post('a', { group: 'g1', views: 400, publishedAt: '2026-11-24T10:00:00Z' }),
+        ig('b', { group: 'g1', views: null, publishedAt: '2026-11-24T10:00:00Z' }),
+        post('c', { group: 'g2', views: null, publishedAt: '2026-11-23T10:00:00Z' }),
+      ],
+      accounts,
+      'c1',
+    )
+    expect(partly).toMatchObject({ views: 400, unread: 1 })
+    expect(none).toMatchObject({ views: null, unread: 1 })
   })
 })
 
-describe('notes', () => {
-  const note = (id: string, account: string | null, week: string, updated: string): IdeateNote => ({
-    id,
-    user_id: 'u',
-    campaign_id: 'c1',
-    account_id: account,
-    week_start: week,
-    body: id,
-    created_at: updated,
-    updated_at: updated,
+describe('the figures', () => {
+  const videos = (list: PostizPostView[]) => videosForCampaign(list, accounts, 'c1')
+
+  it('averages, ranks and picks best and worst per video, from read views only', () => {
+    const stats = videoStats(
+      videos([
+        post('a', { views: 1200, publishedAt: '2026-11-22T10:00:00Z' }),
+        post('b', { views: 300, publishedAt: '2026-11-23T10:00:00Z' }),
+        post('c', { views: null, publishedAt: '2026-11-24T10:00:00Z' }),
+        // One video on two platforms: 4,500 in all.
+        post('d', { group: 'g', views: 4000, publishedAt: '2026-11-24T12:00:00Z' }),
+        post('e', { group: 'g', platform: 'Instagram', handle: 'login.ig', views: 500, publishedAt: '2026-11-24T12:00:00Z' }),
+      ]),
+    )
+    expect(stats.posted).toBe(4)
+    expect(stats.read).toBe(3)
+    // (1200 + 300 + 4500) / 3 - the unread one is not a zero.
+    expect(stats.average).toBe(2000)
+    expect(stats.best?.id).toBe('g')
+    expect(stats.worst?.id).toBe('b')
   })
 
-  it("splits one account's notes into the week shown and the weeks before it", () => {
-    const notes = [
-      note('old', 'tt', '2026-11-08', '2026-11-10T00:00:00Z'),
-      note('last', 'tt', '2026-11-15', '2026-11-17T00:00:00Z'),
-      note('now-a', 'tt', SUNDAY, '2026-11-23T00:00:00Z'),
-      note('now-b', 'tt', SUNDAY, '2026-11-24T00:00:00Z'),
-      note('next', 'tt', '2026-11-29', '2026-11-30T00:00:00Z'),
-      note('other-account', 'ig', SUNDAY, '2026-11-24T00:00:00Z'),
-      note('campaign', null, SUNDAY, '2026-11-24T00:00:00Z'),
-    ]
-    const tt = notesFor(notes, 'c1', 'tt', SUNDAY)
-    // Most recently edited first: that one is the box.
-    expect(tt.thisWeek.map((n) => n.id)).toEqual(['now-b', 'now-a'])
-    expect(tt.earlier.map((w) => w.weekStart)).toEqual(['2026-11-15', '2026-11-08'])
-    expect(notesFor(notes, 'c1', null, SUNDAY).thisWeek.map((n) => n.id)).toEqual(['campaign'])
+  it('has no average, best or worst until something is read, and no worst from a single video', () => {
+    const none = videoStats(videos([post('a'), post('b')]))
+    expect(none).toEqual({ posted: 2, read: 0, average: null, best: null, worst: null })
+
+    const one = videoStats(videos([post('a', { views: 0 }), post('b')]))
+    expect(one.average).toBe(0)
+    expect(one.best?.id).toBe('a')
+    expect(one.worst).toBeNull()
+  })
+
+  it('says views are coming in only while the server is still reading', () => {
+    const list = videos([post('a', { views: 10 }), post('b'), post('c')])
+    expect(viewsComingIn(list, 5)).toBe(2)
+    expect(viewsComingIn(list, 0)).toBe(0)
+  })
+})
+
+describe('campaign order', () => {
+  const campaign = (id: string, extra: Partial<Campaign> = {}) =>
+    ({ id, name: id, is_active: true, min_views: null, pay_per_video_cents: 1000, posts_per_week: 7, pays_per_platform: false, ...extra }) as Campaign
+
+  it('puts high-quality campaigns first, best pay first within each, and leaves archived ones out', () => {
+    const ordered = campaignsInOrder(
+      [
+        campaign('quick-low', { pay_per_video_cents: 500 }),
+        campaign('quick-high', { pay_per_video_cents: 3000 }),
+        campaign('quality', { min_views: 1000, pay_per_video_cents: 100 }),
+        campaign('archived', { is_active: false, min_views: 1000 }),
+      ],
+      [],
+    )
+    expect(ordered.map((c) => c.id)).toEqual(['quality', 'quick-high', 'quick-low'])
   })
 })

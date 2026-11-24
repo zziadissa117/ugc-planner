@@ -698,6 +698,37 @@ create index on ideate_notes (user_id, week_start);
 create index on ideate_notes (campaign_id, week_start);
 create index on ideate_notes (account_id);
 
+-- A note from the coach to one student ("notes from Ziad"). Written only by
+-- the server - the `coach` Edge Function, with the service role - and read by
+-- the student through the ordinary sync pull. The planner never writes it
+-- (PULL_ONLY_TABLES in src/data/local/db.ts), and RLS gives the browser a
+-- SELECT policy and nothing else; see below. campaign_id null is a note not
+-- about one campaign; post_id and post_url are set when it is about one video
+-- (a Postiz post id and its live link); week_start, when set, is the Sunday
+-- that starts the week it is about. The pull reads by updated_at, so an edit
+-- must set it.
+create table coach_notes (
+  id          uuid primary key default gen_random_uuid(),
+  -- The student it is for.
+  user_id     uuid not null references auth.users(id) on delete cascade,
+  -- The coach who wrote it.
+  author_id   uuid not null references auth.users(id) on delete cascade,
+  campaign_id uuid default null references campaigns(id) on delete cascade,
+  post_id     text default null,
+  post_url    text default null,
+  -- extract(dow) is 0 on a Sunday.
+  week_start  date default null check (week_start is null or extract(dow from week_start) = 0),
+  body        text not null check (char_length(body) between 1 and 4000),
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now(),
+  -- Set when the coach deletes it: pulls never remove rows, so deletion has
+  -- to arrive as an edit (docs/migrations/0025_coach_notes.sql).
+  deleted_at  timestamptz default null
+);
+
+create index on coach_notes (user_id, updated_at);
+create index on coach_notes (campaign_id);
+
 -- ---------------------------------------------------------------------------
 -- Row level security
 -- ---------------------------------------------------------------------------
@@ -722,6 +753,7 @@ alter table side_income        enable row level security;
 alter table plan_blocks        enable row level security;
 alter table trybe_videos       enable row level security;
 alter table ideate_notes       enable row level security;
+alter table coach_notes        enable row level security;
 alter table time_estimates     enable row level security;
 alter table user_settings      enable row level security;
 
@@ -745,6 +777,12 @@ end $$;
 create policy user_settings_owner on user_settings for all to authenticated
   using (user_id = (select auth.uid()))
   with check (user_id = (select auth.uid()));
+
+-- coach_notes is NOT in the owner loop above, on purpose: the student it is
+-- for can read it, and nobody can write it through the API. The coach function
+-- writes it with the service role. No insert, update or delete policy.
+create policy coach_notes_read on coach_notes for select to authenticated
+  using (user_id = (select auth.uid()));
 
 -- phase_events is append-only: readable and insertable, never updated or deleted.
 create policy phase_events_read on phase_events for select to authenticated

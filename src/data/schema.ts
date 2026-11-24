@@ -593,6 +593,26 @@ export interface IdeateNote {
 export type NewIdeateNote = Omit<IdeateNote, 'user_id' | 'id' | 'account_id' | 'created_at' | 'updated_at'> &
   Partial<Pick<IdeateNote, 'id' | 'account_id' | 'created_at' | 'updated_at'>>
 
+/** Mirrors `coach_notes`. */
+export interface CoachNote {
+  id: string
+  user_id: string
+  author_id: string
+  campaign_id: string | null
+  post_id: string | null
+  post_url: string | null
+  week_start: string | null
+  body: string
+  created_at: string
+  updated_at: string
+  deleted_at: string | null
+}
+
+/** `coach_notes` as supplied by a caller: user_id comes from the session, and
+ *  columns the database defaults are optional. */
+export type NewCoachNote = Omit<CoachNote, 'user_id' | 'id' | 'campaign_id' | 'post_id' | 'post_url' | 'week_start' | 'created_at' | 'updated_at' | 'deleted_at'> &
+  Partial<Pick<CoachNote, 'id' | 'campaign_id' | 'post_id' | 'post_url' | 'week_start' | 'created_at' | 'updated_at' | 'deleted_at'>>
+
 // --- Table registry ------------------------------------------------------
 
 /** Every table, in dependency order: parents before children, so an import
@@ -620,6 +640,7 @@ export const TABLE_NAMES = [
   'plan_blocks',
   'trybe_videos',
   'ideate_notes',
+  'coach_notes',
 ] as const
 
 export type TableName = (typeof TABLE_NAMES)[number]
@@ -648,6 +669,7 @@ export interface TableRowMap {
   plan_blocks: PlanBlock
   trybe_videos: TrybeVideo
   ideate_notes: IdeateNote
+  coach_notes: CoachNote
 }
 
 // --- Constraints carried over from the SQL --------------------------------
@@ -769,6 +791,10 @@ export const SQL_COLUMN_CHECKS: Readonly<Record<string, Readonly<Record<string, 
   },
   ideate_notes: {
     week_start: ["check (extract(dow from week_start) = 0)"],
+    body: ["check (char_length(body) between 1 and 4000)"],
+  },
+  coach_notes: {
+    week_start: ["check (week_start is null or extract(dow from week_start) = 0)"],
     body: ["check (char_length(body) between 1 and 4000)"],
   },
 }
@@ -1036,5 +1062,18 @@ export const SQL_COLUMNS: Readonly<Record<TableName, readonly { name: string; nu
     { name: 'body', nullable: false, sqlDefault: null },
     { name: 'created_at', nullable: false, sqlDefault: "now()" },
     { name: 'updated_at', nullable: false, sqlDefault: "now()" },
+  ],
+  coach_notes: [
+    { name: 'id', nullable: false, sqlDefault: "gen_random_uuid()" },
+    { name: 'user_id', nullable: false, sqlDefault: null },
+    { name: 'author_id', nullable: false, sqlDefault: null },
+    { name: 'campaign_id', nullable: true, sqlDefault: "null" },
+    { name: 'post_id', nullable: true, sqlDefault: "null" },
+    { name: 'post_url', nullable: true, sqlDefault: "null" },
+    { name: 'week_start', nullable: true, sqlDefault: "null" },
+    { name: 'body', nullable: false, sqlDefault: null },
+    { name: 'created_at', nullable: false, sqlDefault: "now()" },
+    { name: 'updated_at', nullable: false, sqlDefault: "now()" },
+    { name: 'deleted_at', nullable: true, sqlDefault: "null" },
   ],
 }

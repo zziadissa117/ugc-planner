@@ -78,7 +78,8 @@ describe('a v12 store opened by v13', () => {
 
     const db = new LocalDatabase(name)
     await db.open()
-    expect(db.verno).toBe(13)
+    // At least 13: later versions open the same store on top of it.
+    expect(db.verno).toBeGreaterThanOrEqual(13)
     expect(await db.plan_blocks.get(blockId)).toMatchObject({ kind: 'record', duration_minutes: 120 })
     expect(await db.side_income.get(incomeId)).toMatchObject({ amount_cents: 18000 })
     expect(await db.campaigns.get(campaignId)).toMatchObject({ name: 'Vertus' })

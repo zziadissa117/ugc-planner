@@ -16,18 +16,28 @@ and makes the account at the end; see `src/data/weeklyPlan.ts`.
 
 Five tabs:
 
-- **TODAY** (`src/screens/Now.tsx`): today's sessions from the saved week, the
-  Trybe timer with "+1 video" (`trybe_videos`), a countdown labelled "Used for
-  warm-ups", posts owed today, hooks, and the week as a calendar.
+- **TODAY** (`src/screens/Now.tsx`), top to bottom as he ordered it: the week
+  as a calendar, "Going out" (every post his Postiz has going out today or
+  this week, read only - `GoingOut.tsx`), today's sessions, the Trybe timer
+  with "+1 video" (`trybe_videos`), a countdown "Used for warm-ups", and one
+  "Hook generation" button (`/hooks`, `Hooks.tsx`). No posts row.
 - **POST** (`Posting.tsx`): "X of Y posts done today" and the tick grid.
 - **CAMPAIGNS** (`Campaigns.tsx`, `NewCampaign.tsx`, `Campaign.tsx`): a
   campaign is typed in on one page - name, pay per video, videos a day,
   minimum views, platforms and accounts. High-quality campaigns (a minimum view
   count) are listed first, because they are recorded first. Money sits at the
   bottom of the list; there is no Money tab.
-- **IDEATE** (`Ideate.tsx`): a week per campaign and account - posts, money,
-  views where the planner has them - and notes for the next recording
-  (`ideate_notes`).
+- **IDEATE** (`Ideate.tsx`, `IdeateBoard.tsx`): pick one campaign, then its
+  videos as a grid of previews (tap opens the post on Instagram), average /
+  best / worst views, "Notes from Ziad" (`coach_notes`, read only, pulled) and
+  "Your notes" (`ideate_notes`). Videos and views come from the student's own
+  Postiz key (`postiz-posts` function, `src/sync/postizPosts.ts`; Postiz
+  allows 30 requests an hour, so views are kept server-side in
+  `postiz_posts` and read a few at a time). Instagram gives no preview without
+  a Meta app: a video borrows its TikTok/YouTube preview, else a designed card.
+- **Coach** (`/coach`, `Coach.tsx`, owner only through the `coach` function):
+  his students, each one's IDEATE, and notes to them. Notes he deletes are
+  dated (`deleted_at`), never removed - pulls never delete rows.
 - **SETUP** (`Settings.tsx`).
 
 > Removed at his request and not to be rebuilt: the planner that packed his

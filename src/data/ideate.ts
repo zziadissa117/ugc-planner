@@ -1,24 +1,24 @@
-// The IDEATE screen's arithmetic: one week of one campaign, per account.
+// The IDEATE screen's arithmetic: one campaign's videos over a period, and
+// what they did.
 //
-// Pure functions over rows already loaded, so the screen and the tests read
-// one definition of "this account's week". Nothing here writes, and nothing
-// here makes a number up:
+// Pure functions over rows already loaded, so IDEATE and the coach view read
+// one definition. Nothing here writes, and nothing here makes a number up:
 //
-//   - posts are counted from video_posts, one per tick, in the local week
-//     (Sunday to Saturday, the way he reads a calendar);
-//   - money is the earnings history (earnings_events), which records the
-//     account each tick paid on, summed over the week's days - the same
-//     append-only ledger every other money figure comes from;
-//   - views are the cutter's own readings, matched to his accounts with
-//     mineFor, exactly as the campaign's Analytics reads them. Read only.
+//   - videos are the student's own Postiz posts (src/sync/postizPosts.ts),
+//     the ones that actually went out, matched to the campaign by platform
+//     and exact handle - mineFor, the same rule Analytics uses;
+//   - views are Postiz's readings. A video whose views have not been read is
+//     shown as unknown and left out of the average, the best and the worst -
+//     never counted as zero.
 
-import type { CutterViewsPost, MyAccount } from './campaignViews'
-import { mineFor } from './campaignViews'
+import { byBestPay } from '../money'
+import type { PostizPostView } from '../sync/postizPosts'
+import { byRecordingPriority } from './campaignOrder'
+import { mineFor, type MyAccount } from './campaignViews'
 import { localToday } from './index'
-import type { Campaign, CampaignAccount, EarningsEvent, IdeateNote, PlanBlock, Video, VideoPost } from './schema'
-import { IDEATE_RECOMMENDED, WEEKDAYS_SHORT, hours, sortByWeek } from './weeklyPlan'
+import type { Campaign, CampaignAccount } from './schema'
 
-// --- The week ----------------------------------------------------------------
+// --- Days and weeks ------------------------------------------------------------
 
 function utc(date: string): Date {
   const [y, m, d] = date.split('-').map(Number)
@@ -44,19 +44,16 @@ export function weekEndOf(weekStart: string): string {
   return addDays(weekStart, 6)
 }
 
-export function inWeek(date: string, weekStart: string): boolean {
-  return date >= weekStart && date <= weekEndOf(weekStart)
-}
-
-/** The week as instants: its Sunday's local midnight up to the next one's. */
-export function weekBounds(weekStart: string): { from: number; to: number } {
-  const [y, m, d] = weekStart.split('-').map(Number)
-  return { from: new Date(y, m - 1, d).getTime(), to: new Date(y, m - 1, d + 7).getTime() }
+/** An ISO instant as milliseconds, whatever its spelling - the server writes
+ *  microseconds and "+00:00", which not every browser's Date reads. NaN for
+ *  anything that is not one. */
+export function instant(iso: string): number {
+  return Date.parse(iso.trim().replace(/(\.\d{3})\d+/, '$1'))
 }
 
 /** The local calendar day an instant fell on. */
 export function localDay(iso: string): string {
-  return localToday(new Date(iso))
+  return localToday(new Date(instant(iso)))
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -90,187 +87,196 @@ export function weekName(weekStart: string, today: string = localToday()): strin
   return weekRange(weekStart, today)
 }
 
-// --- His ideate time, from the saved week ------------------------------------
+// --- The period shown ------------------------------------------------------------
 
-/** "10 am", "6:30 pm" */
-export function shortClock(minute: number): string {
-  const h = Math.floor(minute / 60) % 24
-  const m = minute % 60
-  const hour = h % 12 === 0 ? 12 : h % 12
-  return `${hour}${m === 0 ? '' : `:${String(m).padStart(2, '0')}`} ${h < 12 ? 'am' : 'pm'}`
+export type IdeatePeriod = 'week' | 'last-week' | '30-days'
+
+export const IDEATE_PERIODS: readonly { id: IdeatePeriod; label: string }[] = [
+  { id: 'week', label: 'This week' },
+  { id: 'last-week', label: 'Last week' },
+  { id: '30-days', label: '30 days' },
+]
+
+export interface PeriodRange {
+  /** Local midnight that opens it, as an ISO instant (inclusive). */
+  from: string
+  /** Local midnight that closes it (exclusive). */
+  to: string
+  /** The Sunday a note written while looking at it is filed under. */
+  weekStart: string
 }
 
-/** "Your ideate time this week: Tue 10 am, Thu 10 am · 2h of 2–4h
- *  recommended", from the ideate blocks he placed. Null when he placed none. */
-export function ideateTimeLine(blocks: readonly Pick<PlanBlock, 'kind' | 'weekday' | 'start_minute' | 'duration_minutes'>[]): string | null {
-  const ideate = sortByWeek(blocks.filter((b) => b.kind === 'ideate'))
-  if (ideate.length === 0) return null
-  const total = ideate.reduce((sum, b) => sum + b.duration_minutes, 0)
-  const when = ideate.map((b) => `${WEEKDAYS_SHORT[b.weekday]} ${shortClock(b.start_minute)}`).join(', ')
-  return `Your ideate time this week: ${when} · ${hours(total)} of ${IDEATE_RECOMMENDED.min / 60}–${IDEATE_RECOMMENDED.max / 60}h recommended`
+function midnight(date: string): string {
+  const [y, m, d] = date.split('-').map(Number)
+  return new Date(y, m - 1, d).toISOString()
 }
 
-// --- One campaign's week -----------------------------------------------------
-
-export interface WeekPost {
-  post: VideoPost
-  /** The local day it went out. */
-  day: string
-  /** Which of the campaign's videos this week it is: 1 for the first that
-   *  went out, and the same number on every account it was cross-posted to. */
-  videoNumber: number
-  video: Video | null
-  /** The other platforms the same video went to, on this campaign. */
-  alsoOn: string[]
-}
-
-export interface AccountWeek {
-  account: CampaignAccount
-  /** This account's posts in the week, oldest first. Each tick is one. */
-  posts: WeekPost[]
-  /** Net earnings the history records on this account in the week. */
-  cents: number
-}
-
-export interface CampaignWeek {
-  campaign: Campaign
-  accounts: AccountWeek[]
-  /** Deliverables that first went out this week, on any account it pays for
-   *  - one video cross-posted to three platforms is one. */
-  videosPosted: number
-  /** Net earnings the history records for the campaign in the week. */
-  cents: number
-  /** The part of `cents` on no account listed here: a tick written before
-   *  ticks named their account, or on an account since removed. */
-  unlistedCents: number
-}
-
-/** One campaign's week, per account, from rows already loaded. `accounts` may
- *  hold every campaign's; only this campaign's are used. */
-export function campaignWeek(
-  campaign: Campaign,
-  accounts: readonly CampaignAccount[],
-  videos: readonly Video[],
-  posts: readonly VideoPost[],
-  events: readonly EarningsEvent[],
-  weekStart: string,
-): CampaignWeek {
-  const mine = accounts.filter((a) => a.campaign_id === campaign.id && a.is_active)
-  const byId = new Map(mine.map((a) => [a.id, a]))
-  const videoById = new Map(videos.map((v) => [v.id, v]))
-
-  const all = posts
-    .filter((p) => p.account_id !== null && byId.has(p.account_id))
-    .map((post) => ({ post, day: localDay(post.posted_at) }))
-    .sort((a, b) => a.post.posted_at.localeCompare(b.post.posted_at) || a.post.id.localeCompare(b.post.id))
-  const week = all.filter((p) => inWeek(p.day, weekStart))
-
-  const numbers = new Map<string, number>()
-  for (const { post } of week) if (!numbers.has(post.video_id)) numbers.set(post.video_id, numbers.size + 1)
-
-  const platformsOf = new Map<string, string[]>()
-  for (const { post } of all) platformsOf.set(post.video_id, [...(platformsOf.get(post.video_id) ?? []), post.platform])
-
-  // A deliverable counts in the week it FIRST went out on an account that is
-  // owed - a bonus-only account's post is an extra, as on the Post grid.
-  const firstOut = new Map<string, string>()
-  for (const { post, day } of all) {
-    if (byId.get(post.account_id as string)?.bonus_only) continue
-    if (!firstOut.has(post.video_id)) firstOut.set(post.video_id, day)
+/** The instants a period covers. Weeks run Sunday to Saturday, the way the
+ *  week calendar reads; "30 days" is today and the 29 before it. */
+export function periodRange(period: IdeatePeriod, now: Date = new Date()): PeriodRange {
+  const today = localToday(now)
+  const sunday = sundayOf(today)
+  if (period === 'last-week') {
+    const start = addDays(sunday, -7)
+    return { from: midnight(start), to: midnight(sunday), weekStart: start }
   }
-  const videosPosted = [...firstOut.values()].filter((day) => inWeek(day, weekStart)).length
-
-  const weekEvents = events.filter((e) => e.campaign_id === campaign.id && inWeek(e.earned_on, weekStart))
-  const net = (list: readonly EarningsEvent[]) => list.reduce((sum, e) => sum + e.amount_cents, 0)
-
-  const accountWeeks = mine.map((account) => ({
-    account,
-    posts: week
-      .filter(({ post }) => post.account_id === account.id)
-      .map(({ post, day }) => ({
-        post,
-        day,
-        videoNumber: numbers.get(post.video_id) as number,
-        video: videoById.get(post.video_id) ?? null,
-        alsoOn: (platformsOf.get(post.video_id) ?? []).filter((p) => p !== post.platform),
-      })),
-    cents: net(weekEvents.filter((e) => e.account_id === account.id)),
-  }))
-
-  const cents = net(weekEvents)
-  return {
-    campaign,
-    accounts: accountWeeks,
-    videosPosted,
-    cents,
-    unlistedCents: cents - accountWeeks.reduce((sum, a) => sum + a.cents, 0),
+  if (period === '30-days') {
+    return { from: midnight(addDays(today, -29)), to: midnight(addDays(today, 1)), weekStart: sunday }
   }
+  return { from: midnight(sunday), to: midnight(addDays(sunday, 7)), weekStart: sunday }
 }
 
-// --- Views, read only --------------------------------------------------------
+// --- One campaign's videos --------------------------------------------------------
 
-export interface AccountWeekViews {
-  /** His posts on this account that went out in the week, as the cutter has them. */
-  posts: number
-  /** How many of those the cutter has read. */
-  read: number
-  /** Their latest readings added up; null when none has been read. */
+/** The campaigns in the Campaigns list's order, so the screens agree: the
+ *  high-quality ones (a minimum views) first, then the quick ones, each best
+ *  pay first (src/data/campaignOrder.ts). Archived ones are left out. */
+export function campaignsInOrder<T extends Campaign>(campaigns: readonly T[], accounts: readonly CampaignAccount[]): T[] {
+  return byRecordingPriority(byBestPay(campaigns.filter((c) => c.is_active !== false), accounts))
+}
+
+/** One post that went out: a video on one of the campaign's accounts. */
+export interface CampaignPost {
+  post: PostizPostView
+  accountId: string
+}
+
+/** One video - one deliverable - however many accounts it went out on
+ *  (CLAUDE.md, "A video is one deliverable, posted to every account"). Its
+ *  posts share Postiz's group; a post with no group is a video of its own. */
+export interface CampaignVideo {
+  /** The group, or the post's id. */
+  id: string
+  /** Where it went out, one post per account: Instagram first, then the rest
+   *  by platform name. */
+  posts: CampaignPost[]
+  /** When it first went out. */
+  publishedAt: string | null
+  /** Its views on every platform whose views have been read, added up; null
+   *  while none has. */
   views: number | null
-  /** How many of the read ones reached the campaign's minimum. */
-  reachedMin: number
+  /** How many of its posts are still waiting for their views. */
+  unread: number
+  /** Whichever of its posts has a preview - TikTok and YouTube do; Postiz
+   *  gives Instagram none. */
+  preview: { src: string; kind: 'image' | 'video' } | null
+  /** The post a tap opens: the Instagram one when there is one, else the
+   *  first with a link. */
+  primary: CampaignPost
+  caption: string
 }
 
-/** Per account of his, the cutter's readings of the posts that went out in
- *  [from, to). Only accounts that are exactly his count (mineFor) - the
- *  cutter is shared with Jake. Keyed by planner account id; every one of
- *  `mine` has an entry. */
-export function weekViewsByAccount(
-  posts: readonly CutterViewsPost[],
-  mine: readonly MyAccount[],
-  from: number,
-  to: number,
-  minViews: number | null,
-): Map<string, AccountWeekViews> {
-  const out = new Map<string, AccountWeekViews>(mine.map((a) => [a.id, { posts: 0, read: 0, views: null, reachedMin: 0 }]))
-  for (const post of posts) {
-    const at = Date.parse(post.postedAt)
-    if (!Number.isFinite(at) || at < from || at >= to) continue
-    for (const sent of post.accounts) {
-      const account = mineFor(mine, sent)
-      if (!account) continue
-      const entry = out.get(account.id)!
-      entry.posts++
-      const v = post.views[sent.name]
-      if (typeof v !== 'number') continue
-      entry.read++
-      entry.views = (entry.views ?? 0) + v
-      if (minViews !== null && v >= minViews) entry.reachedMin++
-    }
-  }
-  return out
+const time = (post: PostizPostView) => {
+  const at = post.publishedAt ? instant(post.publishedAt) : NaN
+  return Number.isFinite(at) ? at : -Infinity
 }
 
-// --- Notes -------------------------------------------------------------------
+const isHttp = (url: string | null): url is string => url !== null && /^https?:\/\//i.test(url)
+const isInstagram = (platform: string) => platform.trim().toLowerCase().startsWith('instagram')
 
-/** One scope's notes - an account's, or the campaign's as a whole when
- *  `accountId` is null - split into the week shown and the weeks before it,
- *  newest week first. */
-export function notesFor(
-  notes: readonly IdeateNote[],
+/** The campaign's posts that went out: Postiz posts whose platform and
+ *  handle are exactly one of the campaign's switched-on accounts (mineFor).
+ *  Scheduled and failed posts did not go out and are left out. */
+export function postsForCampaign(
+  posts: readonly PostizPostView[],
+  accounts: readonly CampaignAccount[],
   campaignId: string,
-  accountId: string | null,
-  weekStart: string,
-): { thisWeek: IdeateNote[]; earlier: { weekStart: string; notes: IdeateNote[] }[] } {
-  const scoped = notes.filter((n) => n.campaign_id === campaignId && n.account_id === accountId)
-  const thisWeek = scoped
-    .filter((n) => n.week_start === weekStart)
-    .sort((a, b) => b.updated_at.localeCompare(a.updated_at) || a.id.localeCompare(b.id))
-  const weeks = new Map<string, IdeateNote[]>()
-  for (const note of scoped.filter((n) => n.week_start < weekStart)) {
-    weeks.set(note.week_start, [...(weeks.get(note.week_start) ?? []), note])
+): CampaignPost[] {
+  const mine: MyAccount[] = accounts
+    .filter((a) => a.campaign_id === campaignId && a.is_active)
+    .map((a) => ({ id: a.id, platform: a.platform, handle: a.handle }))
+  if (mine.length === 0) return []
+  return posts
+    .filter((post) => post.status === 'posted')
+    .flatMap((post) => {
+      const account = mineFor(mine, { name: post.handle, platform: post.platform, profile: post.handle })
+      return account ? [{ post, accountId: account.id }] : []
+    })
+}
+
+const viewsOf = (p: CampaignPost) => (typeof p.post.views === 'number' && Number.isFinite(p.post.views) ? p.post.views : null)
+
+/** The campaign's videos that went out, newest first - its posts grouped by
+ *  Postiz's group. */
+export function videosForCampaign(
+  posts: readonly PostizPostView[],
+  accounts: readonly CampaignAccount[],
+  campaignId: string,
+): CampaignVideo[] {
+  const groups = new Map<string, CampaignPost[]>()
+  for (const item of postsForCampaign(posts, accounts, campaignId)) {
+    const key = item.post.group ?? `post:${item.post.id}`
+    groups.set(key, [...(groups.get(key) ?? []), item])
   }
-  const earlier = [...weeks.entries()]
-    .sort((a, b) => b[0].localeCompare(a[0]))
-    .map(([start, list]) => ({ weekStart: start, notes: list.sort((a, b) => a.created_at.localeCompare(b.created_at)) }))
-  return { thisWeek, earlier }
+  const videos = [...groups.entries()].map(([key, items]): CampaignVideo => {
+    const sorted = [...items].sort(
+      (a, b) =>
+        Number(isInstagram(b.post.platform)) - Number(isInstagram(a.post.platform)) ||
+        a.post.platform.localeCompare(b.post.platform) ||
+        a.post.id.localeCompare(b.post.id),
+    )
+    const read = sorted.map(viewsOf).filter((v): v is number => v !== null)
+    const first = [...sorted].sort((a, b) => time(a.post) - time(b.post))[0]
+    const withPreview = sorted.find((p) => isHttp(p.post.preview))
+    const primary =
+      sorted.find((p) => isInstagram(p.post.platform) && isHttp(p.post.url)) ?? sorted.find((p) => isHttp(p.post.url)) ?? sorted[0]
+    return {
+      id: key.startsWith('post:') ? key.slice(5) : key,
+      posts: sorted,
+      publishedAt: first.post.publishedAt,
+      views: read.length === 0 ? null : read.reduce((sum, v) => sum + v, 0),
+      unread: sorted.length - read.length,
+      preview: withPreview
+        ? { src: withPreview.post.preview as string, kind: withPreview.post.previewKind === 'video' ? 'video' : 'image' }
+        : null,
+      primary,
+      caption: sorted.find((p) => p.post.caption.trim() !== '')?.post.caption ?? '',
+    }
+  })
+  const at = (v: CampaignVideo) => (v.publishedAt ? instant(v.publishedAt) : NaN)
+  const order = (v: CampaignVideo) => (Number.isFinite(at(v)) ? at(v) : -Infinity)
+  return videos.sort((a, b) => order(b) - order(a) || a.id.localeCompare(b.id))
+}
+
+/** True when the campaign has at least one switched-on account with a handle -
+ *  without one, no video can be told to be the campaign's. */
+export function hasHandles(accounts: readonly CampaignAccount[], campaignId: string): boolean {
+  return accounts.some((a) => a.campaign_id === campaignId && a.is_active && (a.handle ?? '').trim().replace(/^@+/, '') !== '')
+}
+
+export interface VideoStats {
+  /** Videos that went out in the period - one however many platforms. */
+  posted: number
+  /** How many of them have any views read. */
+  read: number
+  /** Per video, of the read ones only; null when none has been read. */
+  average: number | null
+  best: CampaignVideo | null
+  /** Null until two have been read - one video is not both. */
+  worst: CampaignVideo | null
+}
+
+/** The period's figures, per video. Only read views count: a video still
+ *  waiting for its views is in `posted` and nowhere else. */
+export function videoStats(videos: readonly CampaignVideo[]): VideoStats {
+  const read = videos.filter((v) => v.views !== null)
+  if (read.length === 0) return { posted: videos.length, read: 0, average: null, best: null, worst: null }
+  const total = read.reduce((sum, v) => sum + (v.views as number), 0)
+  // Most views first; between equals, the newer one (videos come newest first).
+  const ranked = [...read].sort((a, b) => (b.views as number) - (a.views as number))
+  return {
+    posted: videos.length,
+    read: read.length,
+    average: Math.round(total / read.length),
+    best: ranked[0],
+    worst: ranked.length > 1 ? ranked[ranked.length - 1] : null,
+  }
+}
+
+/** How many of these videos are still waiting for views on some platform -
+ *  only while the server says it is still reading. A video Postiz will never
+ *  read is not "coming in". */
+export function viewsComingIn(videos: readonly CampaignVideo[], reading: number): number {
+  if (reading <= 0) return 0
+  return videos.filter((v) => v.unread > 0).length
 }

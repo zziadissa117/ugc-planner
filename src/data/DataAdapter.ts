@@ -21,6 +21,7 @@ import type {
   CampaignAccount,
   CampaignAngle,
   CampaignPayout,
+  CoachNote,
   IdeateNote,
   NewPlanBlock,
   NewSideIncome,
@@ -79,6 +80,9 @@ export interface BackupSnapshot {
   plan_blocks: PlanBlock[]
   trybe_videos: TrybeVideo[]
   ideate_notes: IdeateNote[]
+  /** Pull-only: exported so the backup is complete, never restored over what
+   *  the device has (see importAll). */
+  coach_notes: CoachNote[]
   bonus_tiers: BonusTier[]
   bonus_claims: BonusClaim[]
   time_estimates: TimeEstimate[]
@@ -379,6 +383,19 @@ export interface DataAdapter {
    *  gone. */
   deleteIdeateNote(id: string): Promise<void>
 
+  // --- Coach notes -------------------------------------------------------------
+  //
+  // Notes the coach wrote to this student ("notes from Ziad"). The server
+  // writes them - the `coach` Edge Function, with the service role - and they
+  // reach this device only by the sync pull. There is no write intent, on
+  // purpose: RLS lets the student read them and nothing else, so a queued
+  // write would be refused forever. A note the coach deletes stays on the
+  // device, because a pull never deletes (true of every table).
+
+  /** Notes for the signed-in student, newest created_at first; one campaign's
+   *  when `campaignId` is given. */
+  listCoachNotes(options?: { campaignId?: string }): Promise<CoachNote[]>
+
   // --- Side income ---------------------------------------------------------
 
   /** His income outside UGC campaigns (detailing, media maxing), for one day
@@ -488,7 +505,11 @@ export interface DataAdapter {
   /** Replaces everything with the snapshot's contents. Every row is validated
    *  against the schema constraints first, and the whole import runs in one
    *  transaction: a snapshot that fails validation leaves the store untouched
-   *  rather than half-written. */
+   *  rather than half-written.
+   *
+   *  Pull-only tables (coach_notes) are the exception: the server's copy is
+   *  the record, so the device keeps what the pull brought down and the
+   *  snapshot's rows for them are ignored. Nothing is queued either way. */
   importAll(snapshot: unknown): Promise<ImportResult>
 
   reset(scope: ResetScope): Promise<void>
@@ -512,7 +533,8 @@ export interface DataAdapter {
   markWriteFailed(id: number, reason: string, countAttempt?: boolean): Promise<void>
 
   /** Gives every write that stopped being retried another full set of tries.
-   *  Returns how many there were. */
+   *  Returns how many there were. A write to a pull-only table (coach_notes)
+   *  is never revived: the server refuses it every time. */
   retryStuckWrites(): Promise<number>
 
   /** Replaces a local row with the server's version, without enqueuing the
@@ -530,7 +552,10 @@ export interface DataAdapter {
    *  running it twice cannot split the data between two owners.
    *
    *  Pending outbox entries are rewritten too. They were queued under the old
-   *  id and would be refused on arrival otherwise. */
+   *  id and would be refused on arrival otherwise.
+   *
+   *  Pull-only tables (coach_notes) are left alone: their user_id is the
+   *  server's statement of whom a note is for, and they are never queued. */
   claimRowsForUser(userId: string): Promise<ClaimResult>
 
   /** Queues every local row the server may not have, and returns how many.
@@ -546,7 +571,8 @@ export interface DataAdapter {
    *  to the server. This is that path.
    *
    *  Safe to run more than once: mutable tables upsert, and append-only
-   *  tables are deduplicated by client_id on arrival. */
+   *  tables are deduplicated by client_id on arrival. Pull-only tables
+   *  (coach_notes) are never queued. */
   backfillOutbox(): Promise<number>
 }
 

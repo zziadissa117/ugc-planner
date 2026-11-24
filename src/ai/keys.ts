@@ -10,10 +10,15 @@
 import { getSupabaseClient } from '../sync/auth'
 import { AiError, toAiError } from './errors'
 
-export type AiProvider = 'anthropic'
+/** Every key the vault holds. 'postiz' is not an AI key - it reads a
+ *  student's own posts and views for IDEATE (src/sync/postizPosts.ts) - but
+ *  it is kept the same way: checked and encrypted by the `ai-key` function,
+ *  and never read back. */
+export type AiProvider = 'anthropic' | 'postiz'
 
-/** Providers the UI offers. Another is one entry here plus one in
- *  supabase/functions/ai-key. */
+/** AI providers the UI offers as an AI key - Postiz is offered on its own
+ *  (PostizKey in src/screens/AiKeys.tsx). Another is one entry here plus one
+ *  in supabase/functions/ai-key. */
 export const AI_PROVIDERS: readonly { id: AiProvider; label: string; placeholder: string }[] = [
   { id: 'anthropic', label: 'Anthropic', placeholder: 'sk-ant-...' },
 ]

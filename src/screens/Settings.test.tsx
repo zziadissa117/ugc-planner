@@ -57,10 +57,10 @@ function fakeClient() {
   }
 }
 
-function renderSettings() {
+function renderSettings(path = '/settings') {
   render(
     <DataContext.Provider value={adapter}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[path]}>
         <AuthProvider>
           <Settings />
         </AuthProvider>
@@ -137,5 +137,30 @@ describe('the account section', () => {
 
     expect(await screen.findAllByText('creator@example.com')).not.toHaveLength(0)
     expect(screen.queryByText(/not on the server yet|the server refused/)).toBeNull()
+  })
+})
+
+describe('the Postiz key', () => {
+  it('sits with the account and AI key, folded, and opens when IDEATE sends him to it', async () => {
+    mockClient = fakeClient()
+    getSession.mockResolvedValue({
+      data: { session: { user: { id: USER, email: 'creator@example.com' } } },
+    })
+    renderSettings('/settings#postiz')
+
+    const fold = (await screen.findByText('Account and keys')).closest('details')
+    expect(fold).toHaveAttribute('open')
+    expect(fold).toContainElement(screen.getByText('So IDEATE can show your videos and their views.'))
+  })
+
+  it('stays folded otherwise once signed in', async () => {
+    mockClient = fakeClient()
+    getSession.mockResolvedValue({
+      data: { session: { user: { id: USER, email: 'creator@example.com' } } },
+    })
+    renderSettings()
+
+    expect(await screen.findAllByText('creator@example.com')).not.toHaveLength(0)
+    expect(screen.getByText('Account and keys').closest('details')).not.toHaveAttribute('open')
   })
 })

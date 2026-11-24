@@ -102,8 +102,8 @@ export function RoadmapWelcome({ onStart, editing = false }: { onStart: () => vo
             day, and you get a better feedback loop when you&apos;re not rushed.
           </Card>
           <Card spot="!" label="Important" title="Start with Trybe videos" high>
-            Each recording session starts with Trybe videos: practice videos you don&apos;t post. Set the timer and make
-            as many as you can. Then base UGC - or media maxing on your third day.
+            Each recording session starts with Trybe videos: videos you send to brands, with no account to create. Set
+            the timer and make as many as you can. Then base UGC - or media maxing on your third day.
           </Card>
         </div>
 

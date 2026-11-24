@@ -1,8 +1,8 @@
 // The weekly recording plan, by fixed rules - no AI, nothing invented.
 //
 // A student records on three days a week, at a time he reserves, for 1h, 1.5h,
-// 2h or 3h. Each recording day opens with Trybe videos (practice videos that
-// are not posted: a timer, and as many as he can) and then base UGC, except
+// 2h or 3h. Each recording day opens with Trybe videos (videos sent to brands,
+// with no account to create: a timer, and as many as he can) and then base UGC, except
 // the third, which ends with media maxing instead:
 //
 //   1h   -> 30m Trybe + 30m base / media maxing

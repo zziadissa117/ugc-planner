@@ -664,6 +664,40 @@ create table plan_blocks (
 
 create index on plan_blocks (user_id);
 
+-- One row per Trybe video he made - a video sent to a brand, with no account
+-- to create. On the Today screen he runs a one-hour Trybe timer and taps
+-- "+1 video" for each one. How many a day or a week made is counted from
+-- these rows when asked, never stored. A row is inserted and never updated;
+-- it is deleted only to undo a mistaken tap.
+create table trybe_videos (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null references auth.users(id) on delete cascade,
+  made_at    timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index on trybe_videos (user_id, made_at);
+
+-- What he wrote in an ideate session about one account's posts in a week, for
+-- the next recording. account_id null is a note about the campaign as a
+-- whole. week_start is the Sunday that starts the week (the app's weeks start
+-- on Sunday). Typed by him; edited and deleted freely.
+create table ideate_notes (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null references auth.users(id) on delete cascade,
+  campaign_id uuid not null references campaigns(id) on delete cascade,
+  account_id  uuid default null references campaign_accounts(id) on delete cascade,
+  -- extract(dow) is 0 on a Sunday.
+  week_start  date not null check (extract(dow from week_start) = 0),
+  body        text not null check (char_length(body) between 1 and 4000),
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+
+create index on ideate_notes (user_id, week_start);
+create index on ideate_notes (campaign_id, week_start);
+create index on ideate_notes (account_id);
+
 -- ---------------------------------------------------------------------------
 -- Row level security
 -- ---------------------------------------------------------------------------
@@ -686,6 +720,8 @@ alter table earnings_events    enable row level security;
 alter table campaign_payouts   enable row level security;
 alter table side_income        enable row level security;
 alter table plan_blocks        enable row level security;
+alter table trybe_videos       enable row level security;
+alter table ideate_notes       enable row level security;
 alter table time_estimates     enable row level security;
 alter table user_settings      enable row level security;
 
@@ -695,7 +731,8 @@ begin
   foreach t in array array[
     'campaigns','campaign_accounts','campaign_documents','campaign_fields','campaign_angles','campaign_hooks',
     'campaign_rules','videos','video_posts','bonus_tiers','bonus_claims',
-    'time_estimates','work_sessions','campaign_payouts','side_income','plan_blocks'
+    'time_estimates','work_sessions','campaign_payouts','side_income','plan_blocks',
+    'trybe_videos','ideate_notes'
   ]
   loop
     execute format(

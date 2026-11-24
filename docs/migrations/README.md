@@ -48,6 +48,7 @@ shows `cutter_*` entries that have no file here.
 0019 (`campaign_min_views`, the views tracker's minimum) was applied on 2026-10-19 after the owner approved it.
 0023 (`weekly_plan`: quiz columns on user_settings, plan_blocks) was applied on 2026-11-24 by the owner in the SQL editor; checked through the REST API. The `quiz-finished` function and its TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID secrets were set the same day.
 0022 (`side_income`) was applied on 2026-11-02 by the owner himself, pasted into the SQL editor; checked afterwards through the REST API (the table answers).
+0024 (`trybe_and_ideate`: trybe_videos, ideate_notes) is written but NOT yet applied to the live project.
 
 0016 (`weekly_pay_payouts_earnings`) is a DRAFT, not yet applied: weekly posting
 rate, per-account pay, payout schedule, `campaign_payouts`, `earnings_events`.

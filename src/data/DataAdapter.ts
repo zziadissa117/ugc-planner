@@ -21,6 +21,7 @@ import type {
   CampaignAccount,
   CampaignAngle,
   CampaignPayout,
+  IdeateNote,
   NewPlanBlock,
   NewSideIncome,
   PlanBlock,
@@ -44,6 +45,7 @@ import type {
   SessionType,
   TableName,
   TimeEstimate,
+  TrybeVideo,
   UserSettings,
   Video,
   VideoPhase,
@@ -75,6 +77,8 @@ export interface BackupSnapshot {
   campaign_payouts: CampaignPayout[]
   side_income: SideIncome[]
   plan_blocks: PlanBlock[]
+  trybe_videos: TrybeVideo[]
+  ideate_notes: IdeateNote[]
   bonus_tiers: BonusTier[]
   bonus_claims: BonusClaim[]
   time_estimates: TimeEstimate[]
@@ -331,6 +335,49 @@ export interface DataAdapter {
   /** Replaces the whole week in one go: every old block deleted, every new
    *  one inserted, all queued for the server. */
   replacePlanBlocks(blocks: NewPlanBlock[]): Promise<PlanBlock[]>
+
+  // --- Trybe videos ----------------------------------------------------------
+  //
+  // One row per Trybe video he made: a tap on "+1 video" during the Trybe
+  // timer. How many a day or a week made is counted from these rows, never
+  // kept as a number. There is no update: a row is only ever added, or
+  // removed to undo a mistaken tap.
+
+  /** Records one Trybe video, made at `at` (now when omitted). */
+  logTrybeVideo(at?: Date): Promise<TrybeVideo>
+
+  /** Takes back a mistaken tap: the row is deleted, and the delete queued for
+   *  the server. Nothing happens if it is already gone. */
+  undoTrybeVideo(id: string): Promise<void>
+
+  /** Trybe videos with made_at from `from` (inclusive) up to `to` (exclusive),
+   *  both ISO timestamps, oldest first. Either bound may be left out. */
+  listTrybeVideos(options?: { from?: string; to?: string }): Promise<TrybeVideo[]>
+
+  // --- Ideate notes -----------------------------------------------------------
+  //
+  // What he wrote in an ideate session about one account's posts in a week,
+  // for the next recording. account_id null is a note about the campaign as a
+  // whole. week_start is the Sunday that starts the week, as YYYY-MM-DD.
+
+  /** Notes for a campaign, a week, both or neither: by week, then oldest
+   *  first. */
+  listIdeateNotes(options?: { campaignId?: string; weekStart?: string }): Promise<IdeateNote[]>
+
+  /** Saves a note: a new one without an id (or with an id not saved yet), an
+   *  edit of the saved one with it. The account, when given, must be one of
+   *  the campaign's. */
+  saveIdeateNote(note: {
+    id?: string
+    campaign_id: string
+    account_id: string | null
+    week_start: string
+    body: string
+  }): Promise<IdeateNote>
+
+  /** Deletes a note, and queues the delete. Nothing happens if it is already
+   *  gone. */
+  deleteIdeateNote(id: string): Promise<void>
 
   // --- Side income ---------------------------------------------------------
 

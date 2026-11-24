@@ -149,7 +149,7 @@ export async function generateHooks(context: HookContext): Promise<GenerateHooks
   const client = getSupabaseClient()
   if (!client) {
     throw new HookGenerationError(
-      'Hook generation is not configured. Write them yourself on the brief page.',
+      'Hook generation is not configured. Write them yourself on the campaign page.',
     )
   }
 

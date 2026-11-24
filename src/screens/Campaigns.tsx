@@ -1,26 +1,38 @@
 import type { CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
 
-import { PlatformGlyph, PlusIcon } from '../components/icons'
-import { ScreenHeader } from '../components/ui'
-import { buttonClass } from '../components/styles'
+import { ChevronRightIcon, PlatformGlyph, PlusIcon } from '../components/icons'
+import { CARD_CLASS, buttonClass } from '../components/styles'
+import { ScreenHeader, SectionLabel } from '../components/ui'
 import type { Campaign, CampaignAccount } from '../data'
+import { hasAccountsAdded } from '../data/accountsAdded'
+import { recordingGroups } from '../data/campaignOrder'
 import { useData } from '../data/useData'
 import { useLoaded } from '../data/useLoaded'
 import { formatViews } from '../data/views'
-import { byBestPay, campaignEarnings, formatCents } from '../money'
+import {
+  byBestPay,
+  campaignEarnings,
+  campaignsWithoutRate,
+  formatCents,
+  totalEarnings,
+} from '../money'
 
-/** Every campaign at once, as a wall of tiles.
+/** Every campaign, as tiles, in the order he records them.
  *
- *  "The only things I need to know are: the name of the campaign, how much it
- *  pays per day, the minimum views, which accounts it posts to - only the
- *  logos." So a tile holds exactly those four and nothing else: no month, no
- *  week, no per-video rate, no handles. Everything else is one tap away on
- *  the campaign page, which is also where the month is corrected.
+ *  "Campaigns that need high-quality videos come first - they are recorded
+ *  first in a batch; quick and easy ones last." So the campaigns with a
+ *  minimum number of views are one group at the top and the rest a group
+ *  under it (src/data/campaignOrder.ts), each best-pay first. This is the
+ *  Campaigns list only: the Post screen keeps the order he set by hand.
  *
- *  A grid rather than a list because he has a lot of campaigns and wants to
- *  see all of them on one page. The whole tile is one tap, so it is the one
- *  place on this screen a bordered card is allowed. */
+ *  A tile holds the name, the platforms as logos, what it pays a day and -
+ *  for a high-quality one - the minimum views. Everything else is one tap
+ *  away on the campaign page.
+ *
+ *  The money sits at the bottom, small: what finishing every post pays a
+ *  day, and what the signed contracts come to a month. It used to be a tab
+ *  of its own. */
 export function Campaigns() {
   const data = useData()
   const [loaded] = useLoaded(async () => {
@@ -33,54 +45,92 @@ export function Campaigns() {
   }, [data])
   const campaigns = loaded?.campaigns ?? null
   const accounts = loaded?.accounts ?? []
+  const { highQuality, quick } = recordingGroups(byBestPay(campaigns ?? [], accounts))
+  const archived = loaded?.archived ?? 0
 
   return (
-    <section className="mx-auto flex max-w-6xl flex-col gap-6">
+    <section className="mx-auto flex max-w-3xl flex-col gap-8">
       <ScreenHeader
-        title="Briefs"
+        kicker="Campaigns"
+        title="Your campaigns"
         aside={
-          <Link to="/campaigns/new" aria-label="New campaign" className={`${buttonClass('ghost', 'small')} !rounded-full !px-3`}>
-            <PlusIcon className="h-4 w-4" />
-            New
-          </Link>
+          campaigns !== null && campaigns.length > 0 ? (
+            <Link to="/campaigns/new" aria-label="New campaign" className={buttonClass('now', 'small')}>
+              <PlusIcon className="h-4 w-4" />
+              New
+            </Link>
+          ) : null
         }
       />
 
       {campaigns === null ? null : campaigns.length === 0 ? (
-        <p className="text-base text-state-later">No campaigns yet.</p>
+        <div className={`${CARD_CLASS} flex flex-col items-start gap-4 p-6`}>
+          <p className="text-base text-text-dim">No campaigns yet.</p>
+          <Link to="/campaigns/new" aria-label="New campaign" className={buttonClass('now')}>
+            <PlusIcon className="h-5 w-5" />
+            Add a campaign
+          </Link>
+        </div>
       ) : (
-        <ul className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
-          {byLowestMinViews(byBestPay(campaigns, accounts)).map((campaign, index) => (
-            <li key={campaign.id} className="settle-in flex" style={{ '--i': index } as CSSProperties}>
-              <CampaignTile campaign={campaign} accounts={accounts} />
-            </li>
-          ))}
-        </ul>
+        <>
+          {highQuality.length > 0 ? (
+            <Group label="High quality - record first" campaigns={highQuality} accounts={accounts} />
+          ) : null}
+          {quick.length > 0 ? (
+            <Group label="Quick and easy - last" campaigns={quick} accounts={accounts} offset={highQuality.length} />
+          ) : null}
+          <MoneySummary campaigns={campaigns} accounts={accounts} />
+        </>
       )}
 
-      {(loaded?.archived ?? 0) > 0 ? (
-        <Link to="/campaigns/archived" className="meta self-start text-state-later underline">
-          Archived ({loaded?.archived})
-        </Link>
-      ) : null}
+      <div className="flex flex-wrap gap-x-6 gap-y-2">
+        {campaigns !== null && campaigns.length === 0 ? (
+          <Link to="/money/history" className="meta text-state-later underline underline-offset-4">
+            Earnings history
+          </Link>
+        ) : null}
+        {archived > 0 ? (
+          <Link to="/campaigns/archived" className="meta text-state-later underline underline-offset-4">
+            Archived ({archived})
+          </Link>
+        ) : null}
+      </div>
     </section>
   )
 }
 
-/** Lowest minimum views first - the easiest bar to clear at the top. A
- *  campaign with no minimum set counts as zero and goes to the very top, his
- *  call: "the ones that have no minimum views set are automatically zero".
- *  The sort is stable, so campaigns with the same minimum keep the best-pay
- *  order they came in with. */
-function byLowestMinViews<T extends Campaign>(campaigns: readonly T[]): T[] {
-  return [...campaigns].sort((a, b) => (a.min_views ?? 0) - (b.min_views ?? 0))
+function Group({
+  label,
+  campaigns,
+  accounts,
+  offset = 0,
+}: {
+  label: string
+  campaigns: readonly Campaign[]
+  accounts: readonly CampaignAccount[]
+  /** How many tiles came before this group, so the stagger carries on. */
+  offset?: number
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <SectionLabel trailing={campaigns.length}>{label}</SectionLabel>
+      <ul className="grid grid-cols-2 gap-3 md:grid-cols-3">
+        {campaigns.map((campaign, index) => (
+          <li key={campaign.id} className="settle-in flex" style={{ '--i': offset + index } as CSSProperties}>
+            <CampaignTile campaign={campaign} accounts={accounts} />
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
 }
 
-/** One campaign: name, pay a day, minimum views, platform logos.
+/** One campaign: name, platform logos, pay a day, and the minimum views when
+ *  it has one.
  *
- *  The day is the same figure the campaign page and MONEY show - a seventh of
- *  the week, or a thirtieth of the month he corrected - so the three screens
- *  never disagree. Missing values say "not saved yet" rather than a number. */
+ *  The day is the same figure the campaign page shows - a seventh of the
+ *  week, or a thirtieth of the month he corrected - so the two never
+ *  disagree. No rate reads "not saved yet" rather than a number. */
 function CampaignTile({
   campaign,
   accounts,
@@ -96,22 +146,26 @@ function CampaignTile({
   return (
     <Link
       to={`/campaigns/${campaign.id}`}
-      className="press flex min-w-0 flex-1 flex-col gap-4 rounded-2xl border border-edge p-4 active:bg-surface"
+      className={`${CARD_CLASS} press flex min-w-0 flex-1 flex-col gap-4 p-4 transition-[border-color,transform] duration-200 hover:-translate-y-0.5 hover:border-edge-lit`}
     >
       <div className="min-w-0">
-        <h2 className="display break-words text-xl leading-tight text-text md:text-2xl">{campaign.name}</h2>
-        {platforms.length === 0 ? (
-          <p className="meta mt-3 text-state-later">no accounts yet</p>
-        ) : (
+        <h3 className="display break-words text-xl text-text md:text-2xl">{campaign.name}</h3>
+        {platforms.length === 0 ? null : (
+          // Logos only, wrapping freely: a glyph never sits in a slot sized
+          // for a name.
           <p
             role="img"
             aria-label={platforms.map((p) => p.platform).join(', ')}
             className="mt-3 flex flex-wrap gap-3 text-text"
           >
             {platforms.map((p) => (
-              <PlatformGlyph key={p.id} platform={p.platform} className="h-7 w-7" />
+              <PlatformGlyph key={p.id} platform={p.platform} className="h-6 w-6" />
             ))}
           </p>
+        )}
+        {/* Red: nobody can post from this campaign yet. */}
+        {hasAccountsAdded(accounts, campaign.id) ? null : (
+          <p className="meta mt-3 font-semibold text-state-blocked">add your accounts</p>
         )}
       </div>
 
@@ -121,22 +175,71 @@ function CampaignTile({
           {earnings === null ? (
             <p className="mt-1 text-base text-state-later">not saved yet</p>
           ) : (
-            <p className="numeric mt-1 text-[1.75rem] font-semibold leading-none text-text md:text-[2rem]">
+            <p className="numeric mt-1 text-[1.625rem] font-semibold leading-none text-text md:text-[1.875rem]">
               {formatCents(earnings.dayCents)}
             </p>
           )}
         </div>
-        <div>
-          <p className="label text-state-later">min views</p>
-          {campaign.min_views == null ? (
-            <p className="mt-1 text-base text-state-later">not saved yet</p>
-          ) : (
-            <p className="numeric mt-1 text-2xl font-semibold leading-none text-text">
+        {campaign.min_views == null ? null : (
+          <div>
+            <p className="label text-state-later">min views</p>
+            <p className="numeric mt-1 text-xl font-semibold leading-none text-text">
               {formatViews(campaign.min_views)}
             </p>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </Link>
+  )
+}
+
+/** What the campaigns pay, small, under the list.
+ *
+ *  Every active campaign, with the same rules as everywhere else (src/money.ts):
+ *  a week is the deliverable's value x posts a week, a day a seventh of it,
+ *  a month 30/7 of it - or his own month where he corrected one. A campaign
+ *  with no rate is left out and named, because unknown is not zero. */
+function MoneySummary({
+  campaigns,
+  accounts,
+}: {
+  campaigns: readonly Campaign[]
+  accounts: readonly CampaignAccount[]
+}) {
+  const totals = totalEarnings(campaigns, accounts)
+  const unrated = campaignsWithoutRate(campaigns, accounts)
+
+  return (
+    <div className="flex flex-col gap-3">
+      <SectionLabel>Money</SectionLabel>
+      <dl className="flex flex-col gap-2.5">
+        <MoneyLine label="Finish all your posts" cents={totals.dayCents} per="a day" />
+        <MoneyLine label="Signed contracts" cents={totals.monthCents} per="a month" />
+      </dl>
+      {unrated.length > 0 ? (
+        <p className="meta text-state-later">
+          {unrated.length === 1 ? `${unrated[0].name} has` : `${unrated.length} campaigns have`} no pay per video
+          saved, so {unrated.length === 1 ? "it isn't" : "they aren't"} counted.
+        </p>
+      ) : null}
+      <Link
+        to="/money/history"
+        className="press group flex items-center gap-1 self-start meta text-state-later transition-colors hover:text-text"
+      >
+        Earnings history
+        <ChevronRightIcon className="h-4 w-4 text-brand transition-transform duration-200 group-hover:translate-x-0.5" />
+      </Link>
+    </div>
+  )
+}
+
+function MoneyLine({ label, cents, per }: { label: string; cents: number; per: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <dt className="min-w-0 text-base text-text-dim">{label}</dt>
+      <dd className="numeric shrink-0 whitespace-nowrap text-lg font-semibold text-text">
+        {formatCents(cents)} <span className="text-sm font-normal text-state-later">{per}</span>
+      </dd>
+    </div>
   )
 }

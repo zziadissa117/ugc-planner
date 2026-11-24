@@ -11,8 +11,8 @@ import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
 import { PostizChannels } from '../components/PostizChannels'
-import { Button, Disclosure } from '../components/ui'
-import { ScreenHeader } from '../components/ui'
+import { CARD_CLASS } from '../components/styles'
+import { Button, Disclosure, ScreenHeader } from '../components/ui'
 import type { Campaign } from '../data'
 import { useData } from '../data/useData'
 import { useLoaded } from '../data/useLoaded'
@@ -28,14 +28,14 @@ export function ArchivedCampaigns() {
 
   return (
     <section className="mx-auto flex max-w-3xl flex-col gap-6">
-      <ScreenHeader title="Archived" />
+      <ScreenHeader kicker="Campaigns" title="Archived" />
       {archived === null ? null : archived.length === 0 ? (
-        <p className="text-base text-state-later">Nothing archived.</p>
+        <p className="text-base text-text-dim">Nothing archived.</p>
       ) : (
-        <ul className="flex flex-col divide-y divide-rule border-y border-rule">
+        <ul className="flex flex-col gap-3">
           {archived.map((campaign) => (
-            <li key={campaign.id} className="flex flex-col gap-2 py-4">
-              <span className="display block break-words text-2xl leading-tight text-text">{campaign.name}</span>
+            <li key={campaign.id} className={`${CARD_CLASS} flex flex-col gap-3 p-4`}>
+              <span className="display block break-words text-2xl text-text">{campaign.name}</span>
               <span className="meta text-state-later">
                 Archived {campaign.archived_at ? new Date(campaign.archived_at).toLocaleDateString() : ''}
               </span>
@@ -102,8 +102,8 @@ export function ArchivedCampaigns() {
           ))}
         </ul>
       )}
-      <Link to="/campaigns" className="meta text-state-later underline">
-        Back to Briefs
+      <Link to="/campaigns" className="meta self-start text-state-later underline underline-offset-4">
+        Back to campaigns
       </Link>
     </section>
   )
@@ -130,7 +130,6 @@ function ChannelsFold({
       trailing={todo === null ? 'not checked' : todo === 0 ? 'all switched off' : `${todo} still connected`}
       open={open}
       onToggle={(event) => onOpenChange(event.currentTarget.open)}
-      className="border-t"
     >
       {open ? <PostizChannels campaign={campaign} mode="free" onChecked={setTodo} /> : null}
     </Disclosure>

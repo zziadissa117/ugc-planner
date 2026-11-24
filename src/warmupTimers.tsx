@@ -1,13 +1,21 @@
-// Every running warm-up timer, kept above the routes.
+// The countdowns, kept above the routes: the Trybe timer and the plain one
+// used for warm-ups.
 //
-// The timer used to live inside the Now screen, so tapping over to Post to
-// check a setup threw it away: "if I leave the page for 2 seconds ... I don't
-// want to come back to the Now page and have the timer reset." The provider
-// sits in the app shell, which never unmounts while he moves between tabs, and
-// the widget it renders is pinned to the top of every screen.
+// A timer used to live inside the home screen, so tapping over to Post to
+// check something threw it away: "if I leave the page for 2 seconds ... I
+// don't want to come back to the Now page and have the timer reset." The
+// provider sits in the app shell, which never unmounts while he moves between
+// tabs, and the strip it renders is pinned to the top of every other screen.
 //
-// State is timestamps in localStorage (see warmupTimer.ts), so a timer also
-// survives a reload and is right after the phone was put down for ten minutes.
+// State is timestamps in localStorage (see warmupTimer.ts), so a countdown
+// also survives a reload and is right after the phone was put down for ten
+// minutes. When one runs out, the warm-up chime sounds once.
+//
+// Warm-ups used to be per account here - a timer per account, a queue that
+// walked them one after another and recorded each as warmed. He asked for a
+// plain countdown instead, so the provider keeps the clock, the chime and the
+// strip, and knows nothing about accounts. The name stays: the app shell
+// mounts `WarmupTimersProvider`.
 
 import {
   createContext,
@@ -22,82 +30,48 @@ import {
 import { useNavigate } from 'react-router-dom'
 
 import { StateDot } from './components/ui'
-import { warmupMinutesFor, type CampaignAccount } from './data'
-import { useData } from './data/useData'
 import { playWarmupDone, unlockAudio } from './sound'
 import {
-  advance,
-  current,
-  readSession,
-  setPaused,
-  startSession as beginSession,
-  writeSession,
-  type SessionItem,
-  type WarmupSession,
-} from './warmupSession'
-import {
+  TIMER_NAME,
   formatClock,
   isFinished,
   readTimers,
   secondsLeft,
-  startTimer,
+  startCountdown,
   writeTimers,
-  type WarmupTimerRecord,
+  type CountdownRecord,
+  type TimerKind,
 } from './warmupTimer'
 
-interface WarmupTimersValue {
-  timers: WarmupTimerRecord[]
-  /** The clock every timer is measured against; ticks once a second while any
-   *  timer exists. */
+interface TimersValue {
+  /** What is running, or has run out and not been cleared. One of each kind
+   *  at most. */
+  timers: CountdownRecord[]
+  /** The clock every countdown is measured against; ticks once a second
+   *  while any exists. */
   now: number
-  /** Starts a timer for this account, or leaves one already running alone.
-   *  `minutes` overrides the account's own default length - see
-   *  warmupMinutesFor - for the one time he picks something else. */
-  start: (account: CampaignAccount, campaignName: string, minutes?: number) => void
-  /** Stops a timer without recording anything. */
-  cancel: (accountId: string) => void
-  /** Records the session against the account and removes its timer. */
-  complete: (accountId: string) => Promise<void>
-  /** Bumps each time a session is recorded, so a screen showing warm-up
-   *  history knows to reload it. */
-  completions: number
-  /** The account whose full-size timer is on screen, if any - the widget
-   *  hides that one rather than showing it twice. */
-  setViewing: (accountId: string | null) => void
-  /** The warm-up session running, if any: one account after another, each
-   *  marked warmed and the next started when its time runs out
-   *  (warmupSession.ts). */
-  session: WarmupSession | null
-  /** Starts a session with these accounts, and the first one's timer. */
-  startSession: (items: readonly SessionItem[]) => void
-  /** Moves past the current account without recording it. */
-  skip: () => void
-  /** Paused: nothing new starts; resumed: the current one starts again if
-   *  its timer is gone. */
-  pauseSession: (paused: boolean) => void
-  /** Ends the session and stops the current account's timer. */
-  endSession: () => void
+  /** Starts a countdown. One already running is left alone - a second tap
+   *  never restarts it; one that has run out is replaced. */
+  start: (kind: TimerKind, minutes: number) => void
+  /** Stops a countdown, or clears one that has run out. Records nothing. */
+  stop: (kind: TimerKind) => void
+  /** Whether the screen showing the countdowns full size is open - the strip
+   *  hides while it is, rather than showing them twice. */
+  setOnScreen: (onScreen: boolean) => void
 }
 
-const Context = createContext<WarmupTimersValue | null>(null)
+const Context = createContext<TimersValue | null>(null)
 
-export function useWarmupTimers(): WarmupTimersValue {
+export function useTimers(): TimersValue {
   const value = useContext(Context)
-  if (value === null) throw new Error('useWarmupTimers must be used inside WarmupTimersProvider')
+  if (value === null) throw new Error('useTimers must be used inside WarmupTimersProvider')
   return value
 }
 
 export function WarmupTimersProvider({ children }: { children: ReactNode }) {
-  const data = useData()
-  const [timers, setTimers] = useState<WarmupTimerRecord[]>(readTimers)
+  const [timers, setTimers] = useState<CountdownRecord[]>(readTimers)
   const [now, setNow] = useState(() => Date.now())
-  const [completions, setCompletions] = useState(0)
-  const [viewing, setViewingState] = useState<string | null>(null)
-  const [session, setSession] = useState<WarmupSession | null>(readSession)
-
-  useEffect(() => {
-    writeSession(session)
-  }, [session])
+  const [onScreen, setOnScreen] = useState(false)
 
   // Written on every change, so what is stored is always what is running.
   useEffect(() => {
@@ -105,9 +79,10 @@ export function WarmupTimersProvider({ children }: { children: ReactNode }) {
   }, [timers])
 
   // One clock for all of them, and only while there is something to count.
+  // Starting one sets the clock itself (start), and one read from storage is
+  // measured from the moment this mounted.
   useEffect(() => {
     if (timers.length === 0) return
-    setNow(Date.now())
     const tick = window.setInterval(() => setNow(Date.now()), 1000)
     // A backgrounded page throttles its timers, so the moment it is back the
     // clock is re-read rather than waiting for the next tick.
@@ -121,16 +96,15 @@ export function WarmupTimersProvider({ children }: { children: ReactNode }) {
     }
   }, [timers.length])
 
-  // A wake-up at the exact moment each timer ends. A background tab throttles
-  // its once-a-second tick, and after a few minutes hidden a browser may run
-  // it only about once a minute - so on its own the chime could sound up to a
-  // minute late. One timeout set for the end time is not part of that chain.
+  // A wake-up at the exact moment each countdown ends. A background tab
+  // throttles its once-a-second tick, and after a few minutes hidden a browser
+  // may run it only about once a minute - so on its own the chime could sound
+  // up to a minute late. One timeout set for the end time is not part of that
+  // chain.
   useEffect(() => {
     const waits = timers
       .filter((t) => !t.alerted)
-      .map((t) =>
-        window.setTimeout(() => setNow(Date.now()), Math.max(0, t.endsAt - Date.now()) + 50),
-      )
+      .map((t) => window.setTimeout(() => setNow(Date.now()), Math.max(0, t.endsAt - Date.now()) + 50))
     return () => waits.forEach((id) => window.clearTimeout(id))
   }, [timers])
 
@@ -145,258 +119,106 @@ export function WarmupTimersProvider({ children }: { children: ReactNode }) {
       return
     }
     document.title = isFinished(next, now)
-      ? `Time's up - ${next.platform} warm-up`
-      : `${formatClock(secondsLeft(next, now))} ${next.platform} warm-up`
+      ? `Time's up - ${TIMER_NAME[next.kind]}`
+      : `${formatClock(secondsLeft(next, now))} ${TIMER_NAME[next.kind]}`
   }, [timers, now])
 
-  // The chime, once per timer. The ref is what guarantees "once": state can
-  // lag a render behind, and two ticks in that gap must not ring it twice.
+  // The chime, once per countdown. The ref is what guarantees "once": state
+  // can lag a render behind, and two ticks in that gap must not ring it twice.
   const chimed = useRef(new Set<string>())
   useEffect(() => {
-    const due = timers.filter(
-      (t) => !t.alerted && isFinished(t, now) && !chimed.current.has(`${t.accountId}:${t.startedAt}`),
-    )
+    const due = timers.filter((t) => !t.alerted && isFinished(t, now) && !chimed.current.has(`${t.kind}:${t.startedAt}`))
     if (due.length === 0) return
 
-    for (const t of due) chimed.current.add(`${t.accountId}:${t.startedAt}`)
+    for (const t of due) chimed.current.add(`${t.kind}:${t.startedAt}`)
     playWarmupDone()
     try {
       navigator.vibrate?.([200, 100, 200])
     } catch {
       /* not every device has a motor */
     }
-    setTimers((current) =>
-      current.map((t) =>
-        due.some((d) => d.accountId === t.accountId && d.startedAt === t.startedAt)
-          ? { ...t, alerted: true }
-          : t,
-      ),
+    setTimers((list) =>
+      list.map((t) => (due.some((d) => d.kind === t.kind && d.startedAt === t.startedAt) ? { ...t, alerted: true } : t)),
     )
   }, [timers, now])
 
-  const start = useCallback((account: CampaignAccount, campaignName: string, minutes?: number) => {
+  const start = useCallback((kind: TimerKind, minutes: number) => {
     // In the tap that starts it, so the chime is allowed to sound later.
     unlockAudio()
-    setTimers((current) => {
-      if (current.some((t) => t.accountId === account.id)) return current
-      return [
-        ...current,
-        startTimer(
-          {
-            accountId: account.id,
-            platform: account.platform,
-            handle: account.handle,
-            campaignName,
-            minutes: minutes ?? warmupMinutesFor(account),
-          },
-          Date.now(),
-        ),
-      ]
+    const at = Date.now()
+    setTimers((list) => {
+      const existing = list.find((t) => t.kind === kind)
+      if (existing && !isFinished(existing, at)) return list
+      return [...list.filter((t) => t.kind !== kind), startCountdown(kind, minutes, at)]
     })
-    setNow(Date.now())
+    setNow(at)
   }, [])
 
-  /** A session account's timer, from the snapshot the session took. */
-  const startItem = useCallback((item: SessionItem) => {
-    setTimers((list) =>
-      list.some((t) => t.accountId === item.accountId) ? list : [...list, startTimer(item, Date.now())],
-    )
-    setNow(Date.now())
+  const stop = useCallback((kind: TimerKind) => {
+    setTimers((list) => list.filter((t) => t.kind !== kind))
   }, [])
 
-  /** The session moves on: the next account's timer starts unless paused. */
-  const moveOn = useCallback(
-    (from: WarmupSession, warmed: boolean) => {
-      const next = advance(from, warmed)
-      setSession(next)
-      const item = current(next)
-      if (next && item && !next.paused) startItem(item)
-    },
-    [startItem],
-  )
-
-  const cancel = useCallback((accountId: string) => {
-    setTimers((list) => list.filter((t) => t.accountId !== accountId))
-  }, [])
-
-  const complete = useCallback(
-    async (accountId: string) => {
-      const timer = timers.find((t) => t.accountId === accountId)
-      if (!timer) return
-      await data.recordWarmupEvent(accountId, timer.minutes)
-      setTimers((list) => list.filter((t) => t.accountId !== accountId))
-      setCompletions((count) => count + 1)
-      // Marked warmed - by itself when the time ran out, or by his tap - so a
-      // session goes straight on to the next account.
-      if (session && current(session)?.accountId === accountId) moveOn(session, true)
-    },
-    [data, timers, session, moveOn],
-  )
-
-  // A session's timer that has run out is marked warmed by itself, once.
-  // Paused, it waits for his tap like any other timer.
-  const autoDone = useRef(new Set<string>())
-  useEffect(() => {
-    const item = current(session)
-    if (!session || session.paused || !item) return
-    const timer = timers.find((t) => t.accountId === item.accountId)
-    if (!timer || !isFinished(timer, now)) return
-    const key = `${timer.accountId}:${timer.startedAt}`
-    if (autoDone.current.has(key)) return
-    autoDone.current.add(key)
-    void complete(timer.accountId)
-  }, [session, timers, now, complete])
-
-  const startSession = useCallback(
-    (items: readonly SessionItem[]) => {
-      unlockAudio()
-      const next = beginSession(items)
-      setSession(next)
-      const item = current(next)
-      if (item) startItem(item)
-    },
-    [startItem],
-  )
-
-  const skip = useCallback(() => {
-    if (!session) return
-    const item = current(session)
-    if (item) cancel(item.accountId)
-    moveOn(session, false)
-  }, [session, cancel, moveOn])
-
-  const pauseSession = useCallback(
-    (paused: boolean) => {
-      if (!session) return
-      setSession(setPaused(session, paused))
-      const item = current(session)
-      if (!paused && item) {
-        unlockAudio()
-        startItem(item)
-      }
-    },
-    [session, startItem],
-  )
-
-  const endSession = useCallback(() => {
-    const item = current(session)
-    if (item) cancel(item.accountId)
-    setSession(null)
-  }, [session, cancel])
-
-  const value = useMemo<WarmupTimersValue>(
-    () => ({
-      timers,
-      now,
-      start,
-      cancel,
-      complete,
-      completions,
-      setViewing: setViewingState,
-      session,
-      startSession,
-      skip,
-      pauseSession,
-      endSession,
-    }),
-    [timers, now, start, cancel, complete, completions, session, startSession, skip, pauseSession, endSession],
-  )
+  const value = useMemo<TimersValue>(() => ({ timers, now, start, stop, setOnScreen }), [timers, now, start, stop])
 
   return (
     <Context.Provider value={value}>
-      <WarmupBar viewing={viewing} />
+      {onScreen ? null : <TimerStrip />}
       {children}
     </Context.Provider>
   )
 }
 
-/** The strip pinned to the top of every screen while a timer runs.
+/** The strip pinned to the top of every other screen while a countdown runs.
  *
- *  Green is the one state colour it borrows, and only once the time is up:
- *  running is plain, done is done. Tapping the row goes back to the full
- *  timer; when it has finished the row carries the one-tap "Mark warmed". */
-function WarmupBar({ viewing }: { viewing: string | null }) {
-  const { timers, now, complete, cancel, session, skip } = useWarmupTimers()
-  const inSession = current(session)?.accountId
+ *  White while it runs, green once the time is up - the two states it can be
+ *  in. Tapping it goes back to TODAY, where both live full size. */
+function TimerStrip() {
+  const { timers, now, stop } = useTimers()
   const navigate = useNavigate()
-  const [busy, setBusy] = useState<string | null>(null)
 
-  const shown = timers
-    .filter((t) => t.accountId !== viewing)
-    .sort((a, b) => a.endsAt - b.endsAt)
-
-  if (shown.length === 0) return null
+  if (timers.length === 0) return null
+  const shown = [...timers].sort((a, b) => a.endsAt - b.endsAt)
 
   return (
     <div
-      className="sticky top-0 z-40 flex flex-col border-b border-rule bg-ink/90 px-4 backdrop-blur-xl"
+      className="sticky top-0 z-40 flex flex-col border-b border-edge/70 bg-ink/85 px-4 backdrop-blur-xl"
       style={{ paddingTop: 'env(safe-area-inset-top)' }}
       role="region"
-      aria-label="Warm-up timers"
+      aria-label="Timers"
     >
       {shown.map((timer) => {
         const done = isFinished(timer, now)
         const total = timer.minutes * 60
         const left = secondsLeft(timer, now)
+        const name = TIMER_NAME[timer.kind]
         return (
-          <div key={timer.accountId} className="relative flex items-center gap-3 py-2">
+          <div key={timer.kind} className="relative mx-auto flex w-full max-w-3xl items-center gap-3 py-2">
             <button
               type="button"
-              onClick={() => navigate('/', { state: { openTimer: timer.accountId } })}
+              onClick={() => void navigate('/')}
               className="press flex min-h-tap min-w-0 flex-1 items-center justify-between gap-3 text-left"
-              aria-label={`Open the ${timer.platform} warm-up timer`}
+              aria-label={`Open the ${name} timer`}
             >
               <span className="flex min-w-0 items-center gap-3">
                 <StateDot tone={done ? 'posted' : 'now'} />
                 <span className="min-w-0">
-                  <span className="block truncate text-base font-semibold text-text">
-                    {timer.platform}
-                    <span className="ml-2 font-normal text-state-later">
-                      {timer.handle ?? timer.campaignName}
-                    </span>
-                  </span>
-                  <span className="meta block text-state-later">
-                    {session && timer.accountId === inSession
-                      ? `Warm-up session · ${session.at + 1} of ${session.items.length}${session.paused ? ' · paused' : ''}`
-                      : done
-                        ? "Time's up - warm-up done"
-                        : 'Warm-up running'}
-                  </span>
+                  <span className="block truncate text-base font-semibold text-text">{name}</span>
+                  <span className="meta block text-state-later">{done ? "Time's up" : `${timer.minutes} min timer`}</span>
                 </span>
               </span>
-              <span
-                className={`numeric shrink-0 text-2xl font-semibold ${done ? 'text-state-posted' : 'text-text'}`}
-                aria-live="off"
-              >
+              <span className={`numeric shrink-0 text-2xl font-semibold ${done ? 'text-state-posted' : 'text-text'}`} aria-live="off">
                 {formatClock(left)}
               </span>
             </button>
-            {done ? (
-              <button
-                type="button"
-                disabled={busy === timer.accountId}
-                onClick={() => {
-                  setBusy(timer.accountId)
-                  void complete(timer.accountId).finally(() => setBusy(null))
-                }}
-                className="press min-h-tap shrink-0 rounded-xl border border-state-posted/60 px-3 text-base font-semibold text-state-posted active:bg-state-posted/10 disabled:opacity-60"
-              >
-                Mark warmed
-              </button>
-            ) : (
-              <button
-                type="button"
-                // In a session, cancelling one account moves on to the next
-                // rather than leaving the session waiting on a timer that is gone.
-                onClick={() => (timer.accountId === inSession ? skip() : cancel(timer.accountId))}
-                aria-label={timer.accountId === inSession ? `Skip ${timer.platform} in the session` : `Cancel the ${timer.platform} timer`}
-                className="press min-h-tap shrink-0 rounded-xl px-2 text-base text-state-later active:bg-surface"
-              >
-                {timer.accountId === inSession ? 'Skip' : 'Cancel'}
-              </button>
-            )}
-            {/* How much of the sitting is left, as a hairline along the
-                bottom: the same line the ring on the full timer draws. */}
+            <button
+              type="button"
+              onClick={() => stop(timer.kind)}
+              aria-label={done ? `Clear the ${name} timer` : `Stop the ${name} timer`}
+              className="press min-h-tap shrink-0 rounded-full px-3 text-base text-state-later hover:bg-white/[0.04] hover:text-text"
+            >
+              {done ? 'Clear' : 'Stop'}
+            </button>
+            {/* How much of it is gone, as a hairline along the bottom. */}
             <span aria-hidden className="absolute inset-x-0 bottom-0 h-px">
               <span
                 className={`block h-px transition-[width] duration-1000 ease-linear ${done ? 'bg-state-posted' : 'bg-state-now/70'}`}

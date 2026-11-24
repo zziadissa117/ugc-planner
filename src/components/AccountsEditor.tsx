@@ -22,26 +22,24 @@
 // campaign; until he picks, it is "same" when every account already shares
 // one login (or none has one yet), "different" otherwise.
 //
-// The rarely touched per-account settings - warm-up state, a platform's own
-// pay rate, bonus-only, remove - sit behind a "More" button on each row.
+// Accounts are ready to post from the moment they are added: there is no
+// warm-up status here any more. The column stays in the schema; a new account
+// is written as ready, and nothing on this screen shows or changes it.
+//
+// The rarely touched per-account settings - a platform's own pay rate,
+// bonus-only, remove - sit behind a "More" button on each row.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 
 import { useLoaded } from '../data/useLoaded'
 
-import type { AccountStatus, CampaignAccount, DataAdapter } from '../data'
+import type { CampaignAccount, DataAdapter } from '../data'
+import { hasAccountsAdded } from '../data/accountsAdded'
 import { centsToDollarsInput, parseDollarsToCents } from '../data/campaignFields'
 import { loginsMatch, sharedLogin } from '../data/logins'
 import { KNOWN_PLATFORMS } from './platforms'
-import { INPUT_CLASS, buttonClass } from './styles'
-
-const STATUS_LABELS: Record<AccountStatus, string> = {
-  new: 'New',
-  warming: 'Warming',
-  ready: 'Ready',
-}
-
-const STATUS_ORDER: AccountStatus[] = ['new', 'warming', 'ready']
+import { CARD_CLASS, INPUT_CLASS, buttonClass } from './styles'
+import { Button } from './ui'
 
 type LoginMode = 'shared' | 'separate'
 
@@ -62,6 +60,19 @@ function writeMode(campaignId: string, mode: LoginMode) {
   } catch {
     // Not remembered: it is worked out from the logins next time.
   }
+}
+
+/** The red line that tells him to put the accounts in now. Red is "blocked":
+ *  a campaign nobody can log into cannot be posted, whatever it pays. */
+export function AccountsWarning() {
+  return (
+    <p
+      role="alert"
+      className="rounded-2xl border border-state-blocked/60 bg-state-blocked/10 px-5 py-4 text-lg font-semibold leading-snug text-state-blocked"
+    >
+      If you're going to run a campaign, add your accounts now. Don't wait.
+    </p>
+  )
 }
 
 export function AccountsEditor({
@@ -119,9 +130,8 @@ export function AccountsEditor({
           // With one login for all, a new platform gets it too.
           email: mode === 'shared' && shared.email !== '' ? shared.email : null,
           password: mode === 'shared' && shared.password !== '' ? shared.password : null,
-          // Posting is not gated on warm-up any more, so a new account is
-          // immediately usable; the warm-up screen still tracks it.
-          status: 'new',
+          // Ready from the start: he posts from an account the day he adds it.
+          status: 'ready',
           sort_order: accounts.length,
         })
         setCustom('')
@@ -172,82 +182,23 @@ export function AccountsEditor({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-3">
-        <h2 className="label shrink-0 text-state-later">Accounts</h2>
+        <h2 className="kicker shrink-0">Accounts</h2>
         <span aria-hidden className="h-px flex-1 bg-rule" />
-        <button
-          type="button"
+        <Button
+          variant={adding ? 'now' : 'quiet'}
+          size="small"
           onClick={() => setAdding((open) => !open)}
           aria-expanded={adding}
-          className={`${buttonClass(adding ? 'now' : 'quiet', 'small')} !min-h-9 !rounded-full`}
         >
           {adding ? 'Done' : 'Add'}
-        </button>
+        </Button>
       </div>
 
-      {/* Which way the logins are held. Two plain choices, one pressed. */}
-      <div role="group" aria-label="Login" className="flex flex-wrap gap-2">
-        <ModeButton on={mode === 'shared'} onClick={() => (loginsMatch(accounts) ? choose('shared') : setConfirming(true))}>
-          Same login for all accounts
-        </ModeButton>
-        <ModeButton on={mode === 'separate'} onClick={() => { setConfirming(false); choose('separate') }}>
-          Different login per account
-        </ModeButton>
-      </div>
-
-      {confirming ? (
-        <div className="settle-in flex flex-col gap-2 border-l-2 border-state-waiting pl-3">
-          <p className="text-base text-text">
-            These accounts have different logins. Use the {shared.from?.platform ?? 'first'} login
-            {shared.email ? ` (${shared.email})` : ''} for every account?
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => void applyOneLogin()} className={buttonClass('waiting', 'small')}>
-              Use it for all
-            </button>
-            <button type="button" onClick={() => setConfirming(false)} className={buttonClass('quiet', 'small')}>
-              Keep them different
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      {mode === 'shared' && accounts.length > 0 ? (
-        <div className="flex flex-col gap-2 rounded-xl border border-rule p-3">
-          <LoginLine
-            key={`email-${shared.email}`}
-            name="Email"
-            value={shared.email}
-            label="Email for all accounts"
-            placeholder="email"
-            onCommit={(next) => void setForAll('email', next)}
-          />
-          <LoginLine
-            key={`password-${shared.password}`}
-            name="Password"
-            value={shared.password}
-            label="Password for all accounts"
-            placeholder="password"
-            secret
-            onCommit={(next) => void setForAll('password', next)}
-          />
-        </div>
-      ) : null}
-
-      {accounts.length === 0 ? (
-        <p className="text-base text-state-later">None yet - add the platforms this campaign posts to.</p>
-      ) : (
-        <ul className="flex flex-col divide-y divide-rule border-y border-rule">
-          {accounts.map((account) => (
-            <li key={account.id} className="py-3">
-              <AccountRow account={account} separate={mode === 'separate'} onPatch={patch} />
-            </li>
-          ))}
-        </ul>
-      )}
+      {loaded !== null && !hasAccountsAdded(accounts, campaignId) ? <AccountsWarning /> : null}
 
       {adding ? (
-        <div className="settle-in rounded-xl border border-rule p-2.5">
-          <div className="flex flex-wrap gap-1.5">
+        <div className={`${CARD_CLASS} settle-in flex flex-col gap-3 p-4`}>
+          <div className="flex flex-wrap gap-2">
             {KNOWN_PLATFORMS.map((name) => {
               const already = chosen.has(name.toLowerCase())
               return (
@@ -258,10 +209,10 @@ export function AccountsEditor({
                   onClick={() => void add(name)}
                   aria-pressed={already}
                   className={[
-                    'press min-h-10 rounded-full border px-3 text-sm font-semibold active:bg-surface',
+                    'press min-h-11 rounded-full border px-4 text-sm font-semibold transition-colors duration-200',
                     already
                       ? 'border-state-posted/50 bg-state-posted/10 text-state-posted'
-                      : 'border-edge text-text',
+                      : 'border-edge text-text hover:border-edge-lit',
                   ].join(' ')}
                 >
                   {already ? `${name} ✓` : name}
@@ -269,7 +220,7 @@ export function AccountsEditor({
               )
             })}
           </div>
-          <div className="mt-2 flex gap-2">
+          <div className="flex gap-2">
             <input
               value={custom}
               onChange={(event) => setCustom(event.target.value)}
@@ -277,18 +228,83 @@ export function AccountsEditor({
               placeholder="Other platform"
               className={`${INPUT_CLASS} min-w-0 flex-1 text-base`}
             />
-            <button
-              type="button"
-              onClick={() => void add(custom)}
-              disabled={busy || custom.trim() === ''}
-              className={buttonClass('quiet')}
-            >
+            <Button onClick={() => void add(custom)} disabled={busy || custom.trim() === ''}>
               Add
-            </button>
+            </Button>
           </div>
-          {error ? <p className="mt-1.5 text-sm text-state-blocked">{error}</p> : null}
+          {error ? <p className="text-sm text-state-blocked">{error}</p> : null}
         </div>
       ) : null}
+
+      {accounts.length === 0 ? null : (
+        <>
+          {/* Which way the logins are held. Two plain choices, one pressed. */}
+          <div role="group" aria-label="Login" className="flex flex-wrap gap-2">
+            <ModeButton
+              on={mode === 'shared'}
+              onClick={() => (loginsMatch(accounts) ? choose('shared') : setConfirming(true))}
+            >
+              Same login for all accounts
+            </ModeButton>
+            <ModeButton
+              on={mode === 'separate'}
+              onClick={() => {
+                setConfirming(false)
+                choose('separate')
+              }}
+            >
+              Different login per account
+            </ModeButton>
+          </div>
+
+          {confirming ? (
+            <div className="settle-in flex flex-col gap-2 border-l-2 border-state-waiting pl-3">
+              <p className="text-base text-text">
+                These accounts have different logins. Use the {shared.from?.platform ?? 'first'} login
+                {shared.email ? ` (${shared.email})` : ''} for every account?
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="waiting" size="small" onClick={() => void applyOneLogin()}>
+                  Use it for all
+                </Button>
+                <Button size="small" onClick={() => setConfirming(false)}>
+                  Keep them different
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          {mode === 'shared' ? (
+            <div className={`${CARD_CLASS} flex flex-col gap-3 p-4`}>
+              <LoginLine
+                key={`email-${shared.email}`}
+                name="Email"
+                value={shared.email}
+                label="Email for all accounts"
+                placeholder="email"
+                onCommit={(next) => void setForAll('email', next)}
+              />
+              <LoginLine
+                key={`password-${shared.password}`}
+                name="Password"
+                value={shared.password}
+                label="Password for all accounts"
+                placeholder="password"
+                secret
+                onCommit={(next) => void setForAll('password', next)}
+              />
+            </div>
+          ) : null}
+
+          <ul className="flex flex-col gap-3">
+            {accounts.map((account) => (
+              <li key={account.id} className={`${CARD_CLASS} p-4`}>
+                <AccountRow account={account} separate={mode === 'separate'} onPatch={patch} />
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </div>
   )
 }
@@ -300,8 +316,8 @@ function ModeButton({ on, onClick, children }: { on: boolean; onClick: () => voi
       aria-pressed={on}
       onClick={onClick}
       className={[
-        'press min-h-10 rounded-full border px-4 text-sm font-semibold',
-        on ? 'border-state-now/80 bg-surface-raised text-state-now' : 'border-edge text-state-later active:bg-surface',
+        'press min-h-10 rounded-full border px-4 text-sm font-semibold transition-colors duration-200',
+        on ? 'border-brand/70 bg-brand/10 text-text' : 'border-edge text-state-later hover:border-edge-lit hover:text-text',
       ].join(' ')}
     >
       {children}
@@ -321,8 +337,7 @@ const CAN_MASK_TEXT =
   typeof CSS.supports === 'function' &&
   CSS.supports('-webkit-text-security', 'disc')
 
-const BOX_CLASS =
-  'min-h-tap min-w-0 flex-1 rounded-lg border border-edge bg-surface px-3 text-base text-text placeholder:text-state-later focus:border-state-now/80 focus:outline-none'
+const BOX_CLASS = `${INPUT_CLASS} min-w-0 flex-1 text-base`
 
 /** A one-value box that grows to hold everything in it.
  *
@@ -412,17 +427,16 @@ function CopyButton({ value, label }: { value: string; label: string }) {
           .then(() => setCopied(true))
           .catch(() => {})
       }}
-      className={`press mt-1.5 shrink-0 rounded-full border px-3 py-1.5 text-sm font-semibold active:bg-surface disabled:opacity-40 ${
-        copied ? 'border-state-posted/60 text-state-posted' : 'border-edge text-state-later'
-      }`}
+      className={`${buttonClass(copied ? 'posted' : 'quiet', 'small')} mt-2 shrink-0 !px-3`}
     >
       {copied ? 'Copied' : 'Copy'}
     </button>
   )
 }
 
-/** One login value - a name on the left, the box, then Show (for a secret)
- *  and Copy. */
+/** One login value - its name over the box, then Show (for a secret) and
+ *  Copy beside it. The name sits above rather than beside so the box keeps
+ *  its width on a phone. */
 function LoginLine({
   name,
   value,
@@ -440,42 +454,44 @@ function LoginLine({
 }) {
   const [show, setShow] = useState(false)
   return (
-    <div className="flex min-w-0 items-start gap-2">
-      <span className="label mt-4 w-24 shrink-0 text-state-later">{name}</span>
-      {secret && !CAN_MASK_TEXT ? (
-        <input
-          defaultValue={value}
-          onBlur={(event) => onCommit(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') event.currentTarget.blur()
-          }}
-          type={show ? 'text' : 'password'}
-          aria-label={label}
-          placeholder={placeholder}
-          autoComplete="new-password"
-          className={BOX_CLASS}
-        />
-      ) : (
-        <GrowingBox
-          value={value}
-          onCommit={onCommit}
-          label={label}
-          placeholder={placeholder}
-          autoComplete={secret ? 'new-password' : 'off'}
-          mask={secret && !show}
-          className={BOX_CLASS}
-        />
-      )}
-      {secret ? (
-        <button
-          type="button"
-          onClick={() => setShow((current) => !current)}
-          className="press mt-1.5 shrink-0 rounded-full border border-edge px-3 py-1.5 text-sm font-semibold text-state-later active:bg-surface"
-        >
-          {show ? 'Hide' : 'Show'}
-        </button>
-      ) : null}
-      <CopyButton value={value} label={`Copy ${label.toLowerCase()}`} />
+    <div className="flex min-w-0 flex-col gap-1.5">
+      <span className="label text-state-later">{name}</span>
+      <div className="flex min-w-0 items-start gap-2">
+        {secret && !CAN_MASK_TEXT ? (
+          <input
+            defaultValue={value}
+            onBlur={(event) => onCommit(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') event.currentTarget.blur()
+            }}
+            type={show ? 'text' : 'password'}
+            aria-label={label}
+            placeholder={placeholder}
+            autoComplete="new-password"
+            className={BOX_CLASS}
+          />
+        ) : (
+          <GrowingBox
+            value={value}
+            onCommit={onCommit}
+            label={label}
+            placeholder={placeholder}
+            autoComplete={secret ? 'new-password' : 'off'}
+            mask={secret && !show}
+            className={BOX_CLASS}
+          />
+        )}
+        {secret ? (
+          <button
+            type="button"
+            onClick={() => setShow((current) => !current)}
+            className={`${buttonClass('quiet', 'small')} mt-2 shrink-0 !px-3`}
+          >
+            {show ? 'Hide' : 'Show'}
+          </button>
+        ) : null}
+        <CopyButton value={value} label={`Copy ${label.toLowerCase()}`} />
+      </div>
     </div>
   )
 }
@@ -494,8 +510,8 @@ function PlatformRate({
   const [invalid, setInvalid] = useState(false)
 
   return (
-    <label className="flex flex-wrap items-center gap-1.5">
-      <span className="label text-state-later">Pays</span>
+    <label className="flex flex-wrap items-center gap-2">
+      <span className="label text-state-later">Pays per post</span>
       <input
         key={account.pay_per_post_cents ?? 'none'}
         defaultValue={account.pay_per_post_cents == null ? '' : centsToDollarsInput(account.pay_per_post_cents)}
@@ -522,9 +538,7 @@ function PlatformRate({
         aria-label={`${account.platform} pay per post`}
         aria-invalid={invalid}
         placeholder="campaign rate"
-        className={`w-28 rounded-lg border bg-surface px-2 py-1.5 text-sm text-text placeholder:text-state-later focus:outline-none ${
-          invalid ? 'border-state-blocked' : 'border-edge focus:border-state-now/80'
-        }`}
+        className={`${INPUT_CLASS} !min-h-11 w-36 text-sm ${invalid ? '!border-state-blocked' : ''}`}
       />
       {invalid ? (
         <span role="alert" className="meta basis-full text-state-blocked">
@@ -560,19 +574,19 @@ function AccountRow({
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-3">
       <div className="flex items-center gap-3">
         {/* Name only: a glyph in this slot cut "Instagram" to "Insta...". */}
         <span className="min-w-0 flex-1 text-lg font-semibold text-text">{account.platform}</span>
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="small"
           onClick={() => setMore((open) => !open)}
           aria-expanded={more}
           aria-label={`More for ${account.platform}`}
-          className="press shrink-0 rounded-full px-3 py-1 text-sm font-semibold text-state-later active:bg-surface"
         >
           {more ? 'Less' : 'More'}
-        </button>
+        </Button>
       </div>
 
       {/* Each box keyed on its own saved value, so one that arrived from
@@ -610,21 +624,7 @@ function AccountRow({
       ) : null}
 
       {more ? (
-        <div className="settle-in flex flex-wrap items-center gap-2 pl-[6.5rem]">
-          {STATUS_ORDER.map((status) => (
-            <button
-              key={status}
-              type="button"
-              onClick={() => void onPatch(account.id, { status })}
-              aria-pressed={account.status === status}
-              className={[
-                'press rounded-full px-2.5 py-1 label',
-                account.status === status ? 'bg-surface-raised text-state-now' : 'text-state-later active:bg-surface',
-              ].join(' ')}
-            >
-              {STATUS_LABELS[status]}
-            </button>
-          ))}
+        <div className="settle-in flex flex-wrap items-center gap-3 border-t border-rule pt-3">
           <PlatformRate account={account} onPatch={onPatch} />
           {/* Paid only through view-milestone bonuses: its ticks on the Post
               screen earn nothing and are never owed. */}
@@ -633,19 +633,20 @@ function AccountRow({
             onClick={() => void onPatch(account.id, { bonus_only: !account.bonus_only })}
             aria-pressed={account.bonus_only}
             className={[
-              'press rounded-full px-2.5 py-1 label',
-              account.bonus_only ? 'bg-surface-raised text-state-now' : 'text-state-later active:bg-surface',
+              'press min-h-10 rounded-full border px-4 text-sm font-semibold transition-colors duration-200',
+              account.bonus_only ? 'border-brand/70 bg-brand/10 text-text' : 'border-edge text-state-later hover:text-text',
             ].join(' ')}
           >
             Bonus only
           </button>
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="small"
+            className="ml-auto"
             onClick={() => void onPatch(account.id, { is_active: false })}
-            className="press ml-auto rounded-full px-2.5 py-1 label text-state-later active:bg-surface"
           >
             Remove
-          </button>
+          </Button>
         </div>
       ) : null}
     </div>

@@ -1,7 +1,7 @@
 import { useContext, useEffect, useState, type ComponentType } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 
-import { BriefsIcon, MoneyIcon, NowIcon, PostIcon, SetupIcon } from './components/icons'
+import { BriefsIcon, IdeateIcon, NowIcon, PostIcon, SetupIcon } from './components/icons'
 import { isDataFailure, plainError } from './data/errorText'
 import { useData } from './data/useData'
 import { useLoaded } from './data/useLoaded'
@@ -9,16 +9,14 @@ import { Button } from './components/ui'
 import { AuthContext } from './sync/AuthContext'
 import { WarmupTimersProvider } from './warmupTimers'
 
-/** Five tabs, and nothing behind any of them that has to be planned first.
- *
- *  POST is permanent: what is owed today is the one thing he checks without
- *  having decided to work first, and it is the daily habit the rest of the
- *  app feeds. */
+/** Five tabs, the student's week in order: what today holds, the posts it
+ *  owes, the campaigns behind them, what to improve, and setup. Money is no
+ *  longer a tab - its summary sits at the bottom of CAMPAIGNS. */
 const TABS: { to: string; label: string; end: boolean; Icon: ComponentType<{ className?: string }> }[] = [
-  { to: '/', label: 'NOW', end: true, Icon: NowIcon },
+  { to: '/', label: 'TODAY', end: true, Icon: NowIcon },
   { to: '/post', label: 'POST', end: false, Icon: PostIcon },
-  { to: '/campaigns', label: 'BRIEFS', end: false, Icon: BriefsIcon },
-  { to: '/money', label: 'MONEY', end: false, Icon: MoneyIcon },
+  { to: '/campaigns', label: 'CAMPAIGNS', end: false, Icon: BriefsIcon },
+  { to: '/ideate', label: 'IDEATE', end: false, Icon: IdeateIcon },
   { to: '/settings', label: 'SETUP', end: false, Icon: SetupIcon },
 ]
 
@@ -99,7 +97,24 @@ export function App() {
   }, [failed])
 
   return (
-    <div className="flex min-h-dvh flex-col text-text">
+    <div className="relative isolate flex min-h-dvh flex-col text-text">
+      {/* The deck's glow behind every screen, and its faint dot grid fading
+          out from it - the quiz's ground, carried into the planner. */}
+      {section === 'start' ? null : (
+        <>
+          <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[70vh] bg-[url('/roadmap/bg-logo.jpeg')] bg-cover bg-top opacity-90 [mask-image:linear-gradient(to_bottom,black_40%,transparent)]" />
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[70vh]"
+            style={{
+              backgroundImage: 'radial-gradient(rgba(134,168,255,0.14) 1px, transparent 1px)',
+              backgroundSize: '22px 22px',
+              maskImage: 'radial-gradient(ellipse 70% 60% at 50% 0%, black 0%, transparent 75%)',
+              WebkitMaskImage: 'radial-gradient(ellipse 70% 60% at 50% 0%, black 0%, transparent 75%)',
+            }}
+          />
+        </>
+      )}
       {/* Above the routes, so a running warm-up timer outlives every screen
           change. It renders its own strip at the top of the page. */}
       <WarmupTimersProvider>
@@ -114,62 +129,59 @@ export function App() {
             </div>
           </div>
         ) : null}
-        <main key={ready ? `ready:${section}` : 'loading'} className="rise-in flex-1 px-4 pb-6 pt-5">
+        {section === 'start' ? null : (
+          <header className="mx-auto flex w-full max-w-3xl items-center justify-between px-4 pt-5">
+            <img src="/roadmap/logo-cover.png" alt="UGC Roadmap" className="h-8 w-auto" />
+          </header>
+        )}
+        <main key={ready ? `ready:${section}` : 'loading'} className="rise-in flex-1 px-4 pb-8 pt-6">
           {ready ? <Outlet /> : null}
         </main>
 
-        {/* Black glass with a hairline edge, so the page visibly carries on
-            underneath rather than the bar reading as the end of the screen.
-            Not on the onboarding quiz: it is a full-screen page of its own,
-            and the tabs behind it are not his to use until it is done. */}
+        {/* Dark glass with a hairline edge, so the page visibly carries on
+            underneath. Not on the onboarding quiz: it is a full-screen page
+            of its own, and the tabs behind it are not his to use until it is
+            done. The tab you are on is lit in the deck's blue. */}
         {section === 'start' ? null : (
-        <nav
-          className="sticky bottom-0 z-30 border-t border-rule bg-ink/85 backdrop-blur-xl"
-          style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
-        >
-          <ul className="mx-auto flex max-w-screen-sm">
-            {TABS.map(({ to, label, end, Icon }) => (
-              <li key={to} className="flex-1">
-                <NavLink
-                  to={to}
-                  end={end}
-                  className={({ isActive }) =>
-                    [
-                      // Full-width, full-height target: the whole fifth of the
-                      // bar is tappable, not just the word.
-                      'press relative flex min-h-tap flex-col items-center justify-center gap-1 pb-1 pt-2',
-                      'transition-colors duration-200',
-                      // Where you are is a state, so it gets the "now" colour.
-                      // Everything else is a "later" grey.
-                      isActive ? 'text-state-now' : 'text-state-later',
-                    ].join(' ')
-                  }
-                >
-                  {({ isActive }) => (
-                    <>
-                      {/* The lit rule sits on the bar's own top edge, so the
-                          active tab looks connected to the screen above it. */}
-                      {isActive ? (
-                        <span
-                          aria-hidden
-                          className="settle-in absolute inset-x-5 -top-px h-px bg-state-now shadow-[0_0_12px_1px_var(--color-state-now)]"
-                        />
-                      ) : null}
-                      <Icon className="h-[22px] w-[22px]" />
-                      <span
-                        className={`text-[0.8125rem] font-semibold leading-none ${
-                          isActive ? 'tracking-[0.12em]' : 'tracking-[0.08em]'
-                        }`}
-                      >
-                        {label}
-                      </span>
-                    </>
-                  )}
-                </NavLink>
-              </li>
-            ))}
-          </ul>
-        </nav>
+          <nav
+            className="sticky bottom-0 z-30 border-t border-edge/70 bg-ink/80 backdrop-blur-xl"
+            style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+          >
+            <ul className="mx-auto flex max-w-screen-md">
+              {TABS.map(({ to, label, end, Icon }) => (
+                <li key={to} className="min-w-0 flex-1">
+                  <NavLink
+                    to={to}
+                    end={end}
+                    className={({ isActive }) =>
+                      [
+                        // Full-width, full-height target: the whole fifth of
+                        // the bar is tappable, not just the word.
+                        'press relative flex min-h-tap flex-col items-center justify-center gap-1 pb-1 pt-2',
+                        'transition-colors duration-200',
+                        isActive ? 'text-brand' : 'text-state-later hover:text-text-dim',
+                      ].join(' ')
+                    }
+                  >
+                    {({ isActive }) => (
+                      <>
+                        {isActive ? (
+                          <span
+                            aria-hidden
+                            className="settle-in absolute inset-x-4 -top-px h-[2px] rounded-full bg-[linear-gradient(90deg,#6585F5,#86A8FF)] shadow-[0_0_14px_1px_rgba(101,133,245,0.8)]"
+                          />
+                        ) : null}
+                        <Icon className="h-[22px] w-[22px]" />
+                        <span className="max-w-full truncate px-0.5 text-[0.625rem] font-bold leading-none tracking-[0.06em] min-[400px]:text-[0.6875rem] sm:text-[0.75rem] sm:tracking-[0.12em]">
+                          {label}
+                        </span>
+                      </>
+                    )}
+                  </NavLink>
+                </li>
+              ))}
+            </ul>
+          </nav>
         )}
       </WarmupTimersProvider>
     </div>

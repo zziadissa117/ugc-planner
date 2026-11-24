@@ -6,43 +6,37 @@ an earlier session.
 
 ## What this is
 
-A UGC content production planner for a single creator who runs several brand
-campaigns at once. He has a day job and works in a window after it.
+A UGC content planner that started as one creator's tool and is now **a system
+for his UGC students** - he uses it too. A student (and he) records in batches
+on three fixed days a week at a reserved time, starting each session with
+Trybe videos (videos sent to brands, no account to create: a timer, as many as
+you can), then base UGC - media maxing on the third day - and spends 2 to 4
+hours on other days ideating. The onboarding quiz (`/start`) sets that week up
+and makes the account at the end; see `src/data/weeklyPlan.ts`.
 
-The app's job is to **give him a target and a scoreboard**. He picks the
-campaign, says how many videos, and the app puts everything he needs on one
-screen and counts them off. There is no timer anywhere on this path, and no
-separate EDIT session either - see the note on both below.
+Five tabs:
 
-> This used to read "the app's job is to remove the deciding", and the app was
-> built that way: it chose the campaign, chose the count, and packed his
-> window. He said plainly that he wanted the opposite - "i need list of hooks,
-> things i can say and cant say, quick summary of the campaign, and a time so i
-> can track and a goal x number of videos". The old behaviour survived for a
-> while as "Or plan it for me", one button off the main path, and has since
-> been removed entirely - see below.
->
-> The FILM console built from that quote still asked "how long tonight?"
-> before it asked for a goal, and a near-identical EDIT console asked the same
-> pair of questions again for a stage that only ever needed his own editing
-> style. He later cut both: "remove the how long tonight and put volume only
-> after i click on film. the others dont need a timer for anything or volume
-> of production." So FILM asks only for a goal, nothing anywhere shows an
-> elapsed clock, and EDIT is not a session at all - a filmed video becomes a
-> single "Mark edited" button on the home screen (`EditBacklog` in
-> `src/screens/Now.tsx`) that advances the oldest one, no goal or campaign
-> picker involved.
->
-> "Or plan it for me" is gone too, and with it the whole fitting algorithm,
-> the SHOOT teleprompter and the separate tick-off list: "Remove the Plan
-> feature completely. I don't understand the workflow and it does not make
-> sense for how I work." Do not rebuild a planner. `src/fitting`,
-> `src/session`, `src/chatgpt.ts`, `VideoRow`, `Shoot` and `TickOff` were
-> deleted outright rather than left dark.
+- **TODAY** (`src/screens/Now.tsx`): today's sessions from the saved week, the
+  Trybe timer with "+1 video" (`trybe_videos`), a countdown labelled "Used for
+  warm-ups", posts owed today, hooks, and the week as a calendar.
+- **POST** (`Posting.tsx`): "X of Y posts done today" and the tick grid.
+- **CAMPAIGNS** (`Campaigns.tsx`, `NewCampaign.tsx`, `Campaign.tsx`): a
+  campaign is typed in on one page - name, pay per video, videos a day,
+  minimum views, platforms and accounts. High-quality campaigns (a minimum view
+  count) are listed first, because they are recorded first. Money sits at the
+  bottom of the list; there is no Money tab.
+- **IDEATE** (`Ideate.tsx`): a week per campaign and account - posts, money,
+  views where the planner has them - and notes for the next recording
+  (`ideate_notes`).
+- **SETUP** (`Settings.tsx`).
 
-He works **on a laptop with the phone as the camera**. That is why the session
-console shows everything at once rather than one video at a time: he is reading
-a laptop screen across the room, not a phone propped against a mug.
+> Removed at his request and not to be rebuilt: the planner that packed his
+> evening ("Do not rebuild a planner"), the FILM console and its goal, the
+> EDIT backlog, the SHOOT teleprompter, the dictated to-do list, warm-up
+> tracking per account (accounts are ready from the start - `canPostFrom` is
+> always true), brief and contract upload and the parser review screen
+> ("remove the brief/contract upload"), and the Money tab. The work clock and
+> streak went with the old home screen.
 
 ## Stack - locked, do not substitute
 
@@ -106,24 +100,33 @@ render "not saved yet". A plausible guess is worse than a blank.
 one being mistaken for the other. A generated hook must name the model that
 wrote it.
 
-**Colour carries state only.** green = posted, bright white = do this now,
-grey = later, amber = past the window you set or an unconfirmed parsed field,
-red = blocked with the reason in plain words. No decorative colour, no badges
-for anything that is not a state. (Blue, "scheduled in the cutter", went with
-the cutter bridge - see below.)
+**Blue is the brand; every other colour is a state.** green = posted, bright
+white = do this now, grey = later, amber = past the window you set or an
+unconfirmed parsed field, red = blocked with the reason in plain words. The
+deck's blue (`brand`, #86A8FF, and the #6585F5 -> #1D40C2 gradient) is the
+look itself - the main button, the tab you are on, a section's caption - and
+never means a state. No badges for anything that is not a state.
 
 ## Look and motion
 
-He chose the **instrument** language for every screen: the Post screen's
-network view carried everywhere. A pitch-black ground, hairline rules and
-spacing instead of boxed cards, big tabular numbers as each screen's headline,
-a small dot for a row's state. A bordered card is used only where the whole
-block is one tap (FILM, POST, a tick box) or a control needs a visible edge to
-be found (the rate on the brief page). He turned down frosted, layered cards.
+**Every screen is in the UGC Roadmap look - the onboarding quiz's.** He asked
+for it: "make the planner the same exact UI as it was with the quiz". It is his
+sales-call deck brought up to date (spec: the cutter repo's
+`docs/UGC_ROADMAP_STYLE.md`): near-black #0A0B0E with the deck's blue glow and
+a faint dot grid behind the top of each screen, the UGC Roadmap logo top-left,
+spaced blue capitals (`.kicker`) over bold cream titles (`.display`, #F4F3EF),
+grey body text (#B9BCC4), softly rounded dark cards with a hairline highlight
+(`Card` / `CARD_CLASS`), one blue gradient pill for the main action
+(`buttonClass('now')`), quiet outlined pills for the rest, inputs that turn
+blue on focus. Big tabular numbers are still each screen's headline
+(`.numeric`, in the system face). It replaced the "instrument" look (pitch
+black, hairlines, no cards), which is gone everywhere.
 
-- Build from `src/components/ui.tsx` (section labels, buttons, disclosures,
-  action tiles, state dots) and `styles.ts` (button and input classes, the
-  `Tone` type). Do not re-type long class strings per screen.
+- Build from `src/components/ui.tsx` (screen headers, section labels, cards,
+  buttons, disclosures, action tiles, state dots) and `styles.ts` (button,
+  input and card classes, the `Tone` type). Do not re-type long class strings
+  per screen. Full-page brand pages (the welcome and the quiz at `/start`)
+  use `src/components/roadmap.tsx`, the same look with its own page frame.
 - Motion is three springs in `src/motion.ts`, installed as CSS `linear()`
   easings (`.press`, `.pop-in`, `.settle-in`, `.draw-check`) and `useSpring`
   for numbers that roll. No animation library. Nothing loops except a running
@@ -133,11 +136,6 @@ be found (the rate on the brief page). He turned down frosted, layered cards.
   inside a fixed-width slot that holds a name - that is how "Instagram" became
   "Insta...".
 - No sounds beyond the Post till and the warm-up chime.
-- **The exception is the student onboarding (`/start`):** the welcome and the
-  quiz are UGC Roadmap brand pages, in his sales-call deck's look brought up to
-  date (`src/components/roadmap.tsx`, `RoadmapWelcome.tsx`, `WeekCalendar.tsx`;
-  spec in the cutter repo's `docs/UGC_ROADMAP_STYLE.md`). Its blue is the brand,
-  not a state, and stays on those pages.
 
 ## The model
 
@@ -177,7 +175,7 @@ ticking faster is welcome: each campaign has a "Check all" button
 (`markAllOwed`) that ticks every open owed box through the same `markPosted`
 a tap uses. `campaigns.cutter_campaign_id` and `min_views` stay in the schema;
 the first is read by the Postiz channel list when archiving and by Analytics,
-the second is a term of the deal shown on the brief.
+the second is a term of the deal shown on the campaign page.
 
 **Views are read, never acted on.** Each campaign on Post has an Analytics
 button (owner only) that reads the cutter's own per-post view readings through
@@ -204,7 +202,8 @@ the app is never told about it, so it is not modelled as a phase. The
 it the long way rewrites the append-only history.
 
 **Accounts, not handles.** Where a campaign posts is a row with a platform, a
-handle, an email, a password and a warm-up status he sets. Handles were never
+handle, an email and a password, ready from the start (the old warm-up
+`status` column stays in the schema and gates nothing). Handles were never
 a claim about a document, so they were never really campaign fields - and a
 login belongs to one account, not to a campaign: he runs a different account
 per platform. Platforms are picked from a list (`KNOWN_PLATFORMS`), because
@@ -230,13 +229,10 @@ Run these before declaring anything done.
   deliverables with a post today, not phase changes.
 - A video can get from `to_film` all the way to `posted`, and posting it
   snapshots the rate.
-- Hook generation works with no angles, and builds from what he dumped into
-  the brief's Hooks & ideas box.
-- A campaign created from a contract with no brief still saves, with the
-  brief-derived fields blank.
-- Values the contract states, with a verified quote, are accepted by the one
-  Save on the review screen; anything not found reads "not in the contract".
-  One he unticks before saving stays amber on the campaign.
+- Hook generation works with no angles, and builds from the campaign's
+  "Product & hook ideas" box.
+- A campaign typed in with only a name and its videos a day still saves, with
+  everything else reading "not saved yet".
 - A generated hook is never presented as one he wrote.
 - Turn the network off: the app loads, every screen works, every write persists.
 - Sign in: rows actually arrive on the server. Check by querying it, not by

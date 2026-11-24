@@ -23,6 +23,7 @@ import MIGRATION_0017 from '../../docs/migrations/0017_cutter_campaign_link.sql?
 import MIGRATION_0019 from '../../docs/migrations/0019_campaign_min_views.sql?raw'
 import MIGRATION_0022 from '../../docs/migrations/0022_side_income.sql?raw'
 import MIGRATION_0023 from '../../docs/migrations/0023_weekly_plan.sql?raw'
+import MIGRATION_0024 from '../../docs/migrations/0024_trybe_and_ideate.sql?raw'
 import SCHEMA_BEFORE_0016 from '../../docs/migrations/fixtures/schema.before-0016.sql?raw'
 
 /** The pieces Supabase supplies that plain Postgres does not. */
@@ -78,10 +79,12 @@ describe('docs/schema.sql', () => {
       'campaign_rules',
       'campaigns',
       'earnings_events',
+      'ideate_notes',
       'phase_events',
       'plan_blocks',
       'side_income',
       'time_estimates',
+      'trybe_videos',
       'user_settings',
       'video_posts',
       'videos',
@@ -118,7 +121,7 @@ describe('docs/schema.sql', () => {
        join pg_namespace n on n.oid = c.relnamespace
        where n.nspname = 'public' and c.relkind = 'r' and c.relrowsecurity`,
     )
-    expect(rls.rows).toHaveLength(20)
+    expect(rls.rows).toHaveLength(22)
   })
 
   it.each(['phase_events', 'warmup_events', 'earnings_events'])(
@@ -452,6 +455,132 @@ describe('plan_blocks', () => {
   })
 })
 
+/** One policy, for every command, that lets a user at their own rows only.
+ *  (schema.sql's loop names it <table>_owner_owner, a migration <table>_owner;
+ *  what it allows is the same.) */
+async function expectOwnerOnly(target: PGlite, table: string) {
+  const policies = await target.query<{ cmd: string; qual: string; with_check: string }>(
+    `select cmd, qual, with_check from pg_policies where tablename = '${table}'`,
+  )
+  expect(policies.rows).toHaveLength(1)
+  const [policy] = policies.rows
+  expect(policy.cmd).toBe('ALL')
+  expect(policy.qual).toMatch(/user_id = \( SELECT auth\.uid\(\)/i)
+  expect(policy.with_check).toMatch(/user_id = \( SELECT auth\.uid\(\)/i)
+}
+
+describe('trybe_videos', () => {
+  it('takes one row a video, stamped now when no time is given', async () => {
+    await db.exec(`insert into trybe_videos (user_id) values ('${USER}')`)
+    await db.exec(`insert into trybe_videos (user_id, made_at) values ('${USER}', '2026-11-24T19:00:00Z')`)
+    const rows = await db.query<{ made_at: unknown; updated_at: unknown }>(
+      `select made_at, updated_at from trybe_videos where user_id = '${USER}'`,
+    )
+    expect(rows.rows.length).toBeGreaterThanOrEqual(2)
+    expect(rows.rows.every((r) => r.made_at !== null && r.updated_at !== null)).toBe(true)
+  })
+
+  it('refuses a row with no time', async () => {
+    await expect(
+      db.exec(`insert into trybe_videos (user_id, made_at) values ('${USER}', null)`),
+    ).rejects.toThrow()
+  })
+
+  it('is owner-only, like every other table', async () => {
+    await expectOwnerOnly(db, 'trybe_videos')
+  })
+})
+
+describe('ideate_notes', () => {
+  // 2026-11-22 is a Sunday.
+  const insert = (campaign: string, account: string, weekStart: string, body: string) =>
+    db.exec(`insert into ideate_notes (user_id, campaign_id, account_id, week_start, body)
+             values ('${USER}', '${campaign}', ${account}, '${weekStart}', ${body})`)
+
+  async function account(campaign: string, platform = 'TikTok') {
+    const result = await db.query<{ id: string }>(
+      `insert into campaign_accounts (user_id, campaign_id, platform) values ('${USER}', '${campaign}', '${platform}') returning id`,
+    )
+    return result.rows[0].id
+  }
+
+  it('takes a note about an account, or about the whole campaign, for a week starting on Sunday', async () => {
+    const campaign = await insertCampaign()
+    const tiktok = await account(campaign)
+    await insert(campaign, `'${tiktok}'`, '2026-11-22', `'Hook 2 held'`)
+    await insert(campaign, 'null', '2026-11-22', `'Whole campaign'`)
+    await insert(campaign, 'null', '2026-11-22', `repeat('a', 4000)`)
+  })
+
+  it('refuses a week that does not start on Sunday, an empty note and one over 4000 characters', async () => {
+    const campaign = await insertCampaign()
+    await expect(insert(campaign, 'null', '2026-11-23', `'Monday'`)).rejects.toThrow()
+    await expect(insert(campaign, 'null', '2026-11-22', `''`)).rejects.toThrow()
+    await expect(insert(campaign, 'null', '2026-11-22', `repeat('a', 4001)`)).rejects.toThrow()
+    await expect(insert(campaign, 'null', '2026-11-22', 'null')).rejects.toThrow()
+  })
+
+  it('goes with its account, and with its campaign', async () => {
+    const campaign = await insertCampaign()
+    const tiktok = await account(campaign)
+    await insert(campaign, `'${tiktok}'`, '2026-11-22', `'About TikTok'`)
+    await insert(campaign, 'null', '2026-11-22', `'About the campaign'`)
+    const count = async () =>
+      (await db.query<{ n: number }>(`select count(*)::int as n from ideate_notes where campaign_id = '${campaign}'`)).rows[0].n
+
+    await db.exec(`delete from campaign_accounts where id = '${tiktok}'`)
+    expect(await count()).toBe(1)
+    await db.exec(`delete from campaigns where id = '${campaign}'`)
+    expect(await count()).toBe(0)
+  })
+
+  it('is owner-only, like every other table', async () => {
+    await expectOwnerOnly(db, 'ideate_notes')
+  })
+})
+
+describe('docs/migrations/0024_trybe_and_ideate.sql', () => {
+  it('adds both tables to a database that ran everything before it, and can be run twice', async () => {
+    const old = new PGlite()
+    try {
+      await old.exec(SUPABASE_STUB)
+      await old.exec(`insert into auth.users (id) values ('${USER}')`)
+      await old.exec(SCHEMA_BEFORE_0016)
+      for (const migration of [MIGRATION_0016, MIGRATION_0017, MIGRATION_0018, MIGRATION_0019, MIGRATION_0022, MIGRATION_0023]) {
+        await old.exec(migration)
+      }
+      await old.exec(MIGRATION_0024)
+      await old.exec(MIGRATION_0024)
+
+      await expectOwnerOnly(old, 'trybe_videos')
+      await expectOwnerOnly(old, 'ideate_notes')
+      await old.exec(`insert into trybe_videos (user_id) values ('${USER}')`)
+      const campaign = await old.query<{ id: string }>(
+        `insert into campaigns (user_id, name) values ('${USER}', 'Test') returning id`,
+      )
+      await old.exec(`insert into ideate_notes (user_id, campaign_id, week_start, body)
+                      values ('${USER}', '${campaign.rows[0].id}', '2026-11-22', 'Whole campaign')`)
+      await expect(
+        old.exec(`insert into ideate_notes (user_id, campaign_id, week_start, body)
+                  values ('${USER}', '${campaign.rows[0].id}', '2026-11-23', 'Monday')`),
+      ).rejects.toThrow()
+    } finally {
+      await old.close()
+    }
+  }, 120_000)
+
+  it('runs on a schema that already has it', async () => {
+    const full = new PGlite()
+    try {
+      await full.exec(SUPABASE_STUB)
+      await full.exec(SCHEMA)
+      await full.exec(MIGRATION_0024)
+    } finally {
+      await full.close()
+    }
+  }, 120_000)
+})
+
 describe('docs/migrations/0022_side_income.sql', () => {
   it('adds the table to a database without it, and can be run twice', async () => {
     const fresh = new PGlite()
@@ -544,6 +673,8 @@ describe('docs/migrations/0016_weekly_pay_payouts_earnings.sql', () => {
       await migrated.exec(MIGRATION_0022)
       await migrated.exec(MIGRATION_0023)
       await migrated.exec(MIGRATION_0023)
+      await migrated.exec(MIGRATION_0024)
+      await migrated.exec(MIGRATION_0024)
       // If the migration and schema.sql ever describe different tables, a
       // fresh project and an upgraded one would not be the same project.
       expect((await columns(migrated)).rows).toEqual((await columns(db)).rows)

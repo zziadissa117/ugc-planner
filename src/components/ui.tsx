@@ -1,19 +1,19 @@
 // The few pieces every screen is built from.
 //
-// The app's look is "instrument": a black ground, hairlines instead of boxes,
-// big tabular numbers, and a dot for state - the neural view's language. These
-// used to be re-typed on every screen as long class strings, a little
-// differently each time (five spellings of "the grey button", three of a
-// section heading). One copy here means one place to get it right.
+// The look is the UGC Roadmap deck's, the same as the onboarding quiz
+// (roadmap.tsx): near-black with a blue glow, spaced blue capitals over bold
+// cream titles, softly rounded dark cards, blue pill buttons. These used to be
+// re-typed on every screen as long class strings, a little differently each
+// time. One copy here means one place to get it right.
 //
-// Colour still means state and nothing else. `Tone` is the five states from
-// index.css, and it is the only way any of these take a colour.
+// Blue is the brand and never a state. `Tone` is the five states from
+// index.css, and it is the only way any of these say what something is.
 
 import type { ButtonHTMLAttributes, ComponentProps, ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
 import { ChevronDownIcon, ChevronRightIcon } from './icons'
-import { TONE_TEXT, buttonClass, type Tone, type Variant } from './styles'
+import { CARD_CLASS, TONE_TEXT, buttonClass, type Tone, type Variant } from './styles'
 
 const TONE_DOT: Record<Tone, string> = {
   posted: 'bg-state-posted shadow-[0_0_10px_0_var(--color-state-posted)]',
@@ -30,35 +30,37 @@ export function StateDot({ tone, className = '' }: { tone: Tone; className?: str
   return <span aria-hidden className={`inline-block size-2 shrink-0 rounded-full ${TONE_DOT[tone]} ${className}`} />
 }
 
-/** A screen's title. Small, because on every screen the number is the
- *  headline and the title is only where you are. */
+/** A screen's title, as the deck sets one: a spaced blue caption, a bold
+ *  cream title, a grey line under it. */
 export function ScreenHeader({
   title,
   meta,
   aside,
+  kicker,
 }: {
   title: ReactNode
   meta?: ReactNode
   aside?: ReactNode
+  kicker?: ReactNode
 }) {
   return (
     <header className="flex items-end justify-between gap-4">
-      <div className="min-w-0">
-        <h1 className="text-[1.625rem] font-semibold leading-tight tracking-[-0.015em] text-text">
-          {title}
-        </h1>
-        {meta ? <p className="meta mt-1 text-state-later">{meta}</p> : null}
+      <div className="flex min-w-0 flex-col gap-2">
+        {kicker ? <p className="kicker">{kicker}</p> : null}
+        <h1 className="display text-[clamp(1.75rem,6vw,2.375rem)] text-text">{title}</h1>
+        {meta ? <p className="text-base text-text-dim">{meta}</p> : null}
       </div>
       {aside ? <div className="shrink-0">{aside}</div> : null}
     </header>
   )
 }
 
-/** A section's caption, with a hairline running out to the edge. The rule
- *  is what separates sections now that nothing is boxed. */
+/** A section's caption: the deck's spaced blue capitals, with a hairline
+ *  running out to the edge. A state tone colours it only when the section
+ *  is that state ("Blocked", "Posted"). */
 export function SectionLabel({
   children,
-  tone = 'later',
+  tone,
   trailing,
   as: Tag = 'h2',
 }: {
@@ -69,9 +71,18 @@ export function SectionLabel({
 }) {
   return (
     <div className="flex items-center gap-3">
-      <Tag className={`label shrink-0 ${TONE_TEXT[tone]}`}>{children}</Tag>
+      <Tag className={`kicker shrink-0 ${tone && tone !== 'later' ? TONE_TEXT[tone] : ''}`}>{children}</Tag>
       <span aria-hidden className="h-px flex-1 bg-rule" />
       {trailing ? <span className="label shrink-0 text-state-later">{trailing}</span> : null}
+    </div>
+  )
+}
+
+/** The deck's dark card. */
+export function Card({ children, className = '', ...rest }: { children: ReactNode; className?: string } & Omit<ComponentProps<'div'>, 'children'>) {
+  return (
+    <div className={`${CARD_CLASS} ${className}`} {...rest}>
+      {children}
     </div>
   )
 }
@@ -104,17 +115,17 @@ export function ActionTile({
   className?: string
 } & ({ to: string; onClick?: never } | { to?: never; onClick: () => void })) {
   const classes = [
-    'press group flex min-h-[4.75rem] items-center justify-between gap-3 rounded-2xl border px-4',
+    'press group flex min-h-[4.75rem] items-center justify-between gap-3 rounded-2xl border px-5 transition-[transform,filter,border-color] duration-200 hover:-translate-y-0.5',
     lit
-      ? 'lit border-state-now/80 bg-surface text-state-now active:bg-surface-raised'
-      : 'border-edge text-text active:bg-surface',
+      ? 'border-white/20 bg-[linear-gradient(135deg,#6585F5_0%,#1D40C2_100%)] text-white shadow-[0_24px_60px_-24px_rgba(72,108,245,0.75),inset_0_1px_0_rgba(255,255,255,0.25)] hover:brightness-110'
+      : `${CARD_CLASS} text-text hover:border-edge-lit`,
     className,
   ].join(' ')
   const inner = (
     <>
       <span className="flex items-center gap-3">
-        <span className={lit ? 'text-state-now' : 'text-state-later'}>{icon}</span>
-        <span className="text-lg font-semibold tracking-[0.18em]">{label}</span>
+        <span className={lit ? 'text-white' : 'text-brand'}>{icon}</span>
+        <span className="text-lg font-semibold tracking-[0.12em]">{label}</span>
       </span>
       <ChevronRightIcon className="h-5 w-5 opacity-60 transition-transform duration-200 group-active:translate-x-0.5" />
     </>
@@ -152,13 +163,13 @@ export function Disclosure({
   className?: string
 } & Omit<ComponentProps<'details'>, 'children'>) {
   return (
-    <details className={`group/disclosure border-b border-rule ${className}`} {...details}>
+    <details className={`group/disclosure ${CARD_CLASS} px-5 ${className}`} {...details}>
       <summary className="flex min-h-tap cursor-pointer list-none items-center gap-3 [&::-webkit-details-marker]:hidden">
         <span className={`min-w-0 flex-1 text-base font-semibold ${tone === 'text' ? 'text-text' : TONE_TEXT[tone]}`}>
           {summary}
         </span>
         {trailing ? <span className="meta shrink-0 text-state-later">{trailing}</span> : null}
-        <ChevronDownIcon className="h-4 w-4 shrink-0 text-state-later transition-transform duration-300 [transition-timing-function:var(--ease-settle)] group-open/disclosure:rotate-180" />
+        <ChevronDownIcon className="h-4 w-4 shrink-0 text-brand transition-transform duration-300 [transition-timing-function:var(--ease-settle)] group-open/disclosure:rotate-180" />
       </summary>
       <div className="settle-in pb-4">{children}</div>
     </details>

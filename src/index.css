@@ -1,50 +1,53 @@
 @import "tailwindcss";
 
 /* ---------------------------------------------------------------------------
-   Colour carries state only.
+   The UGC Roadmap look, across the whole planner.
 
-     posted   green        - done, and it stays on screen to prove it
-     now      bright white - do this one, right now
-     later    grey         - real work, but not this one
-     waiting  amber        - blocked on someone else, or a parsed field nobody
-                             has confirmed yet
-     blocked  red          - stopped, with the reason written in plain words
+   He asked for the planner to be "the same exact UI as it was with the
+   quiz": his sales-call deck's near-black with a blue glow, cream titles,
+   grey body, spaced blue capitals over bold titles, softly rounded dark
+   cards, blue pill buttons. The kit is src/components/roadmap.tsx; these
+   tokens carry it into every screen built from ui.tsx and styles.ts.
 
-   Do not add a colour to this list without a state to attach it to.
+   Two kinds of colour, never mixed:
 
-   The chrome - the page's own ground, the surfaces things sit on, the nav bar
-   - is a single cool near-black at several depths. It is deliberately not a
-   hue anyone could mistake for a signal: the five above are the only colours
-   that ever mean anything, and they read louder against it than they did
-   against flat grey. Depth, blur and glow are allowed to make the app feel
-   like something; they are never allowed to say something.
+     brand    blue        - the look itself: the main button, the tab you are
+                            on, a section's spaced caption. It never means a
+                            state.
+     states               - what a thing is:
+       posted   green       done, and it stays on screen to prove it
+       now      white       do this one, right now
+       later    grey        real work, but not this one
+       waiting  amber       past the window you set, or a parsed field nobody
+                            has confirmed yet
+       blocked  red         stopped, with the reason written in plain words
    --------------------------------------------------------------------------- */
 
 @theme {
-  --color-ink: #05070b;
-  --color-surface: #0d1117;
-  --color-surface-raised: #151b24;
-  --color-edge: #222b38;
-  /* A brighter hairline for the edge that catches the light - the top of a
-     raised surface, the ring around the thing in focus. */
-  --color-edge-lit: #33404f;
-  /* The faintest line there is: the rule between two rows of a list. Rows
-     are separated by hairlines rather than boxed into cards - the network
-     view's language, carried to every screen - so this has to be visible
-     without ever competing with what it separates. */
-  --color-rule: #18202b;
+  --color-ink: #0a0b0e;
+  --color-surface: #14161b;
+  --color-surface-raised: #1b1e25;
+  --color-edge: #2a2d35;
+  /* A brighter hairline for the edge that catches the light, and hover. */
+  --color-edge-lit: #3a3e47;
+  /* The faintest line there is: the rule between two rows of a list. */
+  --color-rule: #1f2229;
+
+  /* The deck's blue: the brand, never a state. */
+  --color-brand: #86a8ff;
+  --color-brand-deep: #1d40c2;
 
   --color-state-posted: #2fd472;
   --color-state-now: #ffffff;
   /* Grey still means "later" - it just says it loud enough to read on a
      phone held at arm's length. It was #78859a, which cleared the contrast
      minimum on paper and still made every small label a squint. */
-  --color-state-later: #8c9aaf;
+  --color-state-later: #8e929a;
   --color-state-waiting: #f0a83c;
   --color-state-blocked: #f2564c;
 
-  --color-text: #eaeff7;
-  --color-text-dim: #a4b1c3;
+  --color-text: #f4f3ef;
+  --color-text-dim: #b9bcc4;
 
   /* The type scale, raised. Tailwind's own steps put text-xs at 12px and
      text-sm at 14px, and this app uses those two for almost everything
@@ -102,10 +105,8 @@ body {
   touch-action: manipulation;
   overscroll-behavior-y: none;
 
-  /* Pitch black, flat. The two dim pools of light that used to sit behind
-     everything are gone: the network view is the best-looking thing in the
-     app, and it is a black canvas with nothing painted on it. Depth now comes
-     from type, spacing and hairlines - not from a glow behind the page. */
+  /* The deck's glow sits behind the shell (App.tsx), not here, so the
+     onboarding pages keep their own. */
 }
 
 /* ---------------------------------------------------------------------------
@@ -131,31 +132,38 @@ body {
   letter-spacing: 0.07em;
 }
 
+/* The deck's caption over a title or a section: spaced blue capitals. */
+.kicker {
+  font-size: 0.75rem;
+  line-height: 1.2;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: var(--color-brand);
+}
+
 .meta {
   font-size: 0.9375rem; /* 15px, was 13 */
   line-height: 1.35;
 }
 
-/* A display face for campaign names, where the name is the thing being read.
-   Still a system stack, for the same reason as the body: it needs no download
-   and works with the network off. On his iPhone and Mac these resolve to SF
-   Rounded and Avenir Next - rounded, geometric and heavy - and anything else
-   falls back to the ordinary system font. */
+/* Campaign names and screen titles: the deck's bold titles - the system
+   face (SF Pro on his phone), heavy and tightly set. No download, so it works
+   with the network off. */
 .display {
-  font-family: ui-rounded, "SF Pro Rounded", "Avenir Next", "Avenir", "Nunito",
-    ui-sans-serif, system-ui, sans-serif;
-  font-weight: 800;
-  letter-spacing: -0.01em;
-  line-height: 1.15;
+  font-family: inherit;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.12;
 }
 
 /* Numbers are the point of most of these screens - the count, the goal, the
-   money, the clock. Slab-like monospaced figures line up in a column and stop
-   the score jittering as it counts up. */
+   money, the clock. Tabular figures in the system face line up in a column
+   and stop the score jittering as it counts up. */
 .numeric {
-  font-family: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono",
-    Menlo, Consolas, monospace;
+  font-family: inherit;
   font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
   letter-spacing: -0.02em;
 }
 
@@ -358,11 +366,15 @@ body {
   }
 }
 
-/* Keyboard and switch users need to see focus. Pointer users should not get a
-   ring on every tap. */
-:focus-visible {
-  outline: 2px solid var(--color-state-now);
-  outline-offset: 2px;
+/* Keyboard and switch users need to see focus, in the deck's blue;
+   pointer users should not get a ring on every tap. In the base layer, so a
+   control's own focus style (the inputs' blue edge and ring) wins over it -
+   unlayered, it beat every utility and drew a white outline round them. */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
+  }
 }
 
 /* No hover-only interactions: a phone has no hover, so every affordance has to

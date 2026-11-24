@@ -204,9 +204,11 @@ describe('whether a campaign counts at all', () => {
     expect(campaignIsLive(campaign(), [])).toBe(false)
   })
 
-  it('does not count while every account is new or warming', () => {
-    expect(campaignIsLive(campaign(), [account({ status: 'new' })])).toBe(false)
-    expect(campaignIsLive(campaign(), [account({ status: 'warming' })])).toBe(false)
+  it('counts as soon as it has an account - warm-up status no longer gates anything', () => {
+    // Accounts are ready from the start; every new one is saved as 'new'.
+    expect(campaignIsLive(campaign(), [account({ status: 'new' })])).toBe(true)
+    expect(campaignIsLive(campaign(), [account({ status: 'warming' })])).toBe(true)
+    expect(campaignIsLive(campaign(), [])).toBe(false)
   })
 
   it('ignores an account that is switched off, however ready it is', () => {
@@ -227,8 +229,8 @@ describe('whether a campaign counts at all', () => {
   })
 
   it('adds up his real campaigns the way the screen will', () => {
-    // From the live database on 16 Sep. Lock in App has two accounts, both
-    // New, so it is the one left out.
+    // From the live database on 16 Sep. Lock in App's two accounts were both
+    // New, which once left it out; accounts are ready from the start now.
     const inflow = campaign({ id: 'inflow', pay_per_video_cents: 3500, daily_post_quota: 1 })
     const pump = campaign({ id: 'pump', pay_per_video_cents: 1666, daily_post_quota: 3 })
     const vertus = campaign({ id: 'vertus', pay_per_video_cents: 1000, daily_post_quota: 2 })
@@ -244,8 +246,8 @@ describe('whether a campaign counts at all', () => {
 
     const all = [inflow, pump, vertus, lockIn]
     const live = all.filter((c) => campaignIsLive(c, accounts))
-    expect(live.map((c) => c.id)).toEqual(['inflow', 'pump', 'vertus'])
-    expect(totalEarnings(live).monthCents).toBe(314940)
+    expect(live.map((c) => c.id)).toEqual(['inflow', 'pump', 'vertus', 'lockin'])
+    expect(totalEarnings(live).monthCents).toBe(314940 + 53550)
     expect(monthlyPayCents(lockIn)).toBe(53550)
   })
 })
@@ -304,17 +306,16 @@ describe('campaigns that pay for each platform', () => {
     expect(monthlyPayCents(pump, three)).toBe(1666 * 3 * 3 * 30)
   })
 
-  it('counts only the platforms he can actually post from', () => {
-    // An account still warming up earns nothing yet, so it must not multiply
-    // the pay either - the same readiness the Post tab uses.
+  it('counts every switched-on platform, whatever its old warm-up status', () => {
+    // Accounts are ready from the start; one switched off still pays nothing.
     const pump = campaign({ pay_per_video_cents: 1666, pays_per_platform: true })
     const mixed = [
       account({ id: 'a1', platform: 'Instagram', status: 'ready' }),
       account({ id: 'a2', platform: 'TikTok', status: 'new' }),
       account({ id: 'a3', platform: 'YouTube', status: 'ready', is_active: false }),
     ]
-    expect(payingPlatforms(pump, mixed)).toBe(1)
-    expect(dailyEarningsCents(pump, mixed)).toBe(1666)
+    expect(payingPlatforms(pump, mixed)).toBe(2)
+    expect(dailyEarningsCents(pump, mixed)).toBe(3332)
   })
 
   it('never multiplies by zero when nothing is ready', () => {

@@ -563,6 +563,36 @@ export interface PlanBlock {
 export type NewPlanBlock = Omit<PlanBlock, 'user_id' | 'id' | 'updated_at'> &
   Partial<Pick<PlanBlock, 'id' | 'updated_at'>>
 
+/** Mirrors `trybe_videos`. */
+export interface TrybeVideo {
+  id: string
+  user_id: string
+  made_at: string
+  updated_at: string
+}
+
+/** `trybe_videos` as supplied by a caller: user_id comes from the session, and
+ *  columns the database defaults are optional. */
+export type NewTrybeVideo = Omit<TrybeVideo, 'user_id' | 'id' | 'made_at' | 'updated_at'> &
+  Partial<Pick<TrybeVideo, 'id' | 'made_at' | 'updated_at'>>
+
+/** Mirrors `ideate_notes`. */
+export interface IdeateNote {
+  id: string
+  user_id: string
+  campaign_id: string
+  account_id: string | null
+  week_start: string
+  body: string
+  created_at: string
+  updated_at: string
+}
+
+/** `ideate_notes` as supplied by a caller: user_id comes from the session, and
+ *  columns the database defaults are optional. */
+export type NewIdeateNote = Omit<IdeateNote, 'user_id' | 'id' | 'account_id' | 'created_at' | 'updated_at'> &
+  Partial<Pick<IdeateNote, 'id' | 'account_id' | 'created_at' | 'updated_at'>>
+
 // --- Table registry ------------------------------------------------------
 
 /** Every table, in dependency order: parents before children, so an import
@@ -588,6 +618,8 @@ export const TABLE_NAMES = [
   'time_estimates',
   'user_settings',
   'plan_blocks',
+  'trybe_videos',
+  'ideate_notes',
 ] as const
 
 export type TableName = (typeof TABLE_NAMES)[number]
@@ -614,6 +646,8 @@ export interface TableRowMap {
   time_estimates: TimeEstimate
   user_settings: UserSettings
   plan_blocks: PlanBlock
+  trybe_videos: TrybeVideo
+  ideate_notes: IdeateNote
 }
 
 // --- Constraints carried over from the SQL --------------------------------
@@ -732,6 +766,10 @@ export const SQL_COLUMN_CHECKS: Readonly<Record<string, Readonly<Record<string, 
     weekday: ["check (weekday between 0 and 6)"],
     start_minute: ["check (start_minute between 0 and 1439)"],
     duration_minutes: ["check (duration_minutes > 0 and duration_minutes <= 720)"],
+  },
+  ideate_notes: {
+    week_start: ["check (extract(dow from week_start) = 0)"],
+    body: ["check (char_length(body) between 1 and 4000)"],
   },
 }
 
@@ -981,6 +1019,22 @@ export const SQL_COLUMNS: Readonly<Record<TableName, readonly { name: string; nu
     { name: 'weekday', nullable: false, sqlDefault: null },
     { name: 'start_minute', nullable: false, sqlDefault: null },
     { name: 'duration_minutes', nullable: false, sqlDefault: null },
+    { name: 'updated_at', nullable: false, sqlDefault: "now()" },
+  ],
+  trybe_videos: [
+    { name: 'id', nullable: false, sqlDefault: "gen_random_uuid()" },
+    { name: 'user_id', nullable: false, sqlDefault: null },
+    { name: 'made_at', nullable: false, sqlDefault: "now()" },
+    { name: 'updated_at', nullable: false, sqlDefault: "now()" },
+  ],
+  ideate_notes: [
+    { name: 'id', nullable: false, sqlDefault: "gen_random_uuid()" },
+    { name: 'user_id', nullable: false, sqlDefault: null },
+    { name: 'campaign_id', nullable: false, sqlDefault: null },
+    { name: 'account_id', nullable: true, sqlDefault: "null" },
+    { name: 'week_start', nullable: false, sqlDefault: null },
+    { name: 'body', nullable: false, sqlDefault: null },
+    { name: 'created_at', nullable: false, sqlDefault: "now()" },
     { name: 'updated_at', nullable: false, sqlDefault: "now()" },
   ],
 }

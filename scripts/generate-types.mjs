@@ -203,6 +203,8 @@ const ROW_TYPE_NAMES = {
   campaign_payouts: 'CampaignPayout',
   side_income: 'SideIncome',
   plan_blocks: 'PlanBlock',
+  trybe_videos: 'TrybeVideo',
+  ideate_notes: 'IdeateNote',
   bonus_tiers: 'BonusTier',
   bonus_claims: 'BonusClaim',
   time_estimates: 'TimeEstimate',

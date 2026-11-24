@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
-import { CopyIcon, UploadIcon } from '../components/icons'
+import { ChevronRightIcon, CopyIcon, UploadIcon } from '../components/icons'
 import { Button, Disclosure, ScreenHeader } from '../components/ui'
-import { INPUT_CLASS } from '../components/styles'
+import { CARD_CLASS, INPUT_CLASS } from '../components/styles'
 import { EXPORT_REMINDER_DAYS } from '../data'
 import { useData } from '../data/useData'
 import { MAX_ATTEMPTS, useAuth } from '../sync'
@@ -79,7 +79,7 @@ export function Settings() {
 
   return (
     <section className="mx-auto flex max-w-3xl flex-col gap-8">
-      <ScreenHeader title="Setup" />
+      <ScreenHeader kicker="Setup" title="Your account and your week" />
 
       {exportIsStale ? (
         <p className="border-l-2 border-state-waiting pl-3 text-base text-state-waiting">
@@ -87,16 +87,21 @@ export function Settings() {
         </p>
       ) : null}
 
-      {/* Everything here is set once and folded. The day's list moved to the
-          home screen (src/components/TodayList.tsx). */}
-      <div className="flex flex-col border-t border-rule">
+      {/* Everything here is set once and folded. */}
+      <div className="flex flex-col gap-3">
         <AccountAndKeys />
 
         <InviteLinks />
 
-        <Link to="/start" className="press flex min-h-tap items-center justify-between border-b border-rule py-4 text-base text-text active:bg-surface">
+        <Link
+          to="/start"
+          className={`${CARD_CLASS} press group flex min-h-tap items-center justify-between gap-3 px-5 text-base font-semibold text-text transition-colors duration-200 hover:border-edge-lit`}
+        >
           <span>Edit my recording week</span>
-          <span className="meta text-state-later">days, times, hours</span>
+          <span className="flex items-center gap-2 text-state-later">
+            <span className="meta font-normal">days, times, hours</span>
+            <ChevronRightIcon className="h-4 w-4 text-brand transition-transform duration-200 group-hover:translate-x-0.5" />
+          </span>
         </Link>
 
         <Disclosure summary="Backup" trailing="Export / import">
@@ -235,7 +240,7 @@ function Account() {
   return (
     <div className="flex flex-col gap-3">
       <p className="text-base text-text-dim">
-        Sign in to sync and to use the contract reader. Everything else works signed out.
+        Sign in to keep your planner on every device you use. Everything works signed out too.
       </p>
       <div className="flex gap-2">
         <input

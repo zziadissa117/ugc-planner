@@ -1,634 +1,345 @@
-﻿import 'fake-indexeddb/auto'
-import { render, screen, waitFor, within } from '@testing-library/react'
+﻿// A new campaign, typed in on one page: no brief, no contract, no parse.
+//
+// Name, pay per video, how many videos (Unlimited / 1 a day / Limited - the
+// choice only changes the question, posts_per_week is always a day x 7),
+// whether there is a minimum number of views, the platforms, and the login
+// for each account under a red warning. One Save writes it all together.
+
+import 'fake-indexeddb/auto'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { IDBFactory } from 'fake-indexeddb'
-import { MemoryRouter } from 'react-router-dom'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { beforeEach, describe, expect, it } from 'vitest'
 
 import type { DataAdapter } from '../data'
 import { DataContext } from '../data/context'
 import { LocalDatabase } from '../data/local/db'
 import { LocalAdapter } from '../data/local/LocalAdapter'
+import { GENERATION_BRIEF_KEY } from '../hooks/generateHooks'
 import { NewCampaign } from './NewCampaign'
-
-// EdgeFunctionParser reaches getSupabaseClient() from src/sync/auth - mocked
-// so tests control "the server call succeeded" directly instead of needing a
-// real network. See src/parser/parser.test.ts for the same pattern.
-const invoke = vi.fn()
-let mockClient: { functions: { invoke: typeof invoke } } | null = null
-vi.mock('../sync/auth', () => ({
-  getSupabaseClient: () => mockClient,
-}))
 
 const USER = '11111111-1111-4111-8111-111111111111'
 let adapter: DataAdapter
 
 beforeEach(async () => {
   indexedDB = new IDBFactory()
-  const db = new LocalDatabase(`drop-${crypto.randomUUID()}`)
+  const db = new LocalDatabase(`new-campaign-${crypto.randomUUID()}`)
   adapter = new LocalAdapter(db, USER)
   await db.open()
-
-  // Deterministic regardless of what's in .env (a real deployed function
-  // flips this to true) - most tests below exercise the paste-JSON fallback
-  // path specifically, and the availability-message tests override this
-  // themselves per case.
-  vi.stubEnv('VITE_PARSE_CAMPAIGN_DEPLOYED', 'false')
-  mockClient = null
-  invoke.mockReset()
 })
 
-afterEach(() => {
-  vi.unstubAllEnvs()
-})
-
-const CONTRACT = 'Per-post compensation: $35.00 per approved deliverable.'
-
-function renderDropBox() {
+function renderForm() {
   render(
     <DataContext.Provider value={adapter}>
-      <MemoryRouter>
-        <NewCampaign />
+      <MemoryRouter initialEntries={['/campaigns/new']}>
+        <Routes>
+          <Route path="/campaigns/new" element={<NewCampaign />} />
+          <Route path="/campaigns/:campaignId" element={<p>campaign page</p>} />
+        </Routes>
       </MemoryRouter>
     </DataContext.Provider>,
   )
 }
 
-/** Types into a textarea without userEvent's per-character cost. */
-async function paste(user: ReturnType<typeof userEvent.setup>, label: string, text: string) {
-  const field = screen.getByLabelText(label)
-  await user.click(field)
-  await user.paste(text)
+type User = ReturnType<typeof userEvent.setup>
+
+async function saved() {
+  await screen.findByText('campaign page')
+  const [campaign] = await adapter.listCampaigns()
+  return campaign
 }
 
-const goodJson = JSON.stringify({
-  campaign: { name: 'Inflow', company: 'Inflowpay', approval_mode: 'video' },
-  fields: {
-    pay_per_video_cents: {
-      value: '3500',
-      source_quote: '$35.00 per approved deliverable',
-      from: 'contract',
-    },
-    submission_url: { value: null, source_quote: null },
-  },
-})
+describe('the page', () => {
+  it('has no upload, no pasted JSON and no review step', () => {
+    renderForm()
 
-describe('typing a campaign in by hand', () => {
-  // No brief, no contract, no parse. He knows what his campaigns pay and
-  // where they post; requiring a document before he could say so meant the
-  // rate could only ever arrive through a parser that found one.
-  async function reachManual(user: ReturnType<typeof userEvent.setup>) {
-    renderDropBox()
-    await user.click(screen.getByRole('button', { name: 'Type it in myself' }))
-  }
-
-  it('is offered without a document of any kind', async () => {
-    renderDropBox()
-    expect(screen.getByRole('button', { name: 'Type it in myself' })).not.toBeDisabled()
+    expect(screen.getByRole('heading', { name: 'New campaign' })).toBeInTheDocument()
+    for (const gone of [/brief/i, /contract/i, /parsed json/i, /review it/i, /type it in myself/i, /upload/i]) {
+      expect(screen.queryByText(gone)).toBeNull()
+      expect(screen.queryByRole('button', { name: gone })).toBeNull()
+    }
   })
 
-  it('saves a name, a rate, a weekly quota and a platform', async () => {
+  it('asks the questions in plain words', () => {
+    renderForm()
+
+    expect(screen.getByLabelText('Campaign name')).toBeInTheDocument()
+    expect(screen.getByLabelText('Pay per video')).toBeInTheDocument()
+    expect(screen.getByRole('radiogroup', { name: 'How many videos?' })).toBeInTheDocument()
+    for (const choice of ['Unlimited', '1 a day', 'Limited']) {
+      expect(screen.getByRole('radio', { name: choice })).toBeInTheDocument()
+    }
+    expect(screen.getByRole('radiogroup', { name: 'Do you have to make high-quality videos?' })).toBeInTheDocument()
+    expect(screen.getByText('Is there a minimum number of views?')).toBeInTheDocument()
+    expect(screen.getByLabelText('Product & hook ideas')).toBeInTheDocument()
+  })
+
+  it('warns in red to add the accounts now, until one has a username', async () => {
     const user = userEvent.setup()
-    await reachManual(user)
+    renderForm()
+
+    const warning = screen.getByRole('alert')
+    expect(warning).toHaveTextContent("If you're going to run a campaign, add your accounts now. Don't wait.")
+    expect(warning).toHaveClass('text-state-blocked')
+
+    // A platform picked with nothing typed under it is not an account yet.
+    await user.click(screen.getByRole('button', { name: 'TikTok' }))
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText('TikTok handle'), '@me')
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('will not save until it has a name and how many videos, and says what is missing', async () => {
+    const user = userEvent.setup()
+    renderForm()
+
+    const save = screen.getByRole('button', { name: 'Save campaign' })
+    expect(save).toBeDisabled()
+    expect(screen.getByText('Still needed: the campaign name, how many videos.')).toBeInTheDocument()
 
     await user.type(screen.getByLabelText('Campaign name'), 'Vertus')
-    await user.type(screen.getByLabelText('Dollars per post'), '50')
-    const quota = screen.getByLabelText('Posts owed per week')
-    await user.clear(quota)
-    await user.type(quota, '4')
-    await user.click(screen.getByRole('button', { name: 'TikTok' }))
-    await user.type(screen.getByLabelText('TikTok handle'), '@vertus.creator')
+    await user.click(screen.getByRole('radio', { name: '1 a day' }))
+    expect(save).not.toBeDisabled()
+    expect(screen.queryByText(/Still needed/)).toBeNull()
+  })
+})
+
+describe('how many videos', () => {
+  async function fill(user: User, choice: string) {
+    renderForm()
+    await user.type(screen.getByLabelText('Campaign name'), 'Vertus')
+    await user.click(screen.getByRole('radio', { name: choice }))
+  }
+
+  it('1 a day is seven a week, with nothing more to ask', async () => {
+    const user = userEvent.setup()
+    await fill(user, '1 a day')
+    expect(screen.queryByLabelText(/How many a day/)).toBeNull()
 
     await user.click(screen.getByRole('button', { name: 'Save campaign' }))
-
-    // On the rate, not on the row: the campaign lands first and the rate is
-    // written a moment later, so waiting for the row races the field write.
-    await waitFor(async () => {
-      const [row] = await adapter.listCampaigns()
-      expect(row?.pay_per_video_cents).toBe(5000)
-    })
-    const [saved] = await adapter.listCampaigns()
-    expect(saved.name).toBe('Vertus')
-    expect(saved.posts_per_week).toBe(4)
-
-    // His word for the rate, not a document's.
-    const fields = await adapter.listCampaignFields(saved.id)
-    expect(fields.find((f) => f.field_key === 'pay_per_video_cents')?.source).toBe('user_entered')
-
-    await waitFor(async () => {
-      expect(await adapter.listCampaignAccounts(saved.id)).toHaveLength(1)
-    })
-    const accounts = await adapter.listCampaignAccounts(saved.id)
-    expect(accounts[0].platform).toBe('TikTok')
-    expect(accounts[0].handle).toBe('@vertus.creator')
+    const campaign = await saved()
+    expect(campaign.posts_per_week).toBe(7)
+    expect(campaign.daily_post_quota).toBe(1)
   })
 
-  it('saves a minimum views per video when he gives one, and none when he does not', async () => {
+  it('Unlimited asks how many a day he will do, starting at 10', async () => {
     const user = userEvent.setup()
-    await reachManual(user)
-    await user.type(screen.getByLabelText('Campaign name'), 'Lovable')
-    await user.type(screen.getByLabelText('Minimum views per video'), '1k')
+    await fill(user, 'Unlimited')
+
+    const box = screen.getByLabelText('How many a day will you do?')
+    expect(box).toHaveValue('10')
+
     await user.click(screen.getByRole('button', { name: 'Save campaign' }))
-    await waitFor(async () => {
-      const [row] = await adapter.listCampaigns()
-      expect(row?.min_views).toBe(1000)
-    })
+    const campaign = await saved()
+    expect(campaign.posts_per_week).toBe(70)
+    expect(campaign.daily_post_quota).toBe(10)
   })
 
-  it('needs only a name - everything else can wait for the brief page', async () => {
+  it('Unlimited takes his own number', async () => {
     const user = userEvent.setup()
-    await reachManual(user)
+    await fill(user, 'Unlimited')
+    const box = screen.getByLabelText('How many a day will you do?')
+    await user.clear(box)
+    await user.type(box, '4')
 
+    await user.click(screen.getByRole('button', { name: 'Save campaign' }))
+    expect((await saved()).posts_per_week).toBe(28)
+  })
+
+  it('Limited asks how many a day, and starts empty - it is the deal\'s number', async () => {
+    const user = userEvent.setup()
+    await fill(user, 'Limited')
+
+    const box = screen.getByLabelText('How many a day?')
+    expect(box).toHaveValue('')
     expect(screen.getByRole('button', { name: 'Save campaign' })).toBeDisabled()
-    await user.type(screen.getByLabelText('Campaign name'), 'Nameless no more')
+    expect(screen.getByText('Still needed: how many a day.')).toBeInTheDocument()
+
+    await user.type(box, '3')
+    await user.click(screen.getByRole('button', { name: 'Save campaign' }))
+    expect((await saved()).posts_per_week).toBe(21)
+  })
+
+  it('refuses zero or anything that is not a whole number', async () => {
+    const user = userEvent.setup()
+    await fill(user, 'Limited')
+
+    for (const bad of ['0', '1.5', 'two']) {
+      const box = screen.getByLabelText('How many a day?')
+      await user.clear(box)
+      await user.type(box, bad)
+      expect(screen.getByRole('button', { name: 'Save campaign' })).toBeDisabled()
+    }
+  })
+})
+
+describe('pay per video', () => {
+  it('is saved as integer cents', async () => {
+    const user = userEvent.setup()
+    renderForm()
+    await user.type(screen.getByLabelText('Campaign name'), 'Vertus')
+    await user.type(screen.getByLabelText('Pay per video'), '16.50')
+    await user.click(screen.getByRole('radio', { name: '1 a day' }))
     await user.click(screen.getByRole('button', { name: 'Save campaign' }))
 
-    await waitFor(async () => {
-      expect(await adapter.listCampaigns()).toHaveLength(1)
-    })
-    const [saved] = await adapter.listCampaigns()
-    expect(saved.pay_per_video_cents).toBeNull()
-  })
-})
-
-describe('the drop box', () => {
-  it('offers both document slots with tap-to-pick and a paste area', async () => {
-    renderDropBox()
-
-    // Phones do not really drag and drop, so the file button is a real target
-    // rather than a drop zone with a hidden input.
-    expect(screen.getByLabelText('BRIEF (.md) file')).toBeInTheDocument()
-    expect(screen.getByLabelText('CONTRACT (.md) file')).toBeInTheDocument()
-    expect(screen.getByLabelText('BRIEF (.md) text')).toBeInTheDocument()
-    expect(screen.getByLabelText('CONTRACT (.md) text')).toBeInTheDocument()
-    expect(screen.getAllByRole('button', { name: 'Choose a file' })).toHaveLength(2)
+    expect((await saved()).pay_per_video_cents).toBe(1650)
   })
 
-  describe('the server parser availability message', () => {
-    it('says it is not deployed and what to do instead, when the flag is off', async () => {
-      renderDropBox()
-      expect(screen.getByText(/server parser is not deployed yet/i)).toBeInTheDocument()
-      expect(screen.getByLabelText('Parsed JSON')).toBeInTheDocument()
-    })
-
-    it('offers to read the documents itself once the deploy flag is on, but keeps the paste box for offline', async () => {
-      vi.stubEnv('VITE_PARSE_CAMPAIGN_DEPLOYED', 'true')
-      mockClient = { functions: { invoke } }
-      renderDropBox()
-      expect(screen.getByText(/the server reads the documents/i)).toBeInTheDocument()
-      // isAvailable() means "configured", not "there is a connection right
-      // now" - the offline fallback has to stay reachable, not hidden behind
-      // a flag that says nothing about actual connectivity.
-      expect(screen.getByLabelText('Parsed JSON')).toBeInTheDocument()
-    })
-
-    it('actually calls the server parser when available, rather than just saying it will', async () => {
-      vi.stubEnv('VITE_PARSE_CAMPAIGN_DEPLOYED', 'true')
-      mockClient = { functions: { invoke } }
-      invoke.mockResolvedValue({
-        data: {
-          campaign: { name: 'Server-parsed campaign', company: null, approval_mode: null },
-          fields: {},
-          bonus_tiers: [],
-          rules: [],
-          brief_is_incomplete: false,
-          warnings: [],
-        },
-        error: null,
-      })
-
-      const user = userEvent.setup()
-      renderDropBox()
-      await paste(user, 'CONTRACT (.md) text', CONTRACT)
-      await user.click(screen.getByRole('button', { name: 'Review it' }))
-
-      await screen.findByRole('heading', { name: 'Review' })
-      expect(screen.getByText('Server-parsed campaign')).toBeInTheDocument()
-      expect(invoke).toHaveBeenCalledWith('parse-campaign', {
-        body: { briefText: null, contractText: CONTRACT, version: 2 },
-      })
-    })
-
-    it('uses pasted JSON instead of the server when both are present - the offline path', async () => {
-      vi.stubEnv('VITE_PARSE_CAMPAIGN_DEPLOYED', 'true')
-      mockClient = { functions: { invoke } }
-      invoke.mockRejectedValue(new Error('should never be called'))
-
-      const user = userEvent.setup()
-      renderDropBox()
-      await paste(user, 'CONTRACT (.md) text', CONTRACT)
-      await paste(user, 'Parsed JSON', goodJson)
-      await user.click(screen.getByRole('button', { name: 'Review it' }))
-
-      await screen.findByRole('heading', { name: 'Review' })
-      // The screen does ask whether this account may send PDFs; it must never
-      // send the documents themselves.
-      const parses = invoke.mock.calls.filter(
-        ([, options]) => (options as { body?: { action?: string } }).body?.action !== 'capabilities',
-      )
-      expect(parses).toHaveLength(0)
-    })
-
-    it('offers PDF in the document slots only when the server says this account may', async () => {
-      vi.stubEnv('VITE_PARSE_CAMPAIGN_DEPLOYED', 'true')
-      mockClient = { functions: { invoke } }
-      invoke.mockResolvedValue({ data: { pdf: true }, error: null })
-
-      renderDropBox()
-      expect(await screen.findByLabelText('CONTRACT (.md or .pdf) text')).toBeInTheDocument()
-      expect(invoke).toHaveBeenCalledWith('parse-campaign', { body: { action: 'capabilities' } })
-    })
-
-    it('keeps the slots to Markdown for everyone else', async () => {
-      vi.stubEnv('VITE_PARSE_CAMPAIGN_DEPLOYED', 'true')
-      mockClient = { functions: { invoke } }
-      invoke.mockResolvedValue({ data: { pdf: false }, error: null })
-
-      renderDropBox()
-      await waitFor(() => expect(invoke).toHaveBeenCalled())
-      expect(screen.getByLabelText('CONTRACT (.md) text')).toBeInTheDocument()
-      expect(screen.queryByLabelText('CONTRACT (.md or .pdf) text')).toBeNull()
-    })
-  })
-
-  it('reports bad JSON without crashing', async () => {
+  it('can be left empty - "not saved yet", never a guess', async () => {
     const user = userEvent.setup()
-    renderDropBox()
+    renderForm()
+    await user.type(screen.getByLabelText('Campaign name'), 'Vertus')
+    await user.click(screen.getByRole('radio', { name: '1 a day' }))
+    await user.click(screen.getByRole('button', { name: 'Save campaign' }))
 
-    await paste(user, 'Parsed JSON', 'definitely not json')
-    await user.click(screen.getByRole('button', { name: 'Review it' }))
+    expect((await saved()).pay_per_video_cents).toBeNull()
+  })
 
-    expect(await screen.findByText(/that is not valid json/i)).toBeInTheDocument()
+  it('refuses something that is not an amount, and says so', async () => {
+    const user = userEvent.setup()
+    renderForm()
+    await user.type(screen.getByLabelText('Campaign name'), 'Vertus')
+    await user.click(screen.getByRole('radio', { name: '1 a day' }))
+    await user.type(screen.getByLabelText('Pay per video'), 'lots')
+
+    expect(screen.getByText('Enter an amount like 35 or 35.50.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save campaign' })).toBeDisabled()
   })
 })
 
-describe('the review screen', () => {
-  async function reachReview(user: ReturnType<typeof userEvent.setup>, json = goodJson) {
-    renderDropBox()
-    await paste(user, 'CONTRACT (.md) text', CONTRACT)
-    await paste(user, 'Parsed JSON', json)
-    await user.click(screen.getByRole('button', { name: 'Review it' }))
-    await screen.findByRole('heading', { name: 'Review' })
+describe('high-quality videos', () => {
+  async function start(user: User) {
+    renderForm()
+    await user.type(screen.getByLabelText('Campaign name'), 'Vertus')
+    await user.click(screen.getByRole('radio', { name: '1 a day' }))
   }
 
-  it('shows the contract rate in dollars, and does not rewrite it as his own', async () => {
+  it('yes asks for the minimum views and saves it', async () => {
     const user = userEvent.setup()
-    await reachReview(user)
+    await start(user)
+    expect(screen.queryByLabelText('Minimum views')).toBeNull()
 
-    expect(screen.getByLabelText('Dollars per post')).toHaveValue('35.00')
-
-    // The parsed row is already ticked; leave the box alone and save.
+    await user.click(screen.getByRole('radio', { name: 'Yes' }))
+    expect(screen.getByRole('button', { name: 'Save campaign' })).toBeDisabled()
+    await user.type(screen.getByLabelText('Minimum views'), '1.5k')
     await user.click(screen.getByRole('button', { name: 'Save campaign' }))
 
-    await waitFor(async () => {
-      const [saved] = await adapter.listCampaigns()
-      expect(saved?.pay_per_video_cents).toBe(3500)
-    })
-    const [saved] = await adapter.listCampaigns()
-    const fields = await adapter.listCampaignFields(saved.id)
-    // Still the contract's word for it, with the quote behind it - not his.
-    const field = fields.find((f) => f.field_key === 'pay_per_video_cents')
-    expect(field?.source).toBe('documented')
-    expect(field?.source_quote).toBe('$35.00 per approved deliverable')
+    expect((await saved()).min_views).toBe(1500)
   })
 
-  it('takes a correction to a rate the contract stated', async () => {
+  it('no saves no minimum', async () => {
     const user = userEvent.setup()
-    await reachReview(user)
-
-    const rate = screen.getByLabelText('Dollars per post')
-    await user.clear(rate)
-    await user.type(rate, '40')
-    await user.click(screen.getByRole('button', { name: 'Save campaign' }))
-
-    await waitFor(async () => {
-      const [saved] = await adapter.listCampaigns()
-      expect(saved?.pay_per_video_cents).toBe(4000)
-    })
-    const [saved] = await adapter.listCampaigns()
-    const fields = await adapter.listCampaignFields(saved.id)
-    expect(fields.find((f) => f.field_key === 'pay_per_video_cents')?.source).toBe('user_entered')
-  })
-
-  it('starts every found value ticked, with its quote, and lets him untick one', async () => {
-    const user = userEvent.setup()
-    await reachReview(user)
-
-    expect(screen.getByRole('heading', { name: 'From the contract' })).toBeInTheDocument()
-    const list = screen.getByRole('list', { name: 'Parsed fields' })
-    const row = within(list).getByRole('button')
-
-    expect(row).toHaveAttribute('aria-pressed', 'true')
-    expect(within(row).getByText('accepted')).toBeInTheDocument()
-    // Shown as money, not as a count of cents.
-    expect(within(row).getByText('$35.00')).toBeInTheDocument()
-    // The line it came from is shown beside it.
-    expect(within(row).getByText(/\$35\.00 per approved deliverable/)).toBeInTheDocument()
-
-    await user.click(row)
-    expect(row).toHaveAttribute('aria-pressed', 'false')
-    expect(within(row).getByText('left unchecked')).toBeInTheDocument()
-  })
-
-  it('lists a field the parser did not find as not in the contract', async () => {
-    const user = userEvent.setup()
-    await reachReview(user)
-
-    expect(screen.getByRole('heading', { name: 'Not in the contract' })).toBeInTheDocument()
-    const blanks = screen.getByRole('list', { name: 'Blank fields' })
-    expect(within(blanks).getByText('submission url')).toBeInTheDocument()
-  })
-
-  it('drops a field whose quote is not in the document, and says so', async () => {
-    const user = userEvent.setup()
-    await reachReview(
-      user,
-      JSON.stringify({
-        campaign: { name: 'Inflow' },
-        fields: {
-          cycle_size: {
-            // Nowhere in the contract above.
-            value: '60',
-            source_quote: 'A payment cycle completes when 60 deliverables',
-            from: 'contract',
-          },
-        },
-      }),
-    )
-
-    const blanks = screen.getByRole('list', { name: 'Blank fields' })
-    expect(within(blanks).getByText('cycle size')).toBeInTheDocument()
-    expect(within(blanks).getByText('its quote was not in the document')).toBeInTheDocument()
-    expect(screen.getByText(/1 field was dropped/i)).toBeInTheDocument()
-    // And it is not offered for confirmation.
-    expect(screen.queryByRole('list', { name: 'Parsed fields' })).toBeNull()
-  })
-
-  it('says in one plain line what no document ever contains', async () => {
-    const user = userEvent.setup()
-    await reachReview(user)
-    expect(screen.getByText(/logins and handles are never in a contract/i)).toBeInTheDocument()
-  })
-
-  it('warns when the brief looks incomplete', async () => {
-    const user = userEvent.setup()
-    renderDropBox()
-
-    await paste(user, 'BRIEF (.md) text', '## 1. Product\ntext\n## 4. Rules\ntext')
-    await paste(user, 'Parsed JSON', JSON.stringify({ campaign: { name: 'Inflow' } }))
-    await user.click(screen.getByRole('button', { name: 'Review it' }))
-
-    await screen.findByRole('heading', { name: 'Review' })
-    expect(screen.getByText(/this brief looks incomplete/i)).toBeInTheDocument()
-  })
-
-  it('saves every found value as documented with one Save, and the rest blank', async () => {
-    const user = userEvent.setup()
-    await reachReview(user)
+    await start(user)
+    await user.click(screen.getByRole('radio', { name: 'Yes' }))
+    await user.type(screen.getByLabelText('Minimum views'), '1000')
+    await user.click(screen.getByRole('radio', { name: 'No' }))
+    expect(screen.queryByLabelText('Minimum views')).toBeNull()
 
     await user.click(screen.getByRole('button', { name: 'Save campaign' }))
-
-    // The campaign row appears before its fields do, so waiting on the row
-    // alone would read a half-written campaign. Wait for the last thing the
-    // save does instead: promoting the accepted field.
-    await waitFor(async () => {
-      const [saved] = await adapter.listCampaigns()
-      expect(saved).toBeDefined()
-      const written = await adapter.listCampaignFields(saved.id)
-      expect(written.find((f) => f.field_key === 'pay_per_video_cents')?.source).toBe('documented')
-    })
-
-    const [campaign] = await adapter.listCampaigns()
-    expect(campaign.name).toBe('Inflow')
-    expect(campaign.pay_per_video_cents).toBe(3500)
-
-    const fields = await adapter.listCampaignFields(campaign.id)
-    expect(fields.find((f) => f.field_key === 'submission_url')?.source).toBe('missing')
-
-    // The raw contract text is kept, so the quote can be checked again later.
-    const documents = await adapter.listCampaignDocuments(campaign.id)
-    expect(documents.find((d) => d.kind === 'contract')?.raw_text).toBe(CONTRACT)
-  })
-
-  it('saves an unticked value as unchecked, and does not plan against it', async () => {
-    const user = userEvent.setup()
-    await reachReview(user)
-
-    await user.click(within(screen.getByRole('list', { name: 'Parsed fields' })).getByRole('button'))
-    // The rate box still shows the contract's number; leaving it alone must
-    // not quietly turn the unticked rate into his own.
-    await user.click(screen.getByRole('button', { name: 'Save campaign' }))
-
-    await waitFor(async () => {
-      const [saved] = await adapter.listCampaigns()
-      expect(saved).toBeDefined()
-      const documents = await adapter.listCampaignDocuments(saved.id)
-      expect(documents).toHaveLength(1)
-    })
-    const [campaign] = await adapter.listCampaigns()
-    expect(campaign.pay_per_video_cents).toBeNull()
-    const fields = await adapter.listCampaignFields(campaign.id)
-    expect(fields.find((f) => f.field_key === 'pay_per_video_cents')?.source).toBe('parsed_unreviewed')
+    expect((await saved()).min_views).toBeNull()
   })
 })
 
-describe('never-do rules and bonus tiers from a parse', () => {
-  const BRIEF = 'Rules: Never name or attack a competitor. No filters or built-in camera effects.'
-  const TERMS = 'Bonuses (per Deliverable):\n50,000 views: $50.00'
-
-  async function reachReview(user: ReturnType<typeof userEvent.setup>) {
-    renderDropBox()
-    await paste(user, 'BRIEF (.md) text', BRIEF)
-    await paste(user, 'CONTRACT (.md) text', TERMS)
-    await paste(
-      user,
-      'Parsed JSON',
-      JSON.stringify({
-        campaign: { name: 'Quoted' },
-        rules: [
-          { body: 'Never name a competitor.', source_quote: 'Never name or attack a competitor', from: 'brief' },
-          { body: 'No filters.', source_quote: 'No filters or built-in camera effects', from: 'brief' },
-          // Nobody wrote this down.
-          { body: 'Never film outdoors.', source_quote: 'Never film outdoors', from: 'brief' },
-        ],
-        bonus_tiers: [
-          { label: '50k', threshold_views: 50000, payout_cents: 5000, view_window_days: null,
-            source_quote: '50,000 views: $50.00', from: 'contract' },
-          // The line exists; the payout beside it was invented.
-          { label: '100k', threshold_views: 100000, payout_cents: 10000, view_window_days: null,
-            source_quote: '50,000 views: $50.00', from: 'contract' },
-        ],
-      }),
-    )
-    await user.click(screen.getByRole('button', { name: 'Review it' }))
-    await screen.findByRole('heading', { name: 'Review' })
-  }
-
-  it('shows only the rules and tiers a document actually states, with their quotes', async () => {
+describe('accounts', () => {
+  it('saves one account per platform, each with its own login, ready to post from', async () => {
     const user = userEvent.setup()
-    await reachReview(user)
+    renderForm()
+    await user.type(screen.getByLabelText('Campaign name'), 'Vertus')
+    await user.click(screen.getByRole('radio', { name: '1 a day' }))
 
-    const rules = within(screen.getByRole('list', { name: 'Parsed rules' })).getAllByRole('button')
-    expect(rules.map((rule) => rule.textContent)).toEqual([
-      expect.stringContaining('Never name a competitor.'),
-      expect.stringContaining('No filters.'),
-    ])
-    expect(screen.queryByText('Never film outdoors.')).not.toBeInTheDocument()
-
-    const tiers = within(screen.getByRole('list', { name: 'Parsed bonus tiers' })).getAllByRole('button')
-    expect(tiers).toHaveLength(1)
-    expect(tiers[0].textContent).toContain('50,000 views - $50.00')
-  })
-
-  it('leaves out a rule he unticked, and keeps the rest', async () => {
-    const user = userEvent.setup()
-    await reachReview(user)
-
-    await user.click(screen.getByRole('button', { name: /No filters\./ }))
-    await user.click(screen.getByRole('button', { name: 'Save campaign' }))
-
-    await waitFor(async () => {
-      const [saved] = await adapter.listCampaigns()
-      expect(saved).toBeDefined()
-      expect(await adapter.listBonusTiers(saved.id)).toHaveLength(1)
-    })
-    const [campaign] = await adapter.listCampaigns()
-    const rules = await adapter.listCampaignRules(campaign.id)
-    expect(rules.map((rule) => rule.body)).toEqual(['Never name a competitor.'])
-  })
-})
-
-describe('where the campaign posts', () => {
-  async function reachReview(user: ReturnType<typeof userEvent.setup>) {
-    renderDropBox()
-    await paste(user, 'Parsed JSON', JSON.stringify({ campaign: { name: 'Fresh campaign' } }))
-    await user.click(screen.getByRole('button', { name: 'Review it' }))
-    await screen.findByRole('heading', { name: 'Review' })
-  }
-
-  it('saves without a platform rather than refusing at the last step', async () => {
-    // The old screen would not save a campaign with no @ on it. Being blocked
-    // at the end of a long parse is worse than a campaign he finishes on the
-    // brief page a minute later.
-    const user = userEvent.setup()
-    await reachReview(user)
-
-    expect(screen.getByRole('button', { name: 'Save campaign' })).not.toBeDisabled()
-    await user.click(screen.getByRole('button', { name: 'Save campaign' }))
-
-    await waitFor(async () => {
-      expect(await adapter.listCampaigns()).toHaveLength(1)
-    })
-  })
-
-  it('makes one account per platform picked, each with its own login', async () => {
-    const user = userEvent.setup()
-    await reachReview(user)
-
+    await user.click(screen.getByRole('button', { name: 'TikTok' }))
     await user.click(screen.getByRole('button', { name: 'Instagram' }))
+    await user.type(screen.getByLabelText('TikTok handle'), '@vertus.tt')
+    await user.type(screen.getByLabelText('TikTok email'), 'tt@example.com')
+    await user.type(screen.getByLabelText('TikTok password'), 'hunter2')
+    await user.type(screen.getByLabelText('Instagram handle'), '@vertus.ig')
+
+    await user.click(screen.getByRole('button', { name: 'Save campaign' }))
+    const campaign = await saved()
+    const accounts = await adapter.listCampaignAccounts(campaign.id)
+
+    expect(accounts.map((a) => [a.platform, a.handle, a.email, a.password])).toEqual([
+      ['TikTok', '@vertus.tt', 'tt@example.com', 'hunter2'],
+      ['Instagram', '@vertus.ig', null, null],
+    ])
+    // Ready from the start: no warm-up before he can post from it.
+    expect(accounts.every((a) => a.status === 'ready')).toBe(true)
+  })
+
+  it('drops a platform he unpicks', async () => {
+    const user = userEvent.setup()
+    renderForm()
+    await user.type(screen.getByLabelText('Campaign name'), 'Vertus')
+    await user.click(screen.getByRole('radio', { name: '1 a day' }))
     await user.click(screen.getByRole('button', { name: 'YouTube' }))
-
-    await user.click(screen.getByLabelText('Instagram handle'))
-    await user.paste('@creator.ig')
-    await user.click(screen.getByLabelText('Instagram email'))
-    await user.paste('ig@example.com')
-    await user.click(screen.getByLabelText('Instagram password'))
-    await user.paste('hunter2')
-    await user.click(screen.getByLabelText('YouTube handle'))
-    await user.paste('@creator.yt')
+    await user.type(screen.getByLabelText('YouTube handle'), '@gone')
+    await user.click(screen.getByRole('button', { name: 'YouTube' }))
+    expect(screen.queryByLabelText('YouTube handle')).toBeNull()
 
     await user.click(screen.getByRole('button', { name: 'Save campaign' }))
-
-    await waitFor(async () => {
-      const [saved] = await adapter.listCampaigns()
-      expect(saved).toBeDefined()
-      expect(await adapter.listCampaignAccounts(saved.id)).toHaveLength(2)
-    })
-
-    const [saved] = await adapter.listCampaigns()
-    const accounts = await adapter.listCampaignAccounts(saved.id)
-    const instagram = accounts.find((a) => a.platform === 'Instagram')
-    expect(instagram?.handle).toBe('@creator.ig')
-    expect(instagram?.email).toBe('ig@example.com')
-    expect(instagram?.password).toBe('hunter2')
-    // The other platform keeps its own row, with nothing borrowed from the
-    // first: one login per account, never one per campaign.
-    const youtube = accounts.find((a) => a.platform === 'YouTube')
-    expect(youtube?.handle).toBe('@creator.yt')
-    expect(youtube?.email).toBeNull()
+    expect(await adapter.listCampaignAccounts((await saved()).id)).toHaveLength(0)
   })
 
-  it('un-picking a platform takes its fields away again', async () => {
+  it('still saves a campaign with no accounts - the warning is a push, not a gate', async () => {
     const user = userEvent.setup()
-    await reachReview(user)
+    renderForm()
+    await user.type(screen.getByLabelText('Campaign name'), 'Vertus')
+    await user.click(screen.getByRole('radio', { name: '1 a day' }))
+    await user.click(screen.getByRole('button', { name: 'Save campaign' }))
 
+    expect((await saved()).name).toBe('Vertus')
+  })
+
+  it('offers only the platforms the app knows - no free text that could hold two', () => {
+    renderForm()
+    const group = screen.getByRole('group', { name: 'Platforms' })
+    expect(group.querySelector('input')).toBeNull()
+  })
+})
+
+describe('product & hook ideas', () => {
+  it('saves what he typed as his, word for word, for the hook writer', async () => {
+    const user = userEvent.setup()
+    renderForm()
+    await user.type(screen.getByLabelText('Campaign name'), 'Vertus')
+    await user.click(screen.getByRole('radio', { name: '1 a day' }))
+    await user.type(screen.getByLabelText('Product & hook ideas'), 'A budgeting app.{Enter}Hook: I stopped checking my bank.')
+    await user.click(screen.getByRole('button', { name: 'Save campaign' }))
+
+    const fields = await adapter.listCampaignFields((await saved()).id)
+    const ideas = fields.find((f) => f.field_key === GENERATION_BRIEF_KEY)
+    expect(ideas?.field_value).toBe('A budgeting app.\nHook: I stopped checking my bank.')
+    expect(ideas?.source).toBe('user_entered')
+  })
+
+  it('writes nothing when left empty', async () => {
+    const user = userEvent.setup()
+    renderForm()
+    await user.type(screen.getByLabelText('Campaign name'), 'Vertus')
+    await user.click(screen.getByRole('radio', { name: '1 a day' }))
+    await user.click(screen.getByRole('button', { name: 'Save campaign' }))
+
+    expect(await adapter.listCampaignFields((await saved()).id)).toEqual([])
+  })
+})
+
+describe('saving', () => {
+  it('lands every write locally and queues it for the server', async () => {
+    const user = userEvent.setup()
+    renderForm()
+    await user.type(screen.getByLabelText('Campaign name'), 'Vertus')
+    await user.click(screen.getByRole('radio', { name: '1 a day' }))
     await user.click(screen.getByRole('button', { name: 'TikTok' }))
-    expect(screen.getByLabelText('TikTok handle')).toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: 'TikTok' }))
-    expect(screen.queryByLabelText('TikTok handle')).toBeNull()
-  })
-
-  it('asks how many posts a week, because no document states it', async () => {
-    const user = userEvent.setup()
-    await reachReview(user)
-
-    const quota = screen.getByLabelText('Posts owed per week')
-    await user.clear(quota)
-    await user.type(quota, '4')
+    await user.type(screen.getByLabelText('TikTok handle'), '@me')
     await user.click(screen.getByRole('button', { name: 'Save campaign' }))
+    await saved()
 
     await waitFor(async () => {
-      const [saved] = await adapter.listCampaigns()
-      expect(saved?.posts_per_week).toBe(4)
-      // Still owed as a whole number on the Post grid: ceil(4 / 7).
-      expect(saved?.daily_post_quota).toBe(1)
+      const queued = (await adapter.listPendingWrites(100)).map((w) => w.table_name)
+      expect(queued).toContain('campaigns')
+      expect(queued).toContain('campaign_accounts')
     })
-  })
-
-  it('asks what one post pays, so a campaign no document priced still gets a rate', async () => {
-    // Without this the only way to price a campaign was a contract that
-    // happened to state a rate: anything else saved, landed on the brief
-    // reading "no rate yet", and earned nothing on Money.
-    const user = userEvent.setup()
-    await reachReview(user)
-
-    const rate = screen.getByLabelText('Dollars per post')
-    expect(rate).toHaveValue('')
-
-    await user.type(rate, '42.50')
-    await user.click(screen.getByRole('button', { name: 'Save campaign' }))
-
-    await waitFor(async () => {
-      const [saved] = await adapter.listCampaigns()
-      expect(saved?.pay_per_video_cents).toBe(4250)
-    })
-    // Through the field row too, so the brief does not show a rate beside
-    // "not saved yet".
-    const [saved] = await adapter.listCampaigns()
-    const fields = await adapter.listCampaignFields(saved.id)
-    const field = fields.find((f) => f.field_key === 'pay_per_video_cents')
-    expect(field?.field_value).toBe('4250')
-    expect(field?.source).toBe('user_entered')
-  })
-
-  it('leaves a blank rate blank rather than guessing one', async () => {
-    const user = userEvent.setup()
-    await reachReview(user)
-    await user.click(screen.getByRole('button', { name: 'Save campaign' }))
-
-    await waitFor(async () => {
-      expect(await adapter.listCampaigns()).toHaveLength(1)
-    })
-    const [saved] = await adapter.listCampaigns()
-    expect(saved.pay_per_video_cents).toBeNull()
-  })
-
-  it('keeps each password hidden as it is typed', async () => {
-    const user = userEvent.setup()
-    await reachReview(user)
-
-    await user.click(screen.getByRole('button', { name: 'TikTok' }))
-    expect(screen.getByLabelText('TikTok password')).toHaveAttribute('type', 'password')
   })
 })

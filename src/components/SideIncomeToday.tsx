@@ -1,6 +1,8 @@
 // His income outside UGC on the day - a detailing client, media maxing work -
 // typed in as it happens, in USD or CAD, and added into "Made today". Shown
-// to the owner only (useIsOwner); a student never sees it.
+// to the owner only (useIsOwner); a student never sees it. It sits under
+// "Made today" on the Post screen's score card, in the same quiet voice:
+// posts are the headline, money is the line under them.
 
 import { useState } from 'react'
 
@@ -8,7 +10,7 @@ import type { CurrencyCode, SideIncome, SideIncomeSource } from '../data'
 import { parseDollarsToCents } from '../data/campaignFields'
 import { formatCents } from '../money'
 import { CloseIcon, PlusIcon } from './icons'
-import { INPUT_CLASS } from './styles'
+import { INPUT_CLASS, buttonClass } from './styles'
 
 export const SIDE_INCOME_LABEL: Record<SideIncomeSource, string> = {
   detailing: 'Detailing',
@@ -45,8 +47,12 @@ function Choice<T extends string>({
           aria-pressed={value === option.value}
           onClick={() => onChange(option.value)}
           className={[
-            'press min-h-tap rounded-full border px-4 text-sm font-semibold',
-            value === option.value ? 'border-state-now bg-surface-raised text-text' : 'border-edge text-state-later active:bg-surface',
+            'press min-h-tap rounded-full border px-4 text-sm font-semibold transition-[background-color,border-color,color] duration-200',
+            // The one picked is lit in the deck's blue, like the tab you are
+            // on: a choice, not a state.
+            value === option.value
+              ? 'border-brand/50 bg-brand/15 text-text'
+              : 'border-edge bg-white/[0.02] text-text-dim hover:border-edge-lit hover:text-text',
           ].join(' ')}
         >
           {option.label}
@@ -98,12 +104,12 @@ export function SideIncomeToday({
   }
 
   return (
-    <div className="-mt-4 flex flex-col gap-3">
+    <div className="flex flex-col gap-3">
       {entries.length > 0 ? (
-        <ul aria-label="Other income today" className="flex flex-col divide-y divide-rule border-b border-rule">
+        <ul aria-label="Other income today" className="flex flex-col divide-y divide-rule">
           {entries.map((entry) => (
-            <li key={entry.id} className="flex items-center justify-between gap-3 py-2">
-              <span className="text-base text-text">{SIDE_INCOME_LABEL[entry.source]}</span>
+            <li key={entry.id} className="flex items-center justify-between gap-3 py-1.5">
+              <span className="text-base text-text-dim">{SIDE_INCOME_LABEL[entry.source]}</span>
               <span className="flex items-center gap-2">
                 <span className="numeric text-base text-state-posted">
                   {formatCents(entry.amount_cents)} {entry.currency}
@@ -112,7 +118,7 @@ export function SideIncomeToday({
                   type="button"
                   aria-label={`Remove ${SIDE_INCOME_LABEL[entry.source]} ${formatCents(entry.amount_cents)} ${entry.currency}`}
                   onClick={() => void onDelete(entry.id)}
-                  className="press flex size-10 items-center justify-center rounded-full text-state-later active:bg-surface"
+                  className="press flex size-10 items-center justify-center rounded-full text-state-later transition-colors duration-200 hover:bg-white/[0.05] hover:text-text"
                 >
                   <CloseIcon className="h-4 w-4" />
                 </button>
@@ -161,11 +167,7 @@ export function SideIncomeToday({
           </div>
           {error ? <p className="text-sm text-state-blocked">{error}</p> : null}
           <div className="flex gap-2">
-            <button
-              type="submit"
-              disabled={saving}
-              className="press min-h-tap rounded-full border border-edge-lit px-5 text-sm font-semibold text-text active:bg-surface disabled:opacity-50"
-            >
+            <button type="submit" disabled={saving} className={buttonClass('now')}>
               {saving ? 'Adding…' : 'Add'}
             </button>
             <button
@@ -174,18 +176,14 @@ export function SideIncomeToday({
                 setOpen(false)
                 setError(null)
               }}
-              className="press min-h-tap rounded-full px-4 text-sm font-semibold text-state-later active:bg-surface"
+              className={buttonClass('ghost')}
             >
               Cancel
             </button>
           </div>
         </form>
       ) : (
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="press flex min-h-tap items-center gap-2 self-start rounded-full border border-edge px-4 text-sm font-semibold text-state-later active:bg-surface"
-        >
+        <button type="button" onClick={() => setOpen(true)} className={`${buttonClass('quiet', 'small')} self-start`}>
           <PlusIcon className="h-4 w-4" />
           Add detailing or media maxing
         </button>

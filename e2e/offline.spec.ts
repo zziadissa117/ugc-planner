@@ -39,10 +39,10 @@ test.describe('offline (Phase 10 acceptance check)', () => {
 
     const screens: Array<[string, string | RegExp]> = [
       ['/post', 'Post'],
-      ['/campaigns', 'Briefs'],
+      ['/campaigns', 'Your campaigns'],
       ['/campaigns/new', 'New campaign'],
       ['/money', 'Money'],
-      ['/settings', 'Setup'],
+      ['/settings', 'Your account and your week'],
     ]
 
     for (const [path, heading] of screens) {
@@ -57,15 +57,10 @@ test.describe('offline (Phase 10 acceptance check)', () => {
 
     const campaignName = `Offline E2E ${Date.now()}`
 
+    // Typed in on one page - there is no document upload any more.
     await page.goto('/campaigns/new')
-    await page
-      .getByLabel('Parsed JSON')
-      .fill(JSON.stringify({ campaign: { name: campaignName, company: null, approval_mode: null } }))
-    await page.getByRole('button', { name: 'Review it' }).click()
-    await expect(page.getByRole('heading', { name: 'Review' })).toBeVisible()
-
-    // No document ever states a handle, so it is typed here - but nothing is
-    // gated on it any more: Save works either way.
+    await page.getByLabel('Campaign name').fill(campaignName)
+    await page.getByRole('radio', { name: '1 a day' }).click()
     await page.getByRole('button', { name: 'TikTok' }).click()
     await page.getByLabel('TikTok handle').fill('@offline-e2e')
 

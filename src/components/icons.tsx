@@ -59,7 +59,17 @@ export function PostIcon(props: IconProps) {
   )
 }
 
-/** BRIEFS - a page with its corner turned. */
+/** IDEATE - a bulb: where the next recording gets better. */
+export function IdeateIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M9 17.5h6M10 20.5h4" />
+      <path d="M12 3.5a5.75 5.75 0 0 0-3.4 10.38c.56.41.9 1.07.9 1.77v.35h5v-.35c0-.7.34-1.36.9-1.77A5.75 5.75 0 0 0 12 3.5Z" />
+    </Icon>
+  )
+}
+
+/** CAMPAIGNS - a page with its corner turned. */
 export function BriefsIcon(props: IconProps) {
   return (
     <Icon {...props}>

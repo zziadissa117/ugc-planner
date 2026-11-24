@@ -316,6 +316,64 @@ describe('one login for every account, or one each', () => {
   })
 })
 
+describe('accounts are ready from the start', () => {
+  it('saves a new account ready to post from', async () => {
+    const user = userEvent.setup()
+    renderEditor()
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+    await user.click(screen.getByRole('button', { name: 'TikTok' }))
+
+    await waitFor(async () => {
+      const [account] = await adapter.listCampaignAccounts(campaignId)
+      expect(account?.status).toBe('ready')
+    })
+  })
+
+  it('has no warm-up status to set anywhere, even under More', async () => {
+    await adapter.addCampaignAccount({ campaign_id: campaignId, platform: 'TikTok', handle: '@tt', status: 'new' })
+    const user = userEvent.setup()
+    renderEditor()
+    await user.click(await screen.findByRole('button', { name: 'More for TikTok' }))
+
+    for (const gone of ['New', 'Warming', 'Ready']) {
+      expect(screen.queryByRole('button', { name: gone })).toBeNull()
+    }
+    expect(screen.queryByText(/warm/i)).toBeNull()
+    // What is still there: a platform's own rate, bonus only, remove.
+    expect(screen.getByLabelText('TikTok pay per post')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Bonus only' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Remove' })).toBeInTheDocument()
+  })
+})
+
+describe('the red warning', () => {
+  const WARNING = "If you're going to run a campaign, add your accounts now. Don't wait."
+
+  it('shows while the campaign has no account with a username', async () => {
+    renderEditor()
+    expect(await screen.findByRole('alert')).toHaveTextContent(WARNING)
+    expect(screen.getByRole('alert')).toHaveClass('text-state-blocked')
+  })
+
+  it('stays while an account has no username yet, and goes once one does', async () => {
+    await adapter.addCampaignAccount({ campaign_id: campaignId, platform: 'TikTok', handle: null })
+    const user = userEvent.setup()
+    renderEditor()
+    expect(await screen.findByRole('alert')).toHaveTextContent(WARNING)
+
+    await user.type(screen.getByLabelText('TikTok handle'), '@tt')
+    await user.tab()
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+  })
+
+  it('does not show once the accounts are in', async () => {
+    await adapter.addCampaignAccount({ campaign_id: campaignId, platform: 'TikTok', handle: '@tt' })
+    renderEditor()
+    await screen.findByLabelText('TikTok handle')
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+})
+
 describe('adding back a platform that was removed', () => {
   it('brings the same account back instead of refusing it', async () => {
     const first = await adapter.addCampaignAccount({ campaign_id: campaignId, platform: 'TikTok', handle: '@tt' })

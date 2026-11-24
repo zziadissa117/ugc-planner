@@ -20,6 +20,10 @@ export const PULL_CURSOR_COLUMN: Readonly<Record<TableName, string>> = {
   campaign_payouts: 'updated_at',
   side_income: 'updated_at',
   plan_blocks: 'updated_at',
+  // Never updated, so updated_at is the moment it was written - which is what
+  // a pull needs, where made_at can be backdated.
+  trybe_videos: 'updated_at',
+  ideate_notes: 'updated_at',
   bonus_tiers: 'updated_at',
   bonus_claims: 'updated_at',
   time_estimates: 'updated_at',

@@ -65,12 +65,13 @@ export function EarningsHistory() {
   return (
     <section className="mx-auto flex max-w-3xl flex-col gap-7">
       <ScreenHeader
+        kicker="Money"
         title="Earnings"
         meta={`Money made from what you ticked off, since ${formatDay(EARNINGS_HISTORY_START)}, 2026.`}
         aside={
-          <Link to="/money" className="press flex items-center gap-1 label text-state-later">
-            Money
-            <ChevronRightIcon className="h-4 w-4" />
+          <Link to="/campaigns" className="press group flex items-center gap-1 label text-state-later hover:text-text">
+            Campaigns
+            <ChevronRightIcon className="h-4 w-4 text-brand transition-transform duration-200 group-hover:translate-x-0.5" />
           </Link>
         }
       />

@@ -13,15 +13,14 @@ import { CampaignAnalytics } from './screens/CampaignAnalytics'
 import { Start } from './screens/Start'
 import { Campaigns } from './screens/Campaigns'
 import { EarningsHistory } from './screens/EarningsHistory'
+import { Ideate } from './screens/Ideate'
 import { Join } from './screens/Join'
-import { Money } from './screens/Money'
 import { NewCampaign } from './screens/NewCampaign'
 import { NotFound } from './screens/NotFound'
 import { Now } from './screens/Now'
 import { ScreenError } from './screens/ScreenError'
 import { Settings } from './screens/Settings'
 import { Posting } from './screens/Posting'
-import { UpdateCampaign } from './screens/UpdateCampaign'
 import { AuthProvider } from './sync'
 
 // Keeping an open copy up to date.
@@ -66,9 +65,8 @@ const screens = [
   { path: 'campaigns/new', element: <NewCampaign /> },
   { path: 'campaigns/archived', element: <ArchivedCampaigns /> },
   { path: 'campaigns/:campaignId', element: <Campaign /> },
-  { path: 'campaigns/:campaignId/update', element: <UpdateCampaign /> },
   { path: 'post/:campaignId/analytics', element: <CampaignAnalytics /> },
-  { path: 'money', element: <Money /> },
+  { path: 'ideate', element: <Ideate /> },
   { path: 'money/history', element: <EarningsHistory /> },
   { path: 'settings', element: <Settings /> },
   { path: 'join/:code', element: <Join /> },

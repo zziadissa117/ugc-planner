@@ -94,19 +94,18 @@ export function needsWarmup(account: CampaignAccount): boolean {
   return warmsUp(account) && account.status !== 'ready'
 }
 
-/** True when he can post brand content from this account today.
+/** True when he can post brand content from this account today: always.
  *
- *  Status, and nothing else. This used to be the inverse of needsWarmup, which
- *  quietly made a YouTube account postable the moment it existed - the platform
- *  skips warm-up, so it could never be "not ready". He wanted the two separated:
- *  "Do not put youtube in the posting section if its warming or new, do not put
- *  it in warmup section too, only put it in post section when ready." So the
- *  platform decides whether warming up is a thing it does; the status decides
- *  whether he posts from it. A YouTube account he has not marked ready is off
- *  the Post tab and off the warm-up list both, and the place he makes it ready
- *  is the status row on the campaign's brief. */
-export function canPostFrom(account: CampaignAccount): boolean {
-  return account.status === 'ready'
+ *  Accounts are ready from the start. It used to be the account's warm-up
+ *  status, so a YouTube account he had not marked ready was off the Post tab
+ *  and paid nothing - but warm-up tracking is gone ("Remove the thing to warm
+ *  up the accounts... All accounts have to be shown in the post section"),
+ *  nothing sets the status any more, and every new account is saved as 'new'.
+ *  Left as status-only, every account a student adds would have earned $0.
+ *  The `status` column stays in the schema; nothing reads it to gate posting
+ *  or pay. Kept as a function so the places that ask still say why. */
+export function canPostFrom(_account: CampaignAccount): boolean {
+  return true
 }
 
 /** The status an account should hold after `completions` sessions.

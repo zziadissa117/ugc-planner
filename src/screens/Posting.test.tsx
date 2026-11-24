@@ -372,29 +372,40 @@ describe('the posting grid', () => {
     expect(screen.getByText('2 of 1 today')).toBeInTheDocument()
   })
 
-  it('shows an account that is still warming up, ready to tick', async () => {
+  it('shows every account whatever its warm-up status, with nothing about warming up', async () => {
     // "All accounts have to be shown in the post section, even if they're new
-    // or they're warm, whatever."
-    const { accounts } = await setUp(1, ['Instagram', 'TikTok'])
+    // or they're warm, whatever." Accounts are ready from the start: no
+    // badge, no note, and every box can be ticked.
+    const user = userEvent.setup()
+    const { accounts } = await setUp(1, ['Instagram', 'TikTok', 'YouTube'])
     await adapter.updateCampaignAccount(accounts[0].id, { status: 'warming' })
+    await adapter.updateCampaignAccount(accounts[1].id, { status: 'new' })
     renderScreen()
 
-    expect(await screen.findByText('TikTok')).toBeInTheDocument()
-    expect(screen.getByText('Instagram')).toBeInTheDocument()
-    expect((await boxes('Instagram'))[0]).toHaveAttribute('aria-pressed', 'false')
+    for (const platform of ['Instagram', 'TikTok', 'YouTube']) {
+      expect(await screen.findByText(platform)).toBeInTheDocument()
+      expect((await boxes(platform))[0]).toHaveAttribute('aria-pressed', 'false')
+    }
+    expect(screen.queryByText(/warm/i)).toBeNull()
+    expect(screen.queryByText(/\bnew\b/i)).toBeNull()
+    expect(screen.queryByText(/not ready/i)).toBeNull()
+
+    await user.click((await boxes('Instagram'))[0])
+    await waitFor(async () => {
+      expect((await boxes('Instagram'))[0]).toHaveAttribute('aria-pressed', 'true')
+    })
+    expect(await screen.findByRole('status', { name: '1 of 1 posts done today' })).toBeInTheDocument()
   })
 
-  it('drops the campaign entirely while none of its accounts are ready', async () => {
+  it('keeps a campaign whose only account is still warming up, ready to tick', async () => {
+    // It used to drop off the screen until the account was marked ready.
     const { accounts } = await setUp(1, ['Instagram'])
     await adapter.updateCampaignAccount(accounts[0].id, { status: 'warming' })
     renderScreen()
 
-    // Not an empty card, and not a "no platforms saved" warning that would be
-    // untrue - the campaign has a platform, it just is not ready. The home
-    // screen is where that account is named and warmed up.
-    await waitFor(() => {
-      expect(screen.queryByText('Inflow')).toBeNull()
-    })
+    expect(await screen.findByRole('heading', { name: 'Inflow' })).toBeInTheDocument()
+    expect((await boxes('Instagram'))[0]).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('status', { name: '0 of 1 posts done today' })).toBeInTheDocument()
     expect(screen.queryByText(/No platforms saved/)).toBeNull()
   })
 
@@ -413,6 +424,10 @@ describe('the posting grid', () => {
 
     expect(await screen.findByText('Platformless')).toBeInTheDocument()
     expect(screen.getByText(/No platforms saved/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Add one on the campaign' })).toHaveAttribute(
+      'href',
+      expect.stringMatching(/^\/campaigns\/.+/),
+    )
   })
 
   it('clears the next day, and yesterday does not fill today in', async () => {
@@ -441,6 +456,116 @@ describe('the posting grid', () => {
 
     expect((await boxes('Instagram'))[0]).toHaveAttribute('aria-pressed', 'false')
     expect(screen.getByText('0 of 1 today')).toBeInTheDocument()
+  })
+})
+
+describe('the headline: posts done today', () => {
+  it('counts deliverables across every campaign, once however many platforms each went to', async () => {
+    const user = userEvent.setup()
+    await setUp(2, ['TikTok', 'Instagram', 'YouTube'])
+    const cheap = await adapter.createCampaign({
+      name: 'Cheap',
+      company: null,
+      default_setup: 'face',
+      daily_post_quota: 1,
+      pay_per_video_cents: 1000,
+      cycle_size: null,
+    })
+    await adapter.addCampaignAccount({ campaign_id: cheap.id, platform: 'TikTok', handle: '@cheap', status: 'ready' })
+    renderScreen()
+
+    expect(await screen.findByRole('status', { name: '0 of 3 posts done today' })).toBeInTheDocument()
+
+    // Inflow's first deliverable on TikTok, then the same one on Instagram:
+    // one post done, not two.
+    const inflow = await screen.findByRole('group', { name: 'Inflow' })
+    const inflowBoxes = async (platform: string) =>
+      within((await within(inflow).findByText(platform)).closest('li')!)
+        .getAllByRole('button')
+        .filter((button) => button.getAttribute('aria-label')?.includes('post '))
+    await user.click((await inflowBoxes('TikTok'))[0])
+    expect(await screen.findByRole('status', { name: '1 of 3 posts done today' })).toBeInTheDocument()
+    await user.click((await inflowBoxes('Instagram'))[0])
+    await waitFor(async () => {
+      expect((await inflowBoxes('Instagram'))[0]).toHaveAttribute('aria-pressed', 'true')
+    })
+    expect(screen.getByRole('status', { name: '1 of 3 posts done today' })).toBeInTheDocument()
+    expect(screen.getByText('1 of 2 today')).toBeInTheDocument()
+  })
+
+  it('leaves out a campaign with no account to post from', async () => {
+    // Nothing he can tick fills it, so counted in it would keep the day from
+    // ever reading done.
+    await setUp(1, ['Instagram'])
+    await adapter.createCampaign({
+      name: 'Platformless',
+      company: null,
+      default_setup: 'face',
+      daily_post_quota: 2,
+      pay_per_video_cents: 1000,
+      cycle_size: null,
+    })
+    renderScreen()
+
+    expect(await screen.findByText('Platformless')).toBeInTheDocument()
+    expect(screen.getByRole('status', { name: '0 of 1 posts done today' })).toBeInTheDocument()
+  })
+
+  it('puts Made today under it, paying the rate once for three platforms', async () => {
+    const user = userEvent.setup()
+    await setUp()
+    renderScreen()
+
+    expect(await screen.findByLabelText('Made today')).toHaveTextContent('$0.00')
+    for (const platform of ['TikTok', 'Instagram', 'YouTube']) {
+      await user.click((await boxes(platform))[0])
+      await waitFor(async () => {
+        expect((await boxes(platform))[0]).toHaveAttribute('aria-pressed', 'true')
+      })
+    }
+
+    // $35 a post, posted to three platforms: $35, never $105.
+    await waitFor(() => expect(screen.getByLabelText('Made today')).toHaveTextContent('$35.00'))
+    expect(screen.getByText('$35.00 a post · $35.00 made')).toBeInTheDocument()
+    expect(screen.getByRole('status', { name: '1 of 1 posts done today' })).toBeInTheDocument()
+  })
+})
+
+describe('the campaign card', () => {
+  it('shows the rate on each platform where each platform pays separately', async () => {
+    const { campaign, accounts } = await setUp(1, ['TikTok', 'Instagram'])
+    await adapter.updateCampaign(campaign.id, { pays_per_platform: true })
+    await adapter.updateCampaignAccount(accounts[1].id, { pay_per_post_cents: 1600 })
+    renderScreen()
+
+    expect(await screen.findByText('paid per platform')).toBeInTheDocument()
+    expect(screen.getByText('@michael.financier · $35.00 a post')).toBeInTheDocument()
+    expect(screen.getByText('@michael.financier · $16.00 a post')).toBeInTheDocument()
+  })
+
+  it('marks a bonus-only account as not owed, and Check all leaves it alone', async () => {
+    const user = userEvent.setup()
+    const { accounts } = await setUp(1, ['TikTok', 'Instagram', 'YouTube'])
+    await adapter.updateCampaignAccount(accounts[2].id, { bonus_only: true })
+    renderScreen()
+
+    expect(await screen.findByText('@michael.financier · bonus only, not owed')).toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: 'Check all 2' }))
+    await waitFor(async () => {
+      expect((await boxes('Instagram'))[0]).toHaveAttribute('aria-pressed', 'true')
+    })
+    expect((await boxes('TikTok'))[0]).toHaveAttribute('aria-pressed', 'true')
+    expect((await boxes('YouTube'))[0]).toHaveAttribute('aria-pressed', 'false')
+  })
+})
+
+describe('with no campaigns', () => {
+  it('says so and links to adding one', async () => {
+    renderScreen()
+
+    expect(await screen.findByText('No campaigns yet.')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Add a campaign' })).toHaveAttribute('href', '/campaigns/new')
+    expect(screen.queryByText(/BRIEFS/)).toBeNull()
   })
 })
 

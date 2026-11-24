@@ -40,6 +40,7 @@ import type {
   CampaignField,
   CampaignHook,
   CampaignPayout,
+  IdeateNote,
   NewPlanBlock,
   NewSideIncome,
   PlanBlock,
@@ -59,6 +60,7 @@ import type {
   PhaseEvent,
   TableName,
   TimeEstimate,
+  TrybeVideo,
   UserSettings,
   Video,
   VideoPhase,
@@ -1110,8 +1112,17 @@ export class LocalAdapter implements DataAdapter {
   }
 
   async listPlanBlocks(): Promise<PlanBlock[]> {
+    // The week is only ever replaced whole, and every block of one save
+    // carries the same updated_at. A pull never removes rows another device
+    // deleted, so a device that pulls a newer week still holds the blocks of
+    // the old one: only the latest save is the week. Compared as instants -
+    // rows pulled from the server spell the same moment differently.
     const rows = await this.db.plan_blocks.toArray()
-    return rows.sort((a, b) => a.weekday - b.weekday || a.start_minute - b.start_minute)
+    const at = (row: PlanBlock) => Date.parse(row.updated_at)
+    const latest = Math.max(...rows.map(at))
+    return rows
+      .filter((row) => at(row) === latest)
+      .sort((a, b) => a.weekday - b.weekday || a.start_minute - b.start_minute)
   }
 
   async replacePlanBlocks(blocks: NewPlanBlock[]): Promise<PlanBlock[]> {
@@ -1139,6 +1150,116 @@ export class LocalAdapter implements DataAdapter {
     })
     return this.listPlanBlocks()
   }
+
+  // --- Trybe videos ------------------------------------------------------
+
+  async logTrybeVideo(at: Date = new Date()): Promise<TrybeVideo> {
+    const row: TrybeVideo = {
+      id: newId(),
+      user_id: this.userId,
+      made_at: at.toISOString(),
+      // When the row was written, not when the video was: the pull cursor.
+      updated_at: now(),
+    }
+    assertRow('trybe_videos', row)
+    await this.tx([this.db.trybe_videos, this.db._outbox], async (tx) => {
+      await tx.table('trybe_videos').add(row)
+      this.enqueue(tx, 'trybe_videos', row.id, 'insert', row)
+    })
+    return row
+  }
+
+  async undoTrybeVideo(id: string): Promise<void> {
+    await this.tx([this.db.trybe_videos, this.db._outbox], async (tx) => {
+      const existing = (await tx.table('trybe_videos').get(id)) as TrybeVideo | undefined
+      if (!existing) return
+      await tx.table('trybe_videos').delete(id)
+      this.enqueue(tx, 'trybe_videos', id, 'delete', existing)
+    })
+  }
+
+  async listTrybeVideos(options: { from?: string; to?: string } = {}): Promise<TrybeVideo[]> {
+    // Compared as instants, not strings: a row pulled from the server spells
+    // its timestamp "+00:00" with microseconds, one written here "Z" with
+    // milliseconds, and the two do not sort together as text.
+    const from = options.from === undefined ? -Infinity : Date.parse(options.from)
+    const to = options.to === undefined ? Infinity : Date.parse(options.to)
+    if (Number.isNaN(from) || Number.isNaN(to)) throw new DataError('listTrybeVideos: from and to must be ISO timestamps')
+    const rows = (await this.db.trybe_videos.toArray())
+      .map((row) => ({ row, at: Date.parse(row.made_at) }))
+      .filter(({ at }) => at >= from && at < to)
+    return rows.sort((a, b) => a.at - b.at || a.row.id.localeCompare(b.row.id)).map(({ row }) => row)
+  }
+
+  // --- Ideate notes ------------------------------------------------------
+
+  async listIdeateNotes(options: { campaignId?: string; weekStart?: string } = {}): Promise<IdeateNote[]> {
+    const { campaignId, weekStart } = options
+    const rows =
+      campaignId !== undefined && weekStart !== undefined
+        ? await this.db.ideate_notes.where('[campaign_id+week_start]').equals([campaignId, weekStart]).toArray()
+        : campaignId !== undefined
+          ? await this.db.ideate_notes.where('campaign_id').equals(campaignId).toArray()
+          : weekStart !== undefined
+            ? await this.db.ideate_notes.where('week_start').equals(weekStart).toArray()
+            : await this.db.ideate_notes.toArray()
+    return rows.sort(
+      (a, b) =>
+        a.week_start.localeCompare(b.week_start) ||
+        Date.parse(a.created_at) - Date.parse(b.created_at) ||
+        a.id.localeCompare(b.id),
+    )
+  }
+
+  async saveIdeateNote(note: {
+    id?: string
+    campaign_id: string
+    account_id: string | null
+    week_start: string
+    body: string
+  }): Promise<IdeateNote> {
+    const timestamp = now()
+    return this.tx([this.db.ideate_notes, this.db.campaigns, this.db.campaign_accounts, this.db._outbox], async (tx) => {
+      await this.requireRow(tx, 'campaigns', note.campaign_id)
+      if (note.account_id !== null) {
+        const account = (await this.requireRow(tx, 'campaign_accounts', note.account_id)) as CampaignAccount
+        // The SQL has two separate foreign keys and cannot say this; a note
+        // filed under one campaign about another campaign's account would
+        // show on neither properly.
+        if (account.campaign_id !== note.campaign_id) {
+          throw new DataError(`campaign_accounts ${note.account_id} is not an account of campaign ${note.campaign_id}`)
+        }
+      }
+
+      const existing =
+        note.id === undefined ? undefined : ((await tx.table('ideate_notes').get(note.id)) as IdeateNote | undefined)
+      const row: IdeateNote = {
+        id: existing?.id ?? note.id ?? newId(),
+        user_id: existing?.user_id ?? this.userId,
+        campaign_id: note.campaign_id,
+        account_id: note.account_id,
+        week_start: note.week_start,
+        body: note.body,
+        created_at: existing?.created_at ?? timestamp,
+        updated_at: timestamp,
+      }
+      assertRow('ideate_notes', row)
+      await tx.table('ideate_notes').put(row)
+      this.enqueue(tx, 'ideate_notes', row.id, existing ? 'update' : 'insert', row)
+      return row
+    })
+  }
+
+  async deleteIdeateNote(id: string): Promise<void> {
+    await this.tx([this.db.ideate_notes, this.db._outbox], async (tx) => {
+      const existing = (await tx.table('ideate_notes').get(id)) as IdeateNote | undefined
+      if (!existing) return
+      await tx.table('ideate_notes').delete(id)
+      this.enqueue(tx, 'ideate_notes', id, 'delete', existing)
+    })
+  }
+
+  // --- Side income -------------------------------------------------------
 
   async listSideIncome(options: { on?: string } = {}): Promise<SideIncome[]> {
     const rows = options.on
@@ -1698,6 +1819,8 @@ export class LocalAdapter implements DataAdapter {
       campaign_payouts,
       side_income,
       plan_blocks,
+      trybe_videos,
+      ideate_notes,
       bonus_tiers,
       bonus_claims,
       time_estimates,
@@ -1719,6 +1842,8 @@ export class LocalAdapter implements DataAdapter {
       this.db.campaign_payouts.toArray(),
       this.db.side_income.toArray(),
       this.db.plan_blocks.toArray(),
+      this.db.trybe_videos.toArray(),
+      this.db.ideate_notes.toArray(),
       this.db.bonus_tiers.toArray(),
       this.db.bonus_claims.toArray(),
       this.db.time_estimates.toArray(),
@@ -1744,6 +1869,8 @@ export class LocalAdapter implements DataAdapter {
       campaign_payouts,
       side_income,
       plan_blocks,
+      trybe_videos,
+      ideate_notes,
       bonus_tiers,
       bonus_claims,
       time_estimates,

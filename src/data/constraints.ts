@@ -36,6 +36,7 @@ import {
   type CampaignPayout,
   type EarningsEvent,
   type CampaignHook,
+  type IdeateNote,
   type CampaignDocument,
   type CampaignField,
   type CampaignRule,
@@ -45,6 +46,7 @@ import {
   type TableName,
   type TableRowMap,
   type TimeEstimate,
+  type TrybeVideo,
   type UserSettings,
   type Video,
   type VideoPost,
@@ -405,6 +407,40 @@ export function assertPlanBlock(row: PlanBlock): void {
   timestamp(t, 'updated_at', row.updated_at, { nullable: false })
 }
 
+export function assertTrybeVideo(row: TrybeVideo): void {
+  const t: TableName = 'trybe_videos'
+  text(t, 'id', row.id, { nullable: false })
+  text(t, 'user_id', row.user_id, { nullable: false })
+  timestamp(t, 'made_at', row.made_at, { nullable: false })
+  timestamp(t, 'updated_at', row.updated_at, { nullable: false })
+}
+
+/** The longest note the SQL takes: `char_length(body) between 1 and 4000`. */
+export const IDEATE_NOTE_MAX_LENGTH = 4000
+
+export function assertIdeateNote(row: IdeateNote): void {
+  const t: TableName = 'ideate_notes'
+  text(t, 'id', row.id, { nullable: false })
+  text(t, 'user_id', row.user_id, { nullable: false })
+  text(t, 'campaign_id', row.campaign_id, { nullable: false })
+  text(t, 'account_id', row.account_id, { nullable: true })
+  dateOnly(t, 'week_start', row.week_start, { nullable: false })
+  // extract(dow from week_start) = 0. A calendar day has no zone, so it is
+  // read as UTC midnight to get its own weekday back.
+  if (new Date(`${row.week_start}T00:00:00Z`).getUTCDay() !== 0) {
+    fail(t, 'week_start_check', `week_start must be a Sunday, got ${row.week_start}`)
+  }
+  text(t, 'body', row.body, { nullable: false })
+  // char_length counts characters, not the UTF-16 units String#length counts,
+  // so an emoji is one here as it is in Postgres.
+  const length = Array.from(row.body).length
+  if (length < 1 || length > IDEATE_NOTE_MAX_LENGTH) {
+    fail(t, 'body_check', `body must be 1 to ${IDEATE_NOTE_MAX_LENGTH} characters, got ${length}`)
+  }
+  timestamp(t, 'created_at', row.created_at, { nullable: false })
+  timestamp(t, 'updated_at', row.updated_at, { nullable: false })
+}
+
 export function assertSideIncome(row: SideIncome): void {
   const t: TableName = 'side_income'
   text(t, 'id', row.id, { nullable: false })
@@ -511,6 +547,8 @@ const VALIDATORS = {
   campaign_payouts: assertCampaignPayout,
   side_income: assertSideIncome,
   plan_blocks: assertPlanBlock,
+  trybe_videos: assertTrybeVideo,
+  ideate_notes: assertIdeateNote,
   bonus_tiers: assertBonusTier,
   bonus_claims: assertBonusClaim,
   time_estimates: assertTimeEstimate,

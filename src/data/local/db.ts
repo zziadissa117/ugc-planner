@@ -21,6 +21,7 @@ import type {
   CampaignDocument,
   CampaignField,
   CampaignPayout,
+  IdeateNote,
   PlanBlock,
   SideIncome,
   CampaignRule,
@@ -29,6 +30,7 @@ import type {
   PhaseEvent,
   TableName,
   TimeEstimate,
+  TrybeVideo,
   UserSettings,
   Video,
   VideoPost,
@@ -81,6 +83,8 @@ export class LocalDatabase extends Dexie {
   campaign_payouts!: EntityTable<CampaignPayout, 'id'>
   side_income!: EntityTable<SideIncome, 'id'>
   plan_blocks!: EntityTable<PlanBlock, 'id'>
+  trybe_videos!: EntityTable<TrybeVideo, 'id'>
+  ideate_notes!: EntityTable<IdeateNote, 'id'>
   bonus_tiers!: EntityTable<BonusTier, 'id'>
   bonus_claims!: EntityTable<BonusClaim, 'id'>
   time_estimates!: EntityTable<TimeEstimate, 'id'>
@@ -344,6 +348,15 @@ export class LocalDatabase extends Dexie {
           console.error('v12 upgrade could not fill user_settings; continuing.', error)
         }
       })
+
+    // v13 adds trybe_videos (one row per "+1 video" on the Today screen) and
+    // ideate_notes (what he wrote about an account's week, for the next
+    // recording). Two new tables with nothing to fill, so no upgrade() is
+    // needed.
+    this.version(13).stores({
+      trybe_videos: 'id, user_id, made_at',
+      ideate_notes: 'id, user_id, campaign_id, account_id, week_start, [campaign_id+week_start]',
+    })
   }
 }
 
@@ -487,6 +500,8 @@ export const MIRRORED_TABLES: readonly TableName[] = [
   'campaign_payouts',
   'side_income',
   'plan_blocks',
+  'trybe_videos',
+  'ideate_notes',
   'bonus_tiers',
   'bonus_claims',
   'time_estimates',

@@ -7,7 +7,8 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
 import { BackIcon, PlatformGlyph } from '../components/icons'
-import { ScreenHeader, SectionLabel } from '../components/ui'
+import { buttonClass } from '../components/styles'
+import { Card, ScreenHeader, SectionLabel } from '../components/ui'
 import type { Campaign } from '../data'
 import { cutterCampaignFor, readSince, summariseViews, viewFlag, type CampaignViews } from '../data/campaignViews'
 import { useData } from '../data/useData'
@@ -68,69 +69,75 @@ export function CampaignAnalytics() {
   }, [campaignId, data])
 
   return (
-    <section className="mx-auto flex max-w-3xl flex-col gap-7">
-      <Link to="/post" className="press flex items-center gap-2 self-start text-base text-state-later">
+    <section className="mx-auto flex max-w-3xl flex-col gap-6">
+      <Link to="/post" className={`${buttonClass('ghost', 'small')} -ml-3 self-start`}>
         <BackIcon className="h-4 w-4" />
         Post
       </Link>
-      <ScreenHeader title={campaign?.name ?? 'Analytics'} meta="Your accounts' views, from the cutter's readings" />
+      <ScreenHeader kicker="Analytics" title={campaign?.name ?? 'Analytics'} meta="Your accounts' views, from the cutter's readings" />
 
       {state.kind === 'loading' ? <p className="text-base text-state-later">Reading views…</p> : null}
       {state.kind === 'error' ? <p className="text-base text-state-blocked">{state.message}</p> : null}
       {state.kind === 'not-linked' ? (
-        <p className="text-base text-state-later">
+        <p className="text-base text-text-dim">
           No cutter campaign called {campaign?.name}, so there are no views to read for it.
         </p>
       ) : null}
 
       {state.kind === 'ready' ? (
         <>
-          <div className="border-y border-rule py-4">
-            <p className="label text-state-later">This month</p>
-            <p className="numeric mt-2 font-semibold leading-none text-text" style={{ fontSize: 'clamp(2.5rem, 13vw, 3.5rem)' }}>
+          <Card className="flex flex-col gap-3 p-5">
+            <p className="kicker">This month</p>
+            <p className="numeric font-bold leading-none text-text" style={{ fontSize: 'clamp(2.75rem, 14vw, 4rem)' }}>
               {count(state.views.monthViews)}
             </p>
-            <p className="meta mt-2 text-state-later">
+            <p className="meta text-state-later">
               views across {state.views.monthPosts} post{state.views.monthPosts === 1 ? '' : 's'}
               {state.views.monthUnread > 0 ? ` · ${state.views.monthUnread} not read yet` : ''}
             </p>
-          </div>
+          </Card>
 
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-3">
             <SectionLabel>Last 24 hours</SectionLabel>
             {state.views.accounts.length === 0 ? (
-              <p className="text-base text-state-later">No accounts on this campaign yet. Add them on its brief.</p>
+              <p className="text-base text-text-dim">No accounts on this campaign yet. Add them on the campaign.</p>
             ) : (
-              <ul className="flex flex-col divide-y divide-rule border-y border-rule">
-                {state.views.accounts.map((account) => {
-                  const flag = viewFlag(account.last24)
-                  return (
-                    <li key={account.key} className="flex flex-col gap-1 py-3">
-                      <span className="flex items-center justify-between gap-3">
-                        <span className="flex min-w-0 items-center gap-2">
-                          <PlatformGlyph platform={account.platform} className="h-5 w-5 shrink-0 text-state-later" />
-                          <span className="text-base font-semibold text-text">{account.platform}</span>
-                          <span className="meta min-w-0 truncate text-state-later">{account.label ?? 'no handle saved'}</span>
+              <Card className="overflow-hidden">
+                <ul className="flex flex-col divide-y divide-rule">
+                  {state.views.accounts.map((account) => {
+                    const flag = viewFlag(account.last24)
+                    return (
+                      <li key={account.key} className="flex flex-col gap-1.5 px-4 py-3.5 sm:px-5">
+                        <span className="flex items-center justify-between gap-3">
+                          <span className="flex min-w-0 items-center gap-3">
+                            <PlatformGlyph platform={account.platform} className="h-5 w-5 shrink-0 text-text-dim" />
+                            <span className="flex min-w-0 flex-col">
+                              <span className="text-base font-semibold text-text">{account.platform}</span>
+                              <span className="meta min-w-0 truncate text-state-later">{account.label ?? 'no handle saved'}</span>
+                            </span>
+                          </span>
+                          <span
+                            className={`numeric shrink-0 text-lg font-semibold ${account.last24 === null ? 'text-state-later' : 'text-text'}`}
+                          >
+                            {account.label === null
+                              ? 'add its handle'
+                              : account.last24 === null
+                                ? account.posts === 0
+                                  ? 'no post'
+                                  : 'not read yet'
+                                : `${count(account.last24)} views`}
+                          </span>
                         </span>
-                        <span className={`numeric shrink-0 text-base ${account.last24 === null ? 'text-state-later' : 'text-text'}`}>
-                          {account.label === null
-                            ? 'add its handle'
-                            : account.last24 === null
-                              ? account.posts === 0
-                                ? 'no post'
-                                : 'not read yet'
-                              : `${count(account.last24)} views`}
-                        </span>
-                      </span>
-                      {flag !== null ? (
-                        <p className="text-sm text-state-waiting">
-                          In the past 24 hours, we had less than {flag} views for this account.
-                        </p>
-                      ) : null}
-                    </li>
-                  )
-                })}
-              </ul>
+                        {flag !== null ? (
+                          <p className="text-sm text-state-waiting">
+                            In the past 24 hours, we had less than {flag} views for this account.
+                          </p>
+                        ) : null}
+                      </li>
+                    )
+                  })}
+                </ul>
+              </Card>
             )}
           </div>
         </>

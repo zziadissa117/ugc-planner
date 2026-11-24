@@ -9,8 +9,15 @@
 // on his phone, edits elsewhere, and posts things this app never saw. Ticking
 // a box records where a deliverable went and locks in its rate; if there is
 // no video behind it yet, one is created. See src/data/posting.ts.
+//
+// The screen is about getting the posts done. "X of Y posts done today" is
+// the headline; what the day made sits under it, smaller. Each campaign is a
+// card in the UGC Roadmap look, and a ticked box is solid green - the posted
+// state, readable at arm's length. Every account he has switched on is a row,
+// whatever its warm-up status: accounts are ready to post from the start, and
+// nothing on this screen mentions warming up.
 
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useId, useMemo, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 
@@ -26,18 +33,20 @@ import {
   SoundIcon,
 } from '../components/icons'
 import { SideIncomeToday } from '../components/SideIncomeToday'
-import { ScreenHeader } from '../components/ui'
+import { buttonClass } from '../components/styles'
+import { Card, ScreenHeader } from '../components/ui'
 import { SPRINGS, useSpring } from '../motion'
 
 import type { Campaign, CampaignAccount, EarningsEvent, SideIncome, Video, VideoPost } from '../data'
 import { localToday } from '../data'
-import { earnedOnDate } from '../data/earnings'
+import { earnedOnDate, payForAccount, paysPerPlatform } from '../data/earnings'
 import {
   boardsForToday,
   markAllOwed,
   markPosted,
   nextUnfilledCell,
   openOwedCells,
+  tallyBoards,
   tickedCells,
   unmarkAllToday,
   unmarkPosted,
@@ -64,6 +73,15 @@ interface Loaded {
 
 const VIEW_KEY = 'ugc-planner.post_view'
 
+/** A round icon button - the view switch, the analytics link, the arrows on
+ *  Arrange, the sound. The kit's pill (buttonClass) is for words. Split so
+ *  no two classes ever set the same property: which of two Tailwind colours
+ *  wins is down to stylesheet order, not the order they are written in. */
+const ICON_BUTTON =
+  'press flex shrink-0 items-center justify-center rounded-full text-text-dim transition-[border-color,background-color,color] duration-200 hover:text-text disabled:cursor-not-allowed disabled:opacity-30'
+/** ...with the quiet pill's edge and well, on the page. */
+const ICON_BUTTON_EDGED = `${ICON_BUTTON} border border-edge bg-white/[0.02] hover:border-edge-lit hover:bg-white/[0.05]`
+
 function useNarrowScreen(): boolean {
   const [narrow, setNarrow] = useState(() =>
     typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia('(max-width: 639px)').matches : false,
@@ -86,13 +104,25 @@ function readView(): 'list' | 'network' {
   }
 }
 
+/** How many times `value` has gone up since mount. Keying a figure on it
+ *  makes the figure pop once per rise - never on a drop, never on a loop. */
+function useRises(value: number): number {
+  const [previous, setPrevious] = useState(value)
+  const [rises, setRises] = useState(0)
+  if (value !== previous) {
+    if (value > previous) setRises((count) => count + 1)
+    setPrevious(value)
+  }
+  return rises
+}
+
 export function Posting() {
   const data = useData()
   const [busy, setBusy] = useState<string | null>(null)
   const [view, setView] = useState<'list' | 'network'>(readView)
   // The network view is a laptop thing: on a phone its dots and labels are
-  // too small to read or tap, and the choice is remembered across devices'
-  // worth of screen sizes. Below a tablet's width the list is what shows.
+  // too small to read or tap. Below a tablet's width the list is what shows,
+  // and the switch to the network is not offered at all.
   const narrow = useNarrowScreen()
   const [reminder, setReminder] = useState<string | null>(null)
   const [arranging, setArranging] = useState(false)
@@ -147,6 +177,11 @@ export function Posting() {
         : [],
     [loaded, today],
   )
+
+  // The headline. Summed off the same boards, by the same function the home
+  // screen uses: a deliverable counts once, the first time it goes out
+  // anywhere, however many platforms it then goes to.
+  const tally = useMemo(() => tallyBoards(boards), [boards])
 
   // Off the earnings history, not recomputed from the posts: what each tick
   // paid was written when he ticked it, so the figure cannot move because a
@@ -242,10 +277,12 @@ export function Posting() {
       aria-label={view === 'list' ? 'Switch to the neural view' : 'Switch to the list view'}
       aria-pressed={view === 'network'}
       className={[
-        'press flex size-12 items-center justify-center rounded-full border border-edge text-state-later active:bg-surface',
+        `${ICON_BUTTON} size-12`,
         // Glassy over the canvas, plain on the page - the same control,
         // dressed for where it is sitting.
-        view === 'network' ? 'bg-ink/70 backdrop-blur-md' : '',
+        view === 'network'
+          ? 'border border-edge bg-ink/70 backdrop-blur-md hover:border-edge-lit'
+          : 'border border-edge bg-white/[0.02] hover:border-edge-lit hover:bg-white/[0.05]',
       ].join(' ')}
     >
       {/* The icon is where the button takes you, not where you are. */}
@@ -256,13 +293,14 @@ export function Posting() {
   // The network view takes the whole screen. It is a picture of everything
   // he is running, and a picture wants the room - boxed into a square in the
   // middle of a page with a header above it, it read as a widget rather than
-  // a place. The negative margins undo the app shell's own padding so the
-  // black goes edge to edge, and the height leaves exactly the nav bar.
+  // a place. The negative margins undo the app shell's own padding (main is
+  // px-4 pt-6 pb-8) so the black goes edge to edge, and the height leaves
+  // exactly the shell's logo strip (3.25rem) and the nav bar (3.5rem).
   if (view === 'network' && !narrow && boards.length > 0) {
     return (
       <div
-        className="relative -mx-4 -mb-6 -mt-5"
-        style={{ height: 'calc(100dvh - 3.5rem - env(safe-area-inset-bottom))' }}
+        className="relative -mx-4 -mb-8 -mt-6"
+        style={{ height: 'calc(100dvh - 6.75rem - env(safe-area-inset-bottom))' }}
       >
         <NeuralView boards={boards} busy={busy} onPost={postFromNetwork} />
 
@@ -270,7 +308,8 @@ export function Posting() {
             it, so nothing eats into the graph's room. */}
         <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-3 p-3">
           <div className="pointer-events-auto">{toggleButton}</div>
-          <div className="pointer-events-auto rounded-2xl bg-ink/70 px-3 py-2 backdrop-blur-md">
+          <div className="pointer-events-auto flex flex-col items-end gap-3 rounded-2xl border border-edge bg-ink/70 px-4 py-3 backdrop-blur-md">
+            <PostsDone posted={tally.posted} owed={tally.owed} compact />
             <MadeToday cents={earned} compact />
           </div>
         </div>
@@ -311,56 +350,69 @@ export function Posting() {
   }
 
   return (
-    <section className="mx-auto flex max-w-3xl flex-col gap-7">
+    <section className="mx-auto flex max-w-3xl flex-col gap-6">
       {/* The one way into the network view - a small button rather than its
           own tab, because it is a second way to look at the same boxes, not
-          a sixth place in the app. */}
+          another place in the app. */}
       <ScreenHeader
-        title="Post"
+        kicker="Post"
+        title="Today's posts"
         meta="Tick each platform as it goes up. Clears tomorrow."
         aside={
           <div className="flex items-center gap-2">
             {boards.length > 1 ? (
-              <button
-                type="button"
-                onClick={() => setArranging(true)}
-                className="press min-h-tap rounded-full border border-edge px-4 text-sm font-semibold text-state-later active:bg-surface"
-              >
+              <button type="button" onClick={() => setArranging(true)} className={buttonClass('quiet')}>
                 Arrange
               </button>
             ) : null}
-            {toggleButton}
+            {narrow ? null : toggleButton}
           </div>
         }
       />
 
-      <MadeToday cents={earned} />
-
-      {owner ? (
-        <SideIncomeToday
-          entries={loaded.side}
-          onAdd={async (entry) => {
-            playCashRegister()
-            await data.addSideIncome({ ...entry, earned_on: today })
-            await reload()
-          }}
-          onDelete={async (id) => {
-            await data.deleteSideIncome(id)
-            await reload()
-          }}
-        />
+      {boards.length === 0 ? (
+        <Card className="flex flex-col items-start gap-4 p-6">
+          <p className="text-lg font-semibold text-text">No campaigns yet.</p>
+          <Link to="/campaigns/new" className={buttonClass('now')}>
+            Add a campaign
+          </Link>
+        </Card>
       ) : null}
 
-      {boards.length === 0 ? (
-        <p className="text-base text-state-later">
-          No campaigns yet. Add one on <Link to="/campaigns" className="text-state-now underline underline-offset-4">BRIEFS</Link>.
-        </p>
-      ) : (
-        <div className="flex flex-col gap-9">
+      {/* The score: posts first, money under it. Side income is his alone. */}
+      {boards.length > 0 || owner ? (
+        <Card className="flex flex-col gap-5 p-5">
+          {boards.length > 0 ? <PostsDone posted={tally.posted} owed={tally.owed} /> : null}
+          <div className={`flex flex-col gap-3 ${boards.length > 0 ? 'border-t border-rule pt-4' : ''}`}>
+            <MadeToday cents={earned} />
+            {owner ? (
+              <SideIncomeToday
+                entries={loaded.side}
+                onAdd={async (entry) => {
+                  playCashRegister()
+                  await data.addSideIncome({ ...entry, earned_on: today })
+                  await reload()
+                }}
+                onDelete={async (id) => {
+                  await data.deleteSideIncome(id)
+                  await reload()
+                }}
+              />
+            ) : null}
+          </div>
+        </Card>
+      ) : null}
+
+      {boards.length > 0 ? (
+        <div className="flex flex-col gap-4">
           {boards.map((board, index) => (
             <div key={board.campaign.id} className="settle-in" style={{ '--i': index } as CSSProperties}>
               <CampaignBoard
                 board={board}
+                made={earnedOnDate(
+                  loaded.events.filter((event) => event.campaign_id === board.campaign.id),
+                  today,
+                )}
                 busy={busy}
                 owner={owner}
                 onToggle={(account, slot, post) => void toggle(board, account, slot, post)}
@@ -370,7 +422,7 @@ export function Posting() {
             </div>
           ))}
         </div>
-      )}
+      ) : null}
       <SubmitReminder campaign={reminder} onDone={() => setReminder(null)} />
     </section>
   )
@@ -407,57 +459,61 @@ function ArrangeCampaigns({
     ;[ids[index], ids[index + by]] = [ids[index + by], ids[index]]
     void run(() => onMove(ids))
   }
-  const arrow = 'press flex size-12 items-center justify-center rounded-xl border border-edge text-text active:bg-surface disabled:opacity-30'
 
   return (
-    <section className="mx-auto flex max-w-3xl flex-col gap-7">
+    <section className="mx-auto flex max-w-3xl flex-col gap-6">
       <ScreenHeader
+        kicker="Post"
         title="Arrange"
         meta={ownOrder ? 'Your order.' : 'Best pay first. Move one to use your own order.'}
         aside={
-          <button
-            type="button"
-            onClick={onDone}
-            className="press min-h-tap rounded-full border border-edge-lit px-5 text-base font-semibold text-text active:bg-surface"
-          >
+          <button type="button" onClick={onDone} className={buttonClass('now')}>
             Done
           </button>
         }
       />
 
-      <ol className="flex flex-col divide-y divide-rule border-y border-rule">
-        {campaigns.map((campaign, index) => (
-          <li key={campaign.id} className="flex items-center gap-3 py-3">
-            <span className="numeric w-6 shrink-0 text-base text-state-later">{index + 1}</span>
-            <span className="display min-w-0 flex-1 truncate text-2xl text-text">{campaign.name}</span>
-            <button
-              type="button"
-              disabled={saving || index === 0}
-              onClick={() => move(index, -1)}
-              aria-label={`Move ${campaign.name} up`}
-              className={arrow}
-            >
-              <ChevronDownIcon className="h-5 w-5 rotate-180" />
-            </button>
-            <button
-              type="button"
-              disabled={saving || index === campaigns.length - 1}
-              onClick={() => move(index, 1)}
-              aria-label={`Move ${campaign.name} down`}
-              className={arrow}
-            >
-              <ChevronDownIcon className="h-5 w-5" />
-            </button>
-          </li>
-        ))}
-      </ol>
+      <Card className="overflow-hidden">
+        <ol className="flex flex-col divide-y divide-rule">
+          {campaigns.map((campaign, index) => (
+            <li key={campaign.id} className="flex items-center gap-3 px-4 py-3 sm:px-5">
+              {/* The deck's numbered spot. */}
+              <span
+                aria-hidden
+                className="numeric flex size-9 shrink-0 items-center justify-center rounded-full bg-brand/10 text-sm font-bold text-brand shadow-[inset_0_0_0_1px_rgba(134,168,255,0.28)]"
+              >
+                {index + 1}
+              </span>
+              <span className="display min-w-0 flex-1 truncate text-xl text-text">{campaign.name}</span>
+              <button
+                type="button"
+                disabled={saving || index === 0}
+                onClick={() => move(index, -1)}
+                aria-label={`Move ${campaign.name} up`}
+                className={`${ICON_BUTTON_EDGED} size-12`}
+              >
+                <ChevronDownIcon className="h-5 w-5 rotate-180" />
+              </button>
+              <button
+                type="button"
+                disabled={saving || index === campaigns.length - 1}
+                onClick={() => move(index, 1)}
+                aria-label={`Move ${campaign.name} down`}
+                className={`${ICON_BUTTON_EDGED} size-12`}
+              >
+                <ChevronDownIcon className="h-5 w-5" />
+              </button>
+            </li>
+          ))}
+        </ol>
+      </Card>
 
       {ownOrder ? (
         <button
           type="button"
           disabled={saving}
           onClick={() => void run(onBestPay)}
-          className="press self-start text-base font-semibold text-state-later underline underline-offset-4 disabled:opacity-50"
+          className={`${buttonClass('ghost')} self-start`}
         >
           Go back to best pay first
         </button>
@@ -467,7 +523,8 @@ function ArrangeCampaigns({
 }
 
 /** Ticking a box submits nothing to the brand, so a campaign set to need
- *  submission follows each tick with this, until he taps Done. */
+ *  submission follows each tick with this, until he taps Done. Amber: it is
+ *  waiting on him. */
 function SubmitReminder({ campaign, onDone }: { campaign: string | null; onDone: () => void }) {
   if (campaign === null) return null
   // Rendered into <body>, not in place: the page is inside an element with an
@@ -477,18 +534,14 @@ function SubmitReminder({ campaign, onDone }: { campaign: string | null; onDone:
   return createPortal(
     <div
       role="alert"
-      className="pop-in fixed inset-x-4 z-30 mx-auto flex max-w-md items-center justify-between gap-4 rounded-2xl border-2 border-state-waiting bg-ink px-4 py-4"
+      className="pop-in fixed inset-x-4 z-30 mx-auto flex max-w-md items-center justify-between gap-4 rounded-2xl border border-state-waiting/70 bg-surface px-5 py-4 shadow-[0_24px_60px_-20px_rgba(0,0,0,0.9),inset_0_1px_0_rgba(255,255,255,0.04)]"
       style={{ bottom: 'calc(4.5rem + env(safe-area-inset-bottom))' }}
     >
-      <span className="flex flex-col">
-        <span className="text-xl font-bold uppercase tracking-wide text-state-waiting">Did you submit your post?</span>
+      <span className="flex flex-col gap-1">
+        <span className="text-lg font-bold leading-tight text-state-waiting">Did you submit your post?</span>
         <span className="text-sm text-text-dim">{campaign} needs every video submitted.</span>
       </span>
-      <button
-        type="button"
-        onClick={onDone}
-        className="press min-h-tap shrink-0 rounded-xl border border-edge px-4 text-base font-semibold text-text active:bg-surface"
-      >
+      <button type="button" onClick={onDone} className={`${buttonClass('quiet')} shrink-0`}>
         Done
       </button>
     </div>,
@@ -496,20 +549,82 @@ function SubmitReminder({ campaign, onDone }: { campaign: string | null; onDone:
   )
 }
 
-/** The day's takings, counting up as he ticks.
- *
- *  "add that to the money made today total in a very dopamine giving way.
- *  This is just to help me keep going." So it is the biggest thing on the
- *  screen after the boxes themselves, it moves when it changes, and it shows
- *  CAD underneath - he asked for that conversion on the Money screen for the
- *  same reason, because dollars he can spend are more motivating than dollars
- *  he is paid in.
+/** The headline: how many of today's posts are done, out of how many are
+ *  owed. "Post is about completing posts" - so this is the big number, and it
+ *  turns green only once the day is actually filled, the same posted state
+ *  the boxes use. Under it, one segment per deliverable owed. */
+function PostsDone({ posted, owed, compact = false }: { posted: number; owed: number; compact?: boolean }) {
+  const done = owed > 0 && posted >= owed
+  const rises = useRises(posted)
+  const figure = (
+    <>
+      <span key={rises} className={`pop-in inline-block origin-bottom-left ${done ? 'text-state-posted' : 'text-text'}`}>
+        {posted}
+      </span>
+      <span className="text-state-later"> of {owed}</span>
+    </>
+  )
+
+  if (compact) {
+    return (
+      <div role="status" aria-label={`${posted} of ${owed} posts done today`} className="text-right">
+        <p className="label text-state-later">Posts done</p>
+        <p className="numeric mt-1 text-2xl font-bold leading-none">{figure}</p>
+      </div>
+    )
+  }
+
+  return (
+    // A live region, so a screen reader hears the count move as he ticks.
+    <div role="status" aria-label={`${posted} of ${owed} posts done today`} className="flex flex-col gap-3">
+      <p className="kicker">Posts done today</p>
+      <p className="numeric font-bold leading-none" style={{ fontSize: 'clamp(3.25rem, 17vw, 4.5rem)' }}>
+        {figure}
+      </p>
+      {owed > 0 ? <DayBar posted={posted} owed={owed} done={done} /> : null}
+    </div>
+  )
+}
+
+/** The same two numbers as a bar, readable from across the room: one segment
+ *  per deliverable, lit green as each goes out. A day owing more than a dozen
+ *  is one continuous bar - segments that thin stop reading as segments. */
+function DayBar({ posted, owed, done }: { posted: number; owed: number; done: boolean }) {
+  if (owed > 12) {
+    return (
+      <div aria-hidden className="h-2 overflow-hidden rounded-full bg-white/[0.07]">
+        <div
+          className={`h-full rounded-full bg-state-posted transition-[width] duration-500 [transition-timing-function:var(--ease-settle)] ${done ? 'cleared' : ''}`}
+          style={{ width: `${Math.min(100, (posted / owed) * 100)}%` }}
+        />
+      </div>
+    )
+  }
+  return (
+    <div aria-hidden className="flex gap-1.5">
+      {Array.from({ length: owed }, (_, index) => (
+        <span
+          key={index}
+          className={[
+            'h-2 flex-1 rounded-full transition-colors duration-300',
+            index < posted ? 'bg-state-posted' : 'bg-white/[0.07]',
+            done ? 'cleared' : '',
+          ].join(' ')}
+        />
+      ))}
+    </div>
+  )
+}
+
+/** What the day made, counting up as he ticks - now the second line, under
+ *  the posts. "add that to the money made today total in a very dopamine
+ *  giving way. This is just to help me keep going." It still rolls and still
+ *  shows CAD beside it (dollars he can spend are more motivating than dollars
+ *  he is paid in), but posts done is the headline and this sits under it.
  *
  *  This is the one figure in the app that counts what happened rather than
- *  what the work pays. The Money screen deliberately counts nothing at all -
- *  every wrong number it ever showed came from counting something - but "what
- *  did I make today" is a question about today, and it is answered from rate
- *  snapshots on deliverables that actually went out. */
+ *  what the work pays: it is answered from rate snapshots on deliverables
+ *  that actually went out, plus his side income for the day. */
 function MadeToday({ cents, compact = false }: { cents: number; compact?: boolean }) {
   const [muted, setMutedState] = useState(() => isMuted())
   // The figure rides a spring toward the new total - the same physics as
@@ -520,28 +635,7 @@ function MadeToday({ cents, compact = false }: { cents: number; compact?: boolea
   const shown = Math.min(cents, Math.round(rolling))
   // Each rise re-keys the figure so it lands with the pop spring - once per
   // earning, never on a loop.
-  const [previous, setPrevious] = useState(cents)
-  const [rises, setRises] = useState(0)
-  if (cents !== previous) {
-    if (cents > previous) setRises((count) => count + 1)
-    setPrevious(cents)
-  }
-
-  const soundToggle = (
-    <button
-      type="button"
-      onClick={() => {
-        const next = !muted
-        setMuted(next)
-        setMutedState(next)
-      }}
-      aria-label={muted ? 'Turn the sound on' : 'Turn the sound off'}
-      aria-pressed={muted}
-      className="press -m-2 flex size-10 items-center justify-center rounded-full text-state-later active:bg-surface"
-    >
-      {muted ? <MutedIcon className="h-5 w-5" /> : <SoundIcon className="h-5 w-5" />}
-    </button>
-  )
+  const rises = useRises(cents)
 
   // Green because it is money banked - the same "done" green the boxes use,
   // for the same reason. Grey at zero: nothing has happened yet.
@@ -551,7 +645,7 @@ function MadeToday({ cents, compact = false }: { cents: number; compact?: boolea
     return (
       <div className="text-right">
         <p className="label text-state-later">Made today</p>
-        <p key={rises} aria-label="Made today" className={`numeric pop-in text-2xl font-semibold leading-none ${tone}`}>
+        <p key={rises} aria-label="Made today" className={`numeric pop-in mt-1 text-lg font-semibold leading-none ${tone}`}>
           {formatCents(shown)}
         </p>
       </div>
@@ -559,22 +653,31 @@ function MadeToday({ cents, compact = false }: { cents: number; compact?: boolea
   }
 
   return (
-    <div className="flex items-end justify-between gap-4 border-y border-rule py-4">
-      <div className="min-w-0">
-        <p className="label text-state-later">Made today</p>
-        <p
+    <div className="flex items-center justify-between gap-3">
+      <p className="flex min-w-0 flex-wrap items-baseline gap-x-2.5 gap-y-1">
+        <span className="label text-state-later">Made today</span>
+        <span
           key={rises}
           aria-label="Made today"
-          className={`numeric pop-in mt-2 origin-left font-semibold leading-none ${tone}`}
-          style={{ fontSize: 'clamp(2.5rem, 13vw, 3.5rem)' }}
+          className={`numeric pop-in inline-block origin-left text-xl font-semibold leading-none ${tone}`}
         >
           {formatCents(shown)}
-        </p>
-        {shown > 0 ? (
-          <p className="numeric meta mt-2 text-state-later">~{formatCents(toCadCents(shown))} CAD</p>
-        ) : null}
-      </div>
-      {soundToggle}
+        </span>
+        {shown > 0 ? <span className="numeric meta text-state-later">~{formatCents(toCadCents(shown))} CAD</span> : null}
+      </p>
+      <button
+        type="button"
+        onClick={() => {
+          const next = !muted
+          setMuted(next)
+          setMutedState(next)
+        }}
+        aria-label={muted ? 'Turn the sound on' : 'Turn the sound off'}
+        aria-pressed={muted}
+        className={`${ICON_BUTTON} size-11 hover:bg-white/[0.05]`}
+      >
+        {muted ? <MutedIcon className="h-5 w-5" /> : <SoundIcon className="h-5 w-5" />}
+      </button>
     </div>
   )
 }
@@ -598,7 +701,7 @@ function MadeToday({ cents, compact = false }: { cents: number; compact?: boolea
  *  nothing has gone out, green as far as he has posted, fully green once the
  *  quota is met - "the more I post, it becomes green at the end of the day."
  *  The small dot beside a campaign is the one control; tapping it posts the
- *  next open box on the campaign's first ready account, in the same order
+ *  next open box on the campaign's first owed account, in the same order
  *  the list view would fill it. A campaign-to-account line is only ever
  *  structure - it turns green once that platform has actually posted today,
  *  and nothing taps it. The campaign's own dot opens the brief. */
@@ -874,8 +977,12 @@ function NeuralView({
   )
 }
 
+/** One campaign's card: its name, how many of today's posts are done, a
+ *  quiet line of what it pays and made, and the grid - one row per account,
+ *  one box per deliverable owed today. */
 function CampaignBoard({
   board,
+  made,
   busy,
   owner = false,
   onToggle,
@@ -883,6 +990,8 @@ function CampaignBoard({
   onUncheckAll,
 }: {
   board: PostingBoard
+  /** What this campaign's ticks earned today, off the earnings history. */
+  made: number
   busy: string | null
   /** His own account: the views (read from the cutter) are his only. */
   owner?: boolean
@@ -896,6 +1005,17 @@ function CampaignBoard({
   const open = openOwedCells(board).length
   const ticked = tickedCells(board).length
   const checkingAll = busy === `all:${campaign.id}`
+  const headingId = useId()
+  // Where each platform pays on its own, the rate lives on each account's
+  // row; one figure for the whole campaign would be the wrong one.
+  const perPlatform = paysPerPlatform(
+    campaign,
+    rows.map((row) => row.account),
+  )
+  const money = [
+    perPlatform ? 'paid per platform' : rate === null ? null : `${formatCents(rate)} a post`,
+    made > 0 ? `${formatCents(made)} made` : null,
+  ].filter((part): part is string => part !== null)
   // Unchecking a whole day is one tap away from a lot of lost green, so the
   // first tap only asks; a second within a few seconds does it.
   const [armed, setArmed] = useState(false)
@@ -906,146 +1026,151 @@ function CampaignBoard({
   }, [armed])
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <span className="flex min-w-0 items-center gap-2">
-          <h2 className="display min-w-0 break-words text-3xl text-text">{campaign.name}</h2>
+    <Card role="group" aria-labelledby={headingId} className="overflow-hidden">
+      <div className="flex flex-col gap-3 px-4 pb-4 pt-4 sm:px-5 sm:pt-5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 flex-col gap-1">
+            <h2 id={headingId} className="display break-words text-2xl text-text">
+              {campaign.name}
+            </h2>
+            <p className={`numeric text-lg font-semibold leading-tight ${filled ? 'text-state-posted' : 'text-text'}`}>
+              {doneToday} of {quota} today
+            </p>
+            {/* The money, quietly: posts are what this card is for. */}
+            {money.length > 0 ? <p className="numeric meta text-state-later">{money.join(' · ')}</p> : null}
+          </div>
           {owner ? (
             <Link
               to={`/post/${campaign.id}/analytics`}
               aria-label={`Analytics for ${campaign.name}`}
-              className="press flex size-10 shrink-0 items-center justify-center rounded-full border border-edge text-state-later active:bg-surface"
+              className={`${ICON_BUTTON_EDGED} size-11`}
             >
               <ChartIcon className="h-5 w-5" />
             </Link>
           ) : null}
-        </span>
-        <p className="numeric meta text-state-later">
-          <span className={filled ? 'text-state-posted' : 'text-text'}>
-            {doneToday} of {quota} today
-          </span>
-          {rate === null ? null : <span> · {formatCents(rate)} each</span>}
-        </p>
-      </div>
+        </div>
 
-      {/* Only while something owed is still open: once the day is done there
-          is nothing for it to do, and it never un-ticks anything. */}
-      {open > 1 || ticked > 1 ? (
-        <div className="flex flex-wrap gap-2">
-          {open > 1 ? (
-            <button
-              type="button"
-              onClick={onCheckAll}
-              disabled={busy !== null}
-              className="press min-h-tap rounded-full border border-edge-lit px-4 text-sm font-semibold text-text active:bg-surface disabled:opacity-50"
-            >
-              {checkingAll ? 'Working…' : `Check all ${open}`}
-            </button>
-          ) : null}
-          {ticked > 1 ? (
-            <button
-              type="button"
-              onClick={() => {
-                if (!armed) {
-                  setArmed(true)
-                  return
-                }
-                setArmed(false)
-                onUncheckAll()
-              }}
-              disabled={busy !== null}
-              className={[
-                'press min-h-tap rounded-full border px-4 text-sm font-semibold active:bg-surface disabled:opacity-50',
+        {/* Only while there is something for them to do: Check all while
+            more than one owed box is open, Uncheck all once more than one is
+            ticked. Neither ticks anything on its own - each is his tap. */}
+        {open > 1 || ticked > 1 ? (
+          <div className="flex flex-wrap gap-2">
+            {open > 1 ? (
+              <button type="button" onClick={onCheckAll} disabled={busy !== null} className={buttonClass('quiet')}>
+                {checkingAll ? 'Working…' : `Check all ${open}`}
+              </button>
+            ) : null}
+            {ticked > 1 ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (!armed) {
+                    setArmed(true)
+                    return
+                  }
+                  setArmed(false)
+                  onUncheckAll()
+                }}
+                disabled={busy !== null}
                 // Amber while it waits for the second tap: past the point of
                 // a casual tap, asking to be sure.
-                armed ? 'border-state-waiting text-state-waiting' : 'border-edge text-state-later',
-              ].join(' ')}
-            >
-              {armed ? `Tap again to uncheck ${ticked}` : `Uncheck all ${ticked}`}
-            </button>
-          ) : null}
-        </div>
-      ) : null}
+                className={buttonClass(armed ? 'waiting' : 'ghost')}
+              >
+                {armed ? `Tap again to uncheck ${ticked}` : `Uncheck all ${ticked}`}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
 
       {rows.length === 0 ? (
-        <p className="border-y border-rule py-3 text-base text-state-blocked">
-          No platforms saved. Add them on this campaign's brief.
+        <p className="border-t border-rule px-4 py-4 text-base text-state-blocked sm:px-5">
+          No platforms saved.{' '}
+          <Link to={`/campaigns/${campaign.id}`} className="font-semibold underline underline-offset-4">
+            Add one on the campaign
+          </Link>
+          .
         </p>
       ) : (
-        <ul className="flex flex-col divide-y divide-rule border-y border-rule">
-          {rows.map((row) => (
-            // Wraps: when the boxes would squeeze the name - four owed a day
-            // is five boxes, and "@michael.financier" came out as
-            // "@micha / el.finan / cier" - they drop to their own line,
-            // right-aligned under it, and the account reads whole.
-            <li key={row.account.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 py-3">
-              <span className="flex min-w-0 flex-1 basis-[10.5rem] items-center gap-3">
-                <PlatformGlyph platform={row.account.platform} className="h-5 w-5 shrink-0 text-state-later" />
-                <span className="flex min-w-0 flex-1 flex-col sm:flex-row sm:items-baseline sm:gap-2">
-                  <span className="text-base font-semibold text-text">{row.account.platform}</span>
-                  <span className="meta text-state-later [overflow-wrap:anywhere]">
-                    {row.account.handle ?? 'no handle saved'}
-                    {row.account.bonus_only ? ' · bonus only, not owed' : ''}
+        <ul className="flex flex-col divide-y divide-rule border-t border-rule">
+          {rows.map((row) => {
+            const accountRate = perPlatform && !row.account.bonus_only ? payForAccount(campaign, row.account) : null
+            return (
+              // Wraps: when the boxes would squeeze the name - four owed a day
+              // is five boxes, and "@michael.financier" came out as
+              // "@micha / el.finan / cier" - they drop to their own line,
+              // right-aligned under it, and the account reads whole.
+              <li key={row.account.id} className="flex flex-wrap items-center gap-x-3 gap-y-2.5 px-4 py-3 sm:px-5">
+                <span className="flex min-w-0 flex-1 basis-[10.5rem] items-center gap-3">
+                  <PlatformGlyph platform={row.account.platform} className="h-5 w-5 shrink-0 text-text-dim" />
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="text-base font-semibold text-text">{row.account.platform}</span>
+                    <span className="meta text-state-later [overflow-wrap:anywhere]">
+                      {row.account.handle ?? 'no handle saved'}
+                      {row.account.bonus_only ? ' · bonus only, not owed' : ''}
+                      {accountRate === null ? '' : ` · ${formatCents(accountRate)} a post`}
+                    </span>
                   </span>
                 </span>
-              </span>
 
-              <div className="ml-auto flex shrink-0 gap-1.5">
-                {row.cells.map((cell) => {
-                  const key = `${row.account.id}:${cell.slot}`
-                  const done = cell.post !== null
-                  // Dashed, like a box beyond the quota: a bonus-only account
-                  // is never owed, so none of its boxes is either.
-                  const extra = cell.slot >= quota || row.account.bonus_only
-                  return (
-                    <button
-                      key={cell.slot}
-                      type="button"
-                      disabled={busy === key || checkingAll}
-                      aria-pressed={done}
-                      aria-label={`${row.account.platform} post ${cell.slot + 1} of ${slots}`}
-                      onClick={() => onToggle(row.account, cell.slot, cell.post)}
-                      className={[
-                        'press relative flex size-11 items-center justify-center rounded-xl border',
-                        'transition-colors duration-200 disabled:opacity-60',
-                        done
-                          ? // Lit, because green here is the whole point of the
-                            // screen: the day's work, proved, from across a room.
-                            'lit border-state-posted bg-state-posted/15 text-state-posted'
-                          : extra
-                            ? 'border-dashed border-edge-lit text-state-later active:bg-surface'
-                            : 'border-edge-lit text-state-later active:bg-surface',
-                      ].join(' ')}
-                    >
-                      {busy === key ? (
-                        <span aria-hidden className="size-1 rounded-full bg-state-later" />
-                      ) : done ? (
-                        // Keyed on the post, so the tick pops and draws itself
-                        // on once, when it lands - not on every re-render.
-                        <span key={cell.post?.id} className="pop-in draw-check flex">
-                          <CheckIcon className="h-6 w-6" strokeWidth={2.25} />
-                        </span>
-                      ) : null}
-                    </button>
-                  )
-                })}
+                <div className="ml-auto flex flex-wrap justify-end gap-2">
+                  {row.cells.map((cell) => {
+                    const key = `${row.account.id}:${cell.slot}`
+                    const done = cell.post !== null
+                    // Dashed, like a box beyond the quota: a bonus-only account
+                    // is never owed, so none of its boxes is either.
+                    const extra = cell.slot >= quota || row.account.bonus_only
+                    return (
+                      <button
+                        key={cell.slot}
+                        type="button"
+                        disabled={busy === key || checkingAll}
+                        aria-pressed={done}
+                        aria-label={`${row.account.platform} post ${cell.slot + 1} of ${slots}`}
+                        onClick={() => onToggle(row.account, cell.slot, cell.post)}
+                        className={[
+                          'press relative flex size-12 items-center justify-center rounded-xl border',
+                          'transition-[background-color,border-color,box-shadow] duration-200 disabled:opacity-60',
+                          done
+                            ? // Solid green, because green here is the whole
+                              // point of the screen: the day's work, proved,
+                              // readable at arm's length.
+                              'border-state-posted bg-state-posted text-ink shadow-[0_0_18px_-6px_var(--color-state-posted)]'
+                            : extra
+                              ? 'border-dashed border-edge-lit bg-ink/60 text-state-later hover:border-state-later'
+                              : 'border-state-later/50 bg-ink/60 text-state-later hover:border-state-later',
+                        ].join(' ')}
+                      >
+                        {busy === key ? (
+                          <span aria-hidden className={`size-1.5 rounded-full ${done ? 'bg-ink' : 'bg-state-later'}`} />
+                        ) : done ? (
+                          // Keyed on the post, so the tick pops and draws itself
+                          // on once, when it lands - not on every re-render.
+                          <span key={cell.post?.id} className="pop-in draw-check flex">
+                            <CheckIcon className="h-7 w-7" strokeWidth={2.5} />
+                          </span>
+                        ) : null}
+                      </button>
+                    )
+                  })}
 
-                {/* One more than owed, always available: he posts extra, and
-                    the app has no business telling him he did not. */}
-                <button
-                  type="button"
-                  disabled={busy !== null}
-                  aria-label={`${row.account.platform} extra post`}
-                  onClick={() => onToggle(row.account, slots, null)}
-                  className="press flex size-11 items-center justify-center rounded-xl border border-dashed border-edge text-state-later active:bg-surface disabled:opacity-50"
-                >
-                  <PlusIcon className="h-5 w-5" />
-                </button>
-              </div>
-            </li>
-          ))}
+                  {/* One more than owed, always available: he posts extra, and
+                      the app has no business telling him he did not. */}
+                  <button
+                    type="button"
+                    disabled={busy !== null}
+                    aria-label={`${row.account.platform} extra post`}
+                    onClick={() => onToggle(row.account, slots, null)}
+                    className="press flex size-12 items-center justify-center rounded-xl border border-dashed border-edge text-state-later transition-colors duration-200 hover:border-edge-lit hover:text-text-dim disabled:opacity-50"
+                  >
+                    <PlusIcon className="h-5 w-5" />
+                  </button>
+                </div>
+              </li>
+            )
+          })}
         </ul>
       )}
-    </div>
+    </Card>
   )
 }

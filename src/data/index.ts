@@ -42,7 +42,7 @@ export {
   warmupLimitDays,
   warmupTier,
 } from './warmup'
-export { PULL_CURSOR_COLUMN } from './sync'
+export { NATURAL_KEYS, PULL_CURSOR_COLUMN } from './sync'
 export * from './schema'
 
 import type { DataAdapter } from './DataAdapter'

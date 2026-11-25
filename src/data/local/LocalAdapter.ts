@@ -2016,6 +2016,48 @@ export class LocalAdapter implements DataAdapter {
     await this.db.table(table).put(full)
   }
 
+  async adoptServerRow(
+    table: TableName,
+    localId: string,
+    remote: Record<string, unknown>,
+    choose: (local: Record<string, unknown>, remote: Record<string, unknown>) => { winner: 'local' | 'remote' },
+  ): Promise<'local' | 'remote' | 'gone'> {
+    const serverId = remote.id
+    if (typeof serverId !== 'string' || serverId === localId) {
+      throw new DataError(`${table} ${localId}: the server's row has no other id to take`)
+    }
+    return this.tx([this.db.table(table), this.db._outbox], async (tx) => {
+      // Every write queued under the old id is answered here, stuck ones too:
+      // the server would refuse each of them for the same reason.
+      await tx
+        .table('_outbox')
+        .where('table_name')
+        .equals(table)
+        .filter((entry: OutboxEntry) => entry.row_id === localId)
+        .delete()
+
+      const mine = (await tx.table(table).get(localId)) as Record<string, unknown> | undefined
+      if (!mine) return 'gone'
+      await tx.table(table).delete(localId)
+
+      const { winner } = choose(mine, remote)
+      if (winner === 'remote') {
+        const full = completeRow(table, remote) as unknown as Record<string, unknown>
+        assertRow(table, full as never)
+        // From the server: not queued, it already has it.
+        await tx.table(table).put(full)
+        return 'remote'
+      }
+
+      // This device's edit is the newer one: it goes up under the server's id.
+      const full = completeRow(table, { ...mine, id: serverId }) as unknown as Record<string, unknown>
+      assertRow(table, full as never)
+      await tx.table(table).put(full)
+      this.enqueue(tx, table, serverId, 'update', full)
+      return 'local'
+    })
+  }
+
   /** The current owner of every local row. */
   currentUserId(): string {
     return this.userId

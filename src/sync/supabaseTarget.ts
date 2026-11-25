@@ -7,7 +7,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-import { MIRRORED_TABLE_NAMES, PULL_CURSOR_COLUMN, type PendingWrite, type TableName } from '../data'
+import { MIRRORED_TABLE_NAMES, NATURAL_KEYS, PULL_CURSOR_COLUMN, type PendingWrite, type TableName } from '../data'
 import type { PushOutcome, RemoteChange, SyncTarget } from './types'
 
 /** Postgres error codes worth telling apart.
@@ -84,6 +84,12 @@ export class SupabaseSyncTarget implements SyncTarget {
       // resolved against the real row rather than guessed at.
       const remote = await this.fetchRow(write.table_name, write.row_id)
       if (remote) return { status: 'conflict', remote }
+
+      // Not under this id: another device saved the same field first, under
+      // an id of its own (NATURAL_KEYS). The server's row comes back with its
+      // id, so the device can take that id and settle which edit stands.
+      const twin = await this.fetchTwin(write.table_name, row)
+      if (twin) return { status: 'conflict', remote: twin }
     }
 
     return this.classify(error)
@@ -117,6 +123,24 @@ export class SupabaseSyncTarget implements SyncTarget {
     if (!this.client) return null
     const key = table === 'user_settings' ? 'user_id' : 'id'
     const { data, error } = await this.client.from(table).select('*').eq(key, id).maybeSingle()
+    if (error || !data) return null
+    return data as Record<string, unknown>
+  }
+
+  /** The server's row holding the same natural key as `row`, if any. */
+  private async fetchTwin(
+    table: TableName,
+    row: Record<string, unknown>,
+  ): Promise<Record<string, unknown> | null> {
+    const columns = NATURAL_KEYS[table]
+    if (!this.client || !columns) return null
+    let query = this.client.from(table).select('*')
+    for (const column of columns) {
+      const value = row[column]
+      if (typeof value !== 'string') return null
+      query = query.eq(column, value)
+    }
+    const { data, error } = await query.maybeSingle()
     if (error || !data) return null
     return data as Record<string, unknown>
   }

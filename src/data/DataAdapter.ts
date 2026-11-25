@@ -540,6 +540,21 @@ export interface DataAdapter {
   /** Replaces a local row with the server's version, without enqueuing the
    *  change - the server already has it, and echoing it back would loop. */
   applyRemoteRow(table: TableName, row: unknown): Promise<void>
+
+  /** The server holds this row under another id (NATURAL_KEYS): the same
+   *  field saved on two devices before either had seen the other's. The local
+   *  row takes the server's id, and every write queued under the old id is
+   *  answered at once. `choose` picks between this device's latest and the
+   *  server's (src/sync/conflict.ts): the server's is kept as it is, or this
+   *  device's goes up under the server's id. 'gone' when nothing is left here
+   *  under the old id. */
+  adoptServerRow(
+    table: TableName,
+    localId: string,
+    remote: Record<string, unknown>,
+    choose: (local: Record<string, unknown>, remote: Record<string, unknown>) => { winner: 'local' | 'remote' },
+  ): Promise<'local' | 'remote' | 'gone'>
+
   /** Rewrites every row from the local user id to a real account id, once.
    *
    *  Local rows are minted with an id from localStorage, because there is no

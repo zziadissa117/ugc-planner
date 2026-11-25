@@ -40,8 +40,12 @@ const OUTBOX_BACKFILL_KEY = 'ugc-planner.outbox_backfilled_at_v2'
  *  behind them, and an outage counted against whichever write was first - so
  *  most of what is stuck on a device that lived through that never had a
  *  real refusal. Ones the server really refuses are stuck again after five
- *  tries, and no longer hold anything up. */
-const OUTBOX_RETRY_KEY = 'ugc-planner.outbox_retried_at_v1'
+ *  tries, and no longer hold anything up.
+ *
+ *  `_v2`: a campaign field saved on two devices under two ids was refused
+ *  for good (23505, 288 writes on one device) until the drain learned to take
+ *  the server's id (adoptServerRow). Those need one more go to be settled. */
+const OUTBOX_RETRY_KEY = 'ugc-planner.outbox_retried_at_v2'
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const data = useData()

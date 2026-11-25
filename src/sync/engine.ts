@@ -67,8 +67,13 @@ export async function drainOutbox(
     else if (pending.length < batchSize) pending.push(write)
   }
 
+  // Rows that took the server's id this pass. Every write queued under the
+  // old id was answered then (adoptServerRow), so the rest are skipped.
+  const renamed = new Set<string>()
+
   for (const write of pending) {
-    const outcome = await pushOne(adapter, target, write, report)
+    if (renamed.has(`${write.table_name}:${write.row_id}`)) continue
+    const outcome = await pushOne(adapter, target, write, report, renamed)
 
     // The order writes happened in is the order they mean something in. Once
     // the network is gone, stop rather than firing the rest of the batch at it
@@ -87,6 +92,7 @@ async function pushOne(
   target: SyncTarget,
   write: PendingWrite,
   report: DrainReport,
+  renamed: Set<string>,
 ): Promise<'done' | 'offline'> {
   let outcome
   try {
@@ -107,6 +113,25 @@ async function pushOne(
 
     case 'conflict': {
       const local = write.payload as Record<string, unknown>
+
+      // The server holds this row under another id: two devices each saved
+      // the same field before seeing the other's. Pushing it again would be
+      // refused forever, so the device takes the server's id.
+      const serverId = outcome.remote.id
+      if (typeof serverId === 'string' && serverId !== write.row_id) {
+        const kept = await adapter.adoptServerRow(write.table_name, write.row_id, outcome.remote, (mine, theirs) =>
+          resolveConflict(write.table_name, mine, theirs),
+        )
+        renamed.add(`${write.table_name}:${write.row_id}`)
+        report.conflicts++
+        report.notes.push(
+          `${write.table_name} ${write.row_id} is ${serverId} on the server: ${
+            kept === 'local' ? "this device's edit is newer and goes up under that id" : "the server's row is kept"
+          }`,
+        )
+        return 'done'
+      }
+
       const resolution = resolveConflict(write.table_name, local, outcome.remote)
       report.conflicts++
       report.notes.push(`${write.table_name} ${write.row_id}: ${resolution.reason}`)

@@ -1,9 +1,10 @@
 // TODAY - the home screen, in the order he asked for:
 //
 //   1. My week        - the week he placed in the quiz, as a calendar, "on
-//                       top of everything"
-//   2. Going out      - every post Postiz has going out today (or this week),
-//                       read only (GoingOut.tsx)
+//                       top of everything", a red line at the time it is now
+//   2. Going out      - by campaign, the videos out or scheduled today (or
+//                       this week) against what it owes, read only
+//                       (GoingOut.tsx)
 //   3. Today          - the session on now or next, and the day's sessions
 //   4. Trybe videos   - the Trybe timer, "+1 video", today's and the week's count
 //   5. Timer          - a plain countdown, used for warm-ups

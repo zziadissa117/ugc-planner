@@ -7,6 +7,11 @@
 // hour, and the calendar scrolls when it reaches an edge), or tap it and tap
 // the new time. Tapping it also offers Remove; with the keyboard, the arrows
 // move it and Delete removes it. In the UGC Roadmap look (roadmap.tsx).
+//
+// A thin red line with a dot at its left end crosses today's column at the
+// time it is now, the way a calendar app marks it ("a little red line that
+// shows me what hour we are at"). It moves every minute and is on the next
+// day's column the next day; before 6 am it is off the calendar.
 
 import {
   useEffect,
@@ -31,6 +36,7 @@ import {
   durationFor,
   hours,
   ideateMinutes,
+  planWeekday,
   segmentsFor,
   type DraftBlock,
   type SegmentKind,
@@ -109,6 +115,41 @@ const MODES: { kind: PlanBlockKind; label: (blocks: readonly DraftBlock[]) => st
   { kind: 'backup', label: () => 'Backup' },
 ]
 
+/** The wall clock to the minute, read again on each minute boundary and
+ *  whenever the page comes back into view - a phone that slept for an hour
+ *  should not show the hour it went to sleep. */
+function useMinute(): Date {
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    let timer = 0
+    // To the next whole minute, measured again each time so it never drifts.
+    const schedule = () => {
+      const current = new Date()
+      timer = window.setTimeout(() => {
+        setNow(new Date())
+        schedule()
+      }, 60_000 - (current.getSeconds() * 1000 + current.getMilliseconds()))
+    }
+    schedule()
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') setNow(new Date())
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [])
+  return now
+}
+
+/** Where the now line goes: today's stored weekday and the minute of the
+ *  day, or null when it is before the calendar's first hour. */
+function nowMark(now: Date): { weekday: number; minute: number } | null {
+  const minute = now.getHours() * 60 + now.getMinutes()
+  return minute >= FIRST && minute < LAST ? { weekday: planWeekday(now), minute } : null
+}
+
 interface Dragging {
   block: DraftBlock
   startY: number
@@ -148,14 +189,26 @@ export function WeekCalendar({
   // A block that has since been removed or replaced is no longer picked up.
   const picked = selected && blocks.includes(selected) ? selected : null
   const ideate = ideateMinutes(blocks)
+  const mark = nowMark(useMinute())
 
   // Opens on the part of the day that matters: an hour before his earliest
   // block, or 9 am on an empty week - not on 6 am with the evening hidden.
+  // If the now line would be out of sight there, it opens on the now line
+  // instead, an hour of the day above it.
   useEffect(() => {
+    const box = scroller.current
+    if (!box) return
     const earliest = blocks.length > 0 ? Math.min(...blocks.map((b) => b.start_minute)) - 60 : 9 * 60
-    if (scroller.current) scroller.current.scrollTop = Math.max(0, tall(earliest - FIRST))
+    let target = Math.max(0, tall(earliest - FIRST))
+    if (mark && box.clientHeight > 0) {
+      // The sticky row of day names takes the top of the box; three rows'
+      // room at the bottom keeps the line clear of it and of the edge.
+      const line = top(mark.minute)
+      if (line < target + ROW || line > target + box.clientHeight - 3 * ROW) target = Math.max(0, tall(mark.minute - 60 - FIRST))
+    }
+    box.scrollTop = target
     // Only when it first appears: scrolling under his finger as he places
-    // blocks would be its own bug.
+    // blocks, or every minute as the line moves, would be its own bug.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -469,10 +522,11 @@ export function WeekCalendar({
           {WEEK_ORDER.map((weekday) => {
             const kinds = new Set(blocks.filter((b) => b.weekday === weekday).map((b) => b.kind))
             return (
-              <span key={weekday} className="flex flex-col items-center gap-1.5 pb-2.5 pt-3">
+              <span key={weekday} aria-current={mark?.weekday === weekday ? 'date' : undefined} className="flex flex-col items-center gap-1.5 pb-2.5 pt-3">
                 <span
                   className="text-[10.5px] font-bold uppercase tracking-[0.14em] sm:text-[11px] sm:tracking-[0.18em]"
-                  style={{ color: kinds.size > 0 ? R.title : R.dim }}
+                  // Today in the now line's red, the way a calendar marks it.
+                  style={{ color: mark?.weekday === weekday ? 'var(--color-state-blocked)' : kinds.size > 0 ? R.title : R.dim }}
                 >
                   {WEEKDAYS_SHORT[weekday]}
                 </span>
@@ -578,6 +632,20 @@ export function WeekCalendar({
                       {drag.why ? 'Taken' : span(drag.minute, drag.minute + drag.block.duration_minutes)}
                     </span>
                   </>
+                ) : null}
+
+                {mark && mark.weekday === weekday ? (
+                  // Over the blocks, under one being dragged; never in the
+                  // way of a tap or a drag.
+                  <div
+                    aria-hidden
+                    data-now-line
+                    className="pointer-events-none absolute inset-x-0 z-[25] h-0"
+                    style={{ top: top(mark.minute) }}
+                  >
+                    <span className="absolute inset-x-0 -top-px h-[2px] bg-state-blocked shadow-[0_0_6px_0_color-mix(in_oklab,var(--color-state-blocked)_60%,transparent)]" />
+                    <span className="absolute -left-[5px] -top-[5px] size-[10px] rounded-full bg-state-blocked" />
+                  </div>
                 ) : null}
 
                 {own.map((block) => {

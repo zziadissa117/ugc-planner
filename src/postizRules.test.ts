@@ -7,8 +7,12 @@ import {
   MAX_RANGE_DAYS,
   PLANNER_POSTIZ_PER_HOUR,
   SHARED_POSTIZ_PER_HOUR,
+  type CutterPostRow,
   afterTooMany,
   answerFrom,
+  answerFromCutter,
+  cutterPostViews,
+  hexDigest,
   awaitingViews,
   checkRange,
   cleanHandle,
@@ -432,5 +436,79 @@ describe('the answer', () => {
     expect(postizProblem(401, 'No subscription found')).toMatch(/no subscription/)
     expect(postizProblem(429, null)).toMatch(/too many requests/)
     expect(postizProblem(503, null)).toMatch(/Postiz had a problem \(503\)/)
+  })
+})
+
+// --- The cutter's own records ------------------------------------------------------
+
+describe('a key the cutter posts with', () => {
+  const row = (extra: Partial<CutterPostRow> = {}): CutterPostRow => ({
+    id: 'video-1',
+    campaign_id: 'cut-c1',
+    campaign_name: ' Pumpfun ',
+    status: 'posted',
+    post_at: '2026-11-26 09:44:00+00',
+    accounts: [
+      { id: 'int-tt', name: 'mike HOOKS', profile: '@hooksandmike', platform: 'tiktok-business' },
+      { id: 'int-ig', name: 'Danny | Growth Marketer', profile: 'hooksandmike', platform: 'instagram-standalone' },
+      { id: 'int-fb', name: 'Page', profile: '', platform: 'facebook', held: 'not ready' },
+    ],
+    release_urls: {
+      'mike HOOKS': 'https://www.tiktok.com/@hooksandmike',
+      'Danny | Growth Marketer': 'https://www.instagram.com/reel/DgNL-nHhgNp/',
+    },
+    views: { 'Danny | Growth Marketer': 1486 },
+    views_at: '2026-11-26 11:00:02.782+00',
+    media: { id: 'm1', path: 'https://uploads.postiz.com/zBhW6nFDCA.mp4' },
+    title: 'Is this the best app?',
+    caption: 'A longer caption',
+    ...extra,
+  })
+
+  it('finds the profile by the hex SHA-256 cutter_profiles keeps', () => {
+    expect(hexDigest(new Uint8Array([1, 14, 110, 255]))).toBe('010e6eff')
+  })
+
+  it('shows one entry per account the video went to, with the video as its preview', () => {
+    const [tiktok, instagram, ...rest] = cutterPostViews(row())
+    expect(rest).toEqual([])
+    expect(tiktok).toEqual({
+      id: 'video-1:int-tt',
+      group: 'video-1',
+      platform: 'TikTok',
+      handle: 'hooksandmike',
+      url: 'https://www.tiktok.com/@hooksandmike',
+      preview: 'https://uploads.postiz.com/zBhW6nFDCA.mp4',
+      previewKind: 'video',
+      caption: 'Is this the best app?',
+      status: 'posted',
+      publishedAt: '2026-11-26T09:44:00.000Z',
+      // Not read yet for this account: unknown, never zero.
+      views: null,
+      viewsAt: null,
+      campaign: { id: 'cut-c1', name: 'Pumpfun' },
+    })
+    expect(instagram).toMatchObject({ platform: 'Instagram', views: 1486, viewsAt: '2026-11-26T11:00:02.782Z', url: 'https://www.instagram.com/reel/DgNL-nHhgNp/' })
+  })
+
+  it("maps the cutter's statuses and leaves out what was taken out", () => {
+    expect(cutterPostViews(row({ status: 'approved' }))[0]).toMatchObject({ status: 'scheduled', url: null, views: null })
+    expect(cutterPostViews(row({ status: 'scheduled' }))[0].status).toBe('scheduled')
+    expect(cutterPostViews(row({ status: 'waiting' }))[0].status).toBe('waiting')
+    expect(cutterPostViews(row({ status: 'error' }))[0].status).toBe('failed')
+    expect(cutterPostViews(row({ status: 'rejected' }))).toEqual([])
+  })
+
+  it('keeps a bad media path or link out', () => {
+    const [first] = cutterPostViews(row({ media: { path: 'javascript:alert(1)' }, release_urls: { 'mike HOOKS': 'http://x' } }))
+    expect(first).toMatchObject({ preview: null, previewKind: null, url: null })
+  })
+
+  it('answers newest first, with nothing waiting on Postiz', () => {
+    const answer = answerFromCutter([row({ id: 'old', post_at: '2026-11-20 10:00:00+00' }), row({ id: 'new' })])
+    expect(answer.source).toBe('cutter')
+    expect(answer.reading).toBe(0)
+    expect(answer.error).toBeUndefined()
+    expect(answer.posts.map((p) => p.group)).toEqual(['new', 'new', 'old', 'old'])
   })
 })

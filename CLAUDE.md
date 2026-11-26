@@ -17,24 +17,33 @@ and makes the account at the end; see `src/data/weeklyPlan.ts`.
 Five tabs:
 
 - **TODAY** (`src/screens/Now.tsx`), top to bottom as he ordered it: the week
-  as a calendar, "Going out" (every post his Postiz has going out today or
-  this week, read only - `GoingOut.tsx`), today's sessions, the Trybe timer
-  with "+1 video" (`trybe_videos`), a countdown "Used for warm-ups", and one
-  "Hook generation" button (`/hooks`, `Hooks.tsx`). No posts row.
+  as a calendar with a red now line, "Going out" (by campaign: videos out or
+  scheduled today or this week against what it owes, "3 of 4", tap for its
+  videos; read only - `GoingOut.tsx`, `src/data/goingOut.ts`), today's
+  sessions, the Trybe timer with "+1 video" (`trybe_videos`), a countdown
+  "Used for warm-ups", and one "Hook generation" button (`/hooks`,
+  `Hooks.tsx`). No posts row.
 - **POST** (`Posting.tsx`): "X of Y posts done today" and the tick grid.
 - **CAMPAIGNS** (`Campaigns.tsx`, `NewCampaign.tsx`, `Campaign.tsx`): a
   campaign is typed in on one page - name, pay per video, videos a day,
   minimum views, platforms and accounts. High-quality campaigns (a minimum view
   count) are listed first, because they are recorded first. Money sits at the
   bottom of the list; there is no Money tab.
-- **IDEATE** (`Ideate.tsx`, `IdeateBoard.tsx`): pick one campaign, then its
-  videos as a grid of previews (tap opens the post on Instagram), average /
-  best / worst views, "Notes from Ziad" (`coach_notes`, read only, pulled) and
-  "Your notes" (`ideate_notes`). Videos and views come from the student's own
-  Postiz key (`postiz-posts` function, `src/sync/postizPosts.ts`; Postiz
-  allows 30 requests an hour, so views are kept server-side in
-  `postiz_posts` and read a few at a time). Instagram gives no preview without
-  a Meta app: a video borrows its TikTok/YouTube preview, else a designed card.
+- **IDEATE** (`Ideate.tsx`, `IdeateBoard.tsx`): "All campaigns" first - videos
+  out, total / average / median views, 1K+ and 10K+ hit rates, best videos,
+  by campaign, by platform, by day - then one campaign at a time: the same
+  figures, "What's working" for that campaign only (best and weakest), by
+  account, its videos as a grid of previews (tap opens the post on
+  Instagram), "Notes from Ziad" (`coach_notes`, read only, pulled) and "Your
+  notes" (`ideate_notes`). Unread views are never counted as zero. Videos and
+  views come from the `postiz-posts` function (`src/sync/postizPosts.ts`): a
+  key the silence cutter also posts with is answered from the cutter's own
+  records (`cutter_posts` - every video, its campaign, links, the video file
+  as its preview, the cutter's view readings; no Postiz request), any other
+  key from Postiz (30 requests an hour, so views are kept server-side in
+  `postiz_posts` and read a few at a time). Which campaign a video belongs
+  to is one rule for IDEATE and Going out: `src/data/postHome.ts` - a cutter
+  campaign the planner has no campaign for still shows, under its own name.
 - **Coach** (`/coach`, `Coach.tsx`, owner only through the `coach` function):
   his students, each one's IDEATE, and notes to them. Notes he deletes are
   dated (`deleted_at`), never removed - pulls never delete rows.
@@ -115,7 +124,9 @@ white = do this now, grey = later, amber = past the window you set or an
 unconfirmed parsed field, red = blocked with the reason in plain words. The
 deck's blue (`brand`, #86A8FF, and the #6585F5 -> #1D40C2 gradient) is the
 look itself - the main button, the tab you are on, a section's caption - and
-never means a state. No badges for anything that is not a state.
+never means a state. No badges for anything that is not a state. One red is
+not a state: the week calendar's now line (today's column, at the current
+time) is red because he asked for "a little red line".
 
 ## Look and motion
 

@@ -1,18 +1,19 @@
-// IDEATE - one campaign at a time: what went out, how it did, and what to
-// change next recording.
+// IDEATE - what went out and how it did: everything at once, or one campaign
+// at a time with its best and weakest videos and the notes on it.
 //
 // "I need to choose the campaign and have all the analytics, video preview
 // then when we click on the video preview it pops up the link on instagram.
 // With average views, best performing, worst performing, notes from Ziad,
 // your own notes."
 //
-// The videos and their views are the student's own Postiz posts, read with
-// the key saved in SETUP (src/sync/postizPosts.ts) - online only, and read
-// only. The notes are local: their own notes save on this device first and
-// sync after, and Ziad's arrive by the ordinary sync pull. Offline, the notes
-// still work and the videos say they need a connection.
+// The videos and their views are read with the Postiz key saved in SETUP
+// (src/sync/postizPosts.ts) - from the cutter's own records when the cutter
+// posts with that key, else from Postiz - online only, and read only. The
+// notes are local: their own notes save on this device first and sync after,
+// and Ziad's arrive by the ordinary sync pull. Offline, the notes still work
+// and the videos say they need a connection.
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { IdeateBoard, type NoteEditor, type PostsState } from '../components/IdeateBoard'
@@ -39,7 +40,7 @@ export function Ideate() {
   // Read apart from the campaigns, so saving a note reads only the notes again.
   const [ownNotes, reloadOwn] = useLoaded(() => data.listIdeateNotes(), [data])
   const [coachNotes] = useLoaded(() => data.listCoachNotes(), [data])
-  const posts = usePostizPosts(period)
+  const [posts, retry] = usePostizPosts(period)
   const weekStart = useMemo(() => periodRange(period).weekStart, [period])
 
   const ownEditor = useMemo<NoteEditor>(
@@ -68,7 +69,7 @@ export function Ideate() {
     <section className="mx-auto flex max-w-3xl flex-col gap-7">
       <ScreenHeader
         kicker="Ideate"
-        title="What's working"
+        title="Your videos"
         aside={
           owner ? (
             <Link to="/coach" className={buttonClass('quiet', 'small')}>
@@ -80,40 +81,46 @@ export function Ideate() {
       />
 
       {loaded.campaigns.length === 0 ? (
-        <div className="flex flex-col items-start gap-4">
-          <p className="text-base text-text-dim">No campaigns yet.</p>
-          <Link to="/campaigns/new" className={buttonClass('now')}>
+        <p className="-mt-3 text-base text-state-later">
+          No campaigns yet.{' '}
+          <Link to="/campaigns/new" className="font-semibold text-brand hover:text-text">
             Add a campaign
-          </Link>
-        </div>
-      ) : (
-        <IdeateBoard
-          campaigns={loaded.campaigns}
-          accounts={loaded.accounts}
-          posts={posts}
-          period={period}
-          onPeriod={setPeriod}
-          weekStart={weekStart}
-          ownNotes={ownNotes ?? []}
-          coachNotes={coachNotes ?? []}
-          ownEditor={ownEditor}
-          ownTitle="Your notes"
-          // His own planner has no notes from himself to show.
-          showCoachNotes={!owner || (coachNotes ?? []).length > 0}
-          subject="self"
-          ownMaxLength={IDEATE_NOTE_MAX_LENGTH}
-        />
-      )}
+          </Link>{' '}
+          to keep notes on one.
+        </p>
+      ) : null}
+
+      {/* Shown even with no campaigns: videos the cutter made for a campaign
+          the planner does not have still count. */}
+      <IdeateBoard
+        campaigns={loaded.campaigns}
+        accounts={loaded.accounts}
+        posts={posts}
+        period={period}
+        onPeriod={setPeriod}
+        weekStart={weekStart}
+        ownNotes={ownNotes ?? []}
+        coachNotes={coachNotes ?? []}
+        ownEditor={ownEditor}
+        ownTitle="Your notes"
+        // His own planner has no notes from himself to show.
+        showCoachNotes={!owner || (coachNotes ?? []).length > 0}
+        subject="self"
+        ownMaxLength={IDEATE_NOTE_MAX_LENGTH}
+        onRetry={retry}
+      />
     </section>
   )
 }
 
-/** The student's Postiz posts for the period, read again when the period
- *  changes or the connection comes back. */
-function usePostizPosts(period: IdeatePeriod): PostsState {
+/** The student's posts for the period, read again when the period changes,
+ *  the connection comes back, or they ask after a failed read. */
+function usePostizPosts(period: IdeatePeriod): [PostsState, () => void] {
   const { online, tick } = useConnection()
+  const [attempt, setAttempt] = useState(0)
   const [state, setState] = useState<{ key: string; posts: PostsState } | null>(null)
-  const key = `${period}|${tick}`
+  const key = `${period}|${tick}|${attempt}`
+  const retry = useCallback(() => setAttempt((n) => n + 1), [])
 
   useEffect(() => {
     if (!online) return
@@ -130,8 +137,8 @@ function usePostizPosts(period: IdeatePeriod): PostsState {
     }
   }, [key, period, online])
 
-  if (!online) return { kind: 'offline' }
+  if (!online) return [{ kind: 'offline' }, retry]
   // Until the period asked for has been read, show it loading rather than
   // last week's videos under this week's name.
-  return state?.key === key ? state.posts : { kind: 'loading' }
+  return [state?.key === key ? state.posts : { kind: 'loading' }, retry]
 }

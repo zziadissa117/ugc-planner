@@ -9,7 +9,9 @@
 
 // --- The answer (mirrors src/sync/postizPosts.ts) ---------------------------
 
-export type PostizPostStatus = 'scheduled' | 'posted' | 'failed'
+/** 'waiting' is the cutter's own: made, and waiting for him to approve it
+ *  before it is scheduled. Postiz's list never says it. */
+export type PostizPostStatus = 'scheduled' | 'posted' | 'failed' | 'waiting'
 
 export interface PostizPostView {
   id: string
@@ -24,6 +26,8 @@ export interface PostizPostView {
   publishedAt: string | null
   views: number | null
   viewsAt: string | null
+  /** The cutter's campaign, when the post came from the cutter's records. */
+  campaign: { id: string; name: string } | null
 }
 
 export interface PostizPostsAnswer {
@@ -31,6 +35,9 @@ export interface PostizPostsAnswer {
   posts: PostizPostView[]
   reading: number
   error?: string
+  /** Where the posts came from: the cutter's own records (no Postiz request
+   *  spent) or Postiz, read with the saved key. */
+  source?: 'cutter' | 'postiz'
 }
 
 export interface PostizRange {
@@ -645,6 +652,7 @@ export function toView(row: CachedPost, now: number = Date.now()): PostizPostVie
     publishedAt: iso(row.published_at),
     views: row.views === null || row.views === undefined ? null : Number(row.views),
     viewsAt: row.views === null || row.views === undefined ? null : iso(row.views_at),
+    campaign: null,
   }
 }
 
@@ -662,6 +670,7 @@ export function answerFrom(rows: readonly CachedPost[], range: PostizRange, now:
     connected: true,
     posts: inRange.map((r) => toView(r, now)),
     reading: inRange.filter((r) => awaitingViews(r, now)).length,
+    source: 'postiz',
   }
   if (error) answer.error = error
   return answer
@@ -686,4 +695,101 @@ export function postizMessage(json: unknown): string | null {
   const said = message ?? msg
   if (Array.isArray(said)) return said.map(String).join('; ')
   return typeof said === 'string' ? said : null
+}
+
+// --- The cutter's own records (cutter_posts) ------------------------------------
+//
+// A key the silence cutter also posts with is answered from the cutter's own
+// records instead of Postiz: every video it made, the campaign it was for,
+// each account's live link and the views it last read (on its own schedule,
+// a day, three days and a week after a video goes out). No Postiz request is
+// spent, so nothing waits for an hour to come round - which is why the
+// cutter never says it is out of requests. The profile is found by the key
+// itself: cutter_profiles.key_hash is the SHA-256 of the key, in hex.
+
+/** A cutter_posts row, as much of it as the planner reads. */
+export interface CutterPostRow {
+  id: string
+  campaign_id: string | null
+  campaign_name: string | null
+  status: string
+  post_at: string | null
+  accounts: unknown
+  release_urls: unknown
+  views: unknown
+  views_at: string | null
+  media: unknown
+  title: string | null
+  caption: string | null
+}
+
+export const CUTTER_POST_COLUMNS =
+  'id, campaign_id, campaign_name, status, post_at, accounts, release_urls, views, views_at, media, title, caption'
+
+/** The cutter's statuses the planner shows, and as what. 'rejected' (taken
+ *  out before it went) is not shown. */
+export const CUTTER_STATUSES: Readonly<Record<string, PostizPostStatus>> = {
+  posted: 'posted',
+  scheduled: 'scheduled',
+  approved: 'scheduled',
+  waiting: 'waiting',
+  error: 'failed',
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === 'object' && !Array.isArray(value)
+
+const httpsOnly = (value: unknown): string | null =>
+  typeof value === 'string' && /^https:\/\//.test(value.trim()) ? value.trim() : null
+
+/** The hex SHA-256 of a key, the way cutter_profiles.key_hash spells it. */
+export function hexDigest(digest: Uint8Array): string {
+  return Array.from(digest, (b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+/** One cutter video as the planner shows it: one entry per account it went
+ *  to, sharing the video's id as their group. A number is never made up:
+ *  views are the cutter's last reading for that account, or null. */
+export function cutterPostViews(row: CutterPostRow): PostizPostView[] {
+  const status = CUTTER_STATUSES[row.status]
+  if (!status) return []
+  const accounts = Array.isArray(row.accounts) ? row.accounts : []
+  const links = isRecord(row.release_urls) ? row.release_urls : {}
+  const read = isRecord(row.views) ? row.views : {}
+  const media = isRecord(row.media) ? httpsOnly(row.media.path) : null
+  const caption = (row.title?.trim() || row.caption?.trim() || '').slice(0, 200)
+  const campaign = row.campaign_id ? { id: row.campaign_id, name: row.campaign_name?.trim() ?? '' } : null
+  const out = status === 'posted'
+
+  return accounts.flatMap((account): PostizPostView[] => {
+    if (!isRecord(account) || typeof account.name !== 'string' || account.held) return []
+    const name = account.name
+    const count = read[name]
+    const views = out && typeof count === 'number' && Number.isFinite(count) && count >= 0 ? Math.round(count) : null
+    return [
+      {
+        id: `${row.id}:${typeof account.id === 'string' ? account.id : name}`,
+        group: row.id,
+        platform: plannerPlatform(account.platform),
+        handle: cleanHandle(account.profile) || name.trim(),
+        url: out ? httpsOnly(links[name]) : null,
+        preview: media,
+        previewKind: media ? 'video' : null,
+        caption,
+        status,
+        publishedAt: iso(row.post_at),
+        views,
+        viewsAt: views === null ? null : iso(row.views_at),
+        campaign,
+      },
+    ]
+  })
+}
+
+/** The answer from the cutter's records: newest first, nothing waiting on
+ *  Postiz. */
+export function answerFromCutter(rows: readonly CutterPostRow[]): PostizPostsAnswer {
+  const posts = rows.flatMap(cutterPostViews)
+  posts.sort((a, b) => (b.publishedAt ? Date.parse(b.publishedAt) : 0) - (a.publishedAt ? Date.parse(a.publishedAt) : 0))
+  return { connected: true, posts, reading: 0, source: 'cutter' }
 }

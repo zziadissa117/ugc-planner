@@ -33,14 +33,17 @@ export interface PostizPostView {
   /** 'image' when `preview` is a picture, 'video' when it is the video file. */
   previewKind: 'image' | 'video' | null
   caption: string
-  /** Where it stands in Postiz: waiting to go out at `publishedAt`, out, or
-   *  failed. TODAY's "Going out" list shows scheduled and posted ones. */
-  status: 'scheduled' | 'posted' | 'failed'
+  /** Where it stands: waiting to go out at `publishedAt`, out, or failed -
+   *  or, from the cutter's records, made and waiting for him to approve it. */
+  status: 'scheduled' | 'posted' | 'failed' | 'waiting'
   /** When it goes (or went) out. */
   publishedAt: string | null
   /** Null until Postiz has been asked - never a guess. */
   views: number | null
   viewsAt: string | null
+  /** The cutter's campaign it was made for, when it came from the cutter's
+   *  records; null from Postiz, which knows only accounts. */
+  campaign: { id: string; name: string } | null
 }
 
 export interface PostizPostsAnswer {
@@ -51,6 +54,9 @@ export interface PostizPostsAnswer {
   reading: number
   /** Why Postiz could not be read this time, in plain words. */
   error?: string
+  /** 'cutter' when the key is one the silence cutter posts with: the posts
+   *  and views are the cutter's own records, and no Postiz request was spent. */
+  source?: 'cutter' | 'postiz'
 }
 
 export interface PostizRange {

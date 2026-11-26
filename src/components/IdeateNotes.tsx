@@ -43,7 +43,8 @@ export interface NoteDraft {
 export interface NoteAbout {
   postId: string
   postUrl: string | null
-  accountId: string
+  /** The planner account it went out on, when one matched. */
+  accountId: string | null
   weekStart: string | null
   /** "TikTok @handle, Mon, Nov 23" */
   label: string

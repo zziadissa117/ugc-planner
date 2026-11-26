@@ -212,9 +212,10 @@ describe('the rest of today', () => {
 
 describe('going out', () => {
   const post = (over: Record<string, unknown>) => ({
-    id: 'p1',
+    id: crypto.randomUUID(),
+    group: null,
     platform: 'Instagram',
-    handle: 'test.insta',
+    handle: 'traderzi',
     url: null,
     preview: null,
     previewKind: null,
@@ -223,37 +224,145 @@ describe('going out', () => {
     publishedAt: at(24, 20).toISOString(),
     views: null,
     viewsAt: null,
+    campaign: null,
     ...over,
   })
+  const GODADDY = { id: 'cut-gd', name: 'GoDaddy' }
+  /** One cutter video sent to his Instagram and TikTok: two posts, one video. */
+  const video = (group: string, over: Record<string, unknown>) => [
+    post({ group, platform: 'TikTok', campaign: GODADDY, ...over, url: null }),
+    post({ group, platform: 'Instagram', campaign: GODADDY, ...over }),
+  ]
 
-  it("lists today's posts from his Postiz in time order, the posted ones linking out", async () => {
+  async function withGoDaddy() {
+    // 21 a week: 3 a day.
+    await adapter.createCampaign({
+      name: 'GoDaddy',
+      company: null,
+      default_setup: 'face',
+      approval_mode: 'none',
+      posts_per_week: 21,
+      pay_per_video_cents: 1000,
+      cycle_size: null,
+      cutter_campaign_id: 'cut-gd',
+    })
     loadPostizPosts.mockResolvedValue({
       connected: true,
       reading: 0,
-      posts: [post({ id: 'b', publishedAt: at(24, 21).toISOString() }), post({ id: 'a', status: 'posted', url: 'https://instagram.com/p/x', publishedAt: at(24, 9).toISOString() })],
+      source: 'cutter',
+      posts: [
+        ...video('a', { status: 'posted', url: 'https://instagram.com/p/a', publishedAt: at(24, 9).toISOString(), caption: 'Day 4 of trading\nmore' }),
+        ...video('b', { status: 'posted', url: 'https://instagram.com/p/b', publishedAt: at(24, 12).toISOString() }),
+        ...video('c', { status: 'scheduled', publishedAt: at(24, 20).toISOString() }),
+        post({ handle: 'traderzi2', campaign: { id: 'cut-trial', name: 'Trial reels' }, status: 'waiting', publishedAt: at(24, 21).toISOString() }),
+      ],
     })
+  }
+
+  const going = async () => within(await screen.findByRole('region', { name: 'Going out' }))
+  const rows = async () => (await (await going()).findAllByRole('button')).map((b) => b.textContent)
+
+  it('shows each campaign as X of Y, videos not accounts, the ones still short first', async () => {
+    await withGoDaddy()
     renderScreen()
-    const going = within(await screen.findByRole('region', { name: 'Going out' }))
-    const rows = await going.findAllByRole('listitem')
-    expect(rows[0]).toHaveTextContent('9:00am')
-    expect(rows[0]).toHaveTextContent('Out')
-    expect(within(rows[0]).getByRole('link')).toHaveAttribute('href', 'https://instagram.com/p/x')
-    expect(rows[1]).toHaveTextContent('Scheduled')
+    await waitFor(async () => expect(await rows()).toHaveLength(3))
+    const [inflow, godaddy, trial] = await rows()
+    // Inflow owes 1 today and has nothing lined up: that is what is next.
+    expect(inflow).toContain('Inflow')
+    expect(inflow).toContain('0 of 1')
+    expect(inflow).toContain('1 to go')
+    // Three videos on two accounts each: 3 of 3, nothing to go.
+    expect(godaddy).toContain('GoDaddy')
+    expect(godaddy).toContain('3 of 3')
+    expect(godaddy).toContain('2 out · 1 scheduled')
+    expect(godaddy).not.toContain('to go')
+    // A cutter campaign the planner has no campaign for: no quota to show.
+    expect(trial).toContain('Trial reels')
+    expect(trial).toContain('0 today')
+    expect(trial).toContain('1 to approve')
     // Today's range: midnight to midnight.
     expect(loadPostizPosts).toHaveBeenCalledWith({ from: at(24, 0).toISOString(), to: at(25, 0).toISOString() })
   })
 
-  it('switches to this week, Sunday to Sunday', async () => {
+  it('opens a campaign to one row per video, the posted ones opening on Instagram', async () => {
+    await withGoDaddy()
     renderScreen()
-    const going = within(await screen.findByRole('region', { name: 'Going out' }))
-    fireEvent.click(going.getByRole('tab', { name: 'This week' }))
+    const section = await going()
+    const godaddy = await section.findByRole('button', { name: /^GoDaddy/ })
+    expect(godaddy).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(godaddy)
+    expect(godaddy).toHaveAttribute('aria-expanded', 'true')
+    const videos = within(section.getByRole('list', { name: 'GoDaddy videos' })).getAllByRole('listitem')
+    expect(videos).toHaveLength(3)
+    expect(videos[0]).toHaveTextContent('9:00 am')
+    expect(videos[0]).toHaveTextContent('Out')
+    expect(videos[0]).toHaveTextContent('Day 4 of trading')
+    expect(videos[0]).toHaveTextContent('Instagram, TikTok')
+    expect(within(videos[0]).getByRole('link')).toHaveAttribute('href', 'https://instagram.com/p/a')
+    expect(videos[2]).toHaveTextContent('8:00 pm')
+    expect(videos[2]).toHaveTextContent('Scheduled')
+    expect(within(videos[2]).queryByRole('link')).toBeNull()
+
+    fireEvent.click(godaddy)
+    expect(section.queryByRole('list', { name: 'GoDaddy videos' })).toBeNull()
+  })
+
+  it('switches to this week, Sunday to Sunday, against what the week owes', async () => {
+    await withGoDaddy()
+    renderScreen()
+    const section = await going()
+    await section.findByRole('button', { name: /^GoDaddy/ })
+    fireEvent.click(section.getByRole('tab', { name: 'This week' }))
     await waitFor(() => expect(loadPostizPosts).toHaveBeenCalledWith({ from: at(22, 0).toISOString(), to: at(29, 0).toISOString() }))
+    expect(await section.findByRole('button', { name: /^GoDaddy/ })).toHaveTextContent('3 of 21')
+    expect(section.getByRole('button', { name: /^GoDaddy/ })).toHaveTextContent('18 to go')
+    expect(section.getByRole('button', { name: /^Trial reels/ })).toHaveTextContent('0 this week')
   })
 
   it('says where to add a Postiz key when there is none', async () => {
     renderScreen()
-    const going = within(await screen.findByRole('region', { name: 'Going out' }))
-    expect(await going.findByRole('link', { name: 'Add your Postiz key' })).toHaveAttribute('href', '/settings')
+    expect(await (await going()).findByRole('link', { name: 'Add your Postiz key' })).toHaveAttribute('href', '/settings#postiz')
+  })
+
+  it("says a Postiz problem in one quiet line, and never one from the cutter's records", async () => {
+    const problem = "This hour's Postiz requests for your key are used up, so the newest posts may be missing."
+    loadPostizPosts.mockResolvedValue({ connected: true, reading: 0, source: 'postiz', posts: [], error: problem })
+    const first = renderScreen()
+    const line = await (await going()).findByText(problem)
+    expect(line.className).toContain('text-text-dim')
+    expect(line.className).not.toMatch(/state-blocked|state-waiting/)
+    first.unmount()
+
+    loadPostizPosts.mockResolvedValue({ connected: true, reading: 0, source: 'cutter', posts: [], error: problem })
+    renderScreen()
+    await (await going()).findByRole('button', { name: /^Inflow/ })
+    expect(screen.queryByText(problem)).toBeNull()
+  })
+
+  it('counts nothing when the read itself failed', async () => {
+    loadPostizPosts.mockRejectedValue(new Error('Could not reach the server.'))
+    renderScreen()
+    const section = await going()
+    expect(await section.findByText('Could not reach the server.')).toBeInTheDocument()
+    expect(section.queryByRole('button', { name: /^Inflow/ })).toBeNull()
+  })
+
+  it('needs a connection, and says so quietly', async () => {
+    const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+    try {
+      renderScreen()
+      expect(await (await going()).findByText('Going out needs a connection.')).toBeInTheDocument()
+      expect(loadPostizPosts).not.toHaveBeenCalled()
+    } finally {
+      onLine.mockRestore()
+    }
+  })
+
+  it('is not there at all when signed out', async () => {
+    loadPostizPosts.mockResolvedValue(null)
+    renderScreen()
+    await screen.findByRole('region', { name: 'Hooks' })
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Going out' })).toBeNull())
   })
 })
 

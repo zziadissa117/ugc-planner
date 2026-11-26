@@ -43,8 +43,13 @@ import {
   POSTIZ_API,
   THUMBS_PER_CALL,
   VIEWS_PER_CALL,
+  type CutterPostRow,
+  CUTTER_POST_COLUMNS,
+  CUTTER_STATUSES,
   afterTooMany,
   answerFrom,
+  answerFromCutter,
+  hexDigest,
   grant,
   keyFingerprint,
   parseCutterUse,
@@ -455,14 +460,57 @@ async function readWithKey(db: Db, userId: string, key: string, range: PostizRan
   return answerFrom(rows, range, Date.now(), problem)
 }
 
+/** The cutter profiles that post with this key (cutter_profiles.key_hash is
+ *  its SHA-256 in hex). None when the cutter is not on this project. */
+async function cutterProfilesFor(db: Db, key: string): Promise<string[]> {
+  const hash = hexDigest(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(key))))
+  const { data, error } = await db.from('cutter_profiles').select('id').eq('key_hash', hash)
+  if (error) return []
+  return (data ?? []).map((row: { id: string }) => row.id)
+}
+
+/** The posts the cutter made with this key in the range, from its own
+ *  records - no Postiz request. */
+async function readFromCutter(db: Db, profiles: string[], range: PostizRange): Promise<PostizPostsAnswer> {
+  const PAGE = 1000
+  const rows: CutterPostRow[] = []
+  for (let page = 0; page < 10; page++) {
+    const { data, error } = await db
+      .from('cutter_posts')
+      .select(CUTTER_POST_COLUMNS)
+      .in('profile_id', profiles)
+      .in('status', Object.keys(CUTTER_STATUSES))
+      .gte('post_at', range.from)
+      .lt('post_at', range.to)
+      .order('post_at', { ascending: false })
+      .order('id', { ascending: true })
+      .range(page * PAGE, page * PAGE + PAGE - 1)
+    if (error) throw new Error(`cutter_posts: ${error.message}`)
+    rows.push(...((data ?? []) as CutterPostRow[]))
+    if ((data ?? []).length < PAGE) break
+  }
+  return answerFromCutter(rows)
+}
+
 /** This user's Postiz posts in the range. Never throws: whatever goes wrong
- *  is said in `error`, with what was read before. */
+ *  is said in `error`, with what was read before.
+ *
+ *  A key the cutter also posts with is answered from the cutter's records;
+ *  only if those cannot be read is Postiz asked. */
 export async function readPostizPosts(userId: string, range: PostizRange): Promise<PostizPostsAnswer> {
   const db = serviceClient()
   const { data: key, error } = await db.rpc('get_ai_key', { p_user: userId, p_provider: 'postiz' })
   if (error) return { connected: false, posts: [], reading: 0, error: 'Your saved Postiz key could not be read. Try again.' }
   if (typeof key !== 'string' || key === '') return { connected: false, posts: [], reading: 0 }
   try {
+    const profiles = await cutterProfilesFor(db, key)
+    if (profiles.length > 0) {
+      try {
+        return await readFromCutter(db, profiles, range)
+      } catch {
+        // The cutter's records could not be read this time: Postiz, as before.
+      }
+    }
     return await readWithKey(db, userId, key, range)
   } catch (failure) {
     // The cache itself failed - most likely 0026_postiz_posts.sql has not

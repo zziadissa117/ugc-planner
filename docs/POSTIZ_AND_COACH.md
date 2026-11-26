@@ -117,9 +117,36 @@ he wrote to that student, and sets `updated_at`. `updated_at` is set
 explicitly on every write: it is the sync pull's cursor and there is no
 trigger, so an edit that did not move it would never reach the student.
 
-**A deleted note does not reach the student.** `delete_note` deletes only
-notes he wrote, but sync pulls never delete: a device that already pulled the
-note keeps showing it. Accepted for now.
+**Deleting dates the note.** `delete_note` sets `deleted_at` on a note he
+wrote instead of removing the row: sync pulls never delete, so a removed row
+would stay on every device that had pulled it. The dated row is pulled like
+any edit and the planner stops showing it.
+
+## A key the cutter posts with: the cutter's records, not Postiz
+
+"This hour's Postiz requests for your key are used up... Why is it that in
+the Cutter, it doesn't tell me this?" The cutter keeps its own record of every
+video it made (`cutter_posts`, same project): the campaign it was for, each
+account's live link, the video file, and the views it reads on its own
+schedule (a day, three days and a week after a video goes out). Asking Postiz
+again for the same posts spent the hour the cutter needs for posting, and the
+planner then had to step aside and say so.
+
+So `readPostizPosts` first looks the key up in the cutter: `cutter_profiles.
+key_hash` is the key's SHA-256 in hex. Every profile posting with that key is
+read from `cutter_posts` (statuses posted, scheduled/approved, waiting, error;
+`rejected` - taken out before it went - is left out), one entry per account,
+the video's id as `group`, its file as the preview (`previewKind: 'video'`, so
+Instagram videos have one too), and the cutter campaign as `campaign`. The
+answer says `source: 'cutter'`, `reading: 0`, and no Postiz request is made.
+Only if the cutter's records cannot be read does it fall back to Postiz. A key
+the cutter does not know (a student who does not use the cutter) reads Postiz
+as below. Rules and tests: `cutterPostViews`, `answerFromCutter` in
+`_shared/postizRules.ts`, `src/postizRules.test.ts`.
+
+Which planner campaign a post belongs to is one rule for TODAY's "Going out"
+and IDEATE: `src/data/postHome.ts` (the cutter campaign's link, then the exact
+account, then the cutter campaign under its own name).
 
 ## Reading Postiz
 

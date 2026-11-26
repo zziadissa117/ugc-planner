@@ -223,11 +223,14 @@ export function CoachStudent() {
   }, [])
   const coachEditor = useMemo<NoteEditor>(() => ({ save, remove }), [save, remove])
 
-  if (state.kind === 'denied') return <NotForYou message={state.message} />
-
   // The student stays on screen while another period is read; only the
   // videos wait for it.
   const data = week && week.key.startsWith(`${studentId}|`) ? week.data : null
+  // Kept across renders, so a saved note does not place a month of videos again.
+  const campaigns = useMemo(() => (data ? campaignsInOrder(data.campaigns, data.accounts) : []), [data])
+
+  if (state.kind === 'denied') return <NotForYou message={state.message} />
+
   const current = week !== null && week.key.startsWith(`${key}|`)
   const posts: PostsState =
     state.kind === 'offline'
@@ -239,7 +242,6 @@ export function CoachStudent() {
           : { kind: 'loading' }
   const student = data?.student ?? null
   const first = student?.name?.trim().split(/\s+/)[0]
-  const campaigns = data ? campaignsInOrder(data.campaigns, data.accounts) : []
 
   return (
     <section className="mx-auto flex max-w-3xl flex-col gap-7">
@@ -277,7 +279,7 @@ export function CoachStudent() {
       {data === null && state.kind === 'loading' ? <p className="text-base text-state-later">Loading…</p> : null}
 
       {data && campaigns.length === 0 ? <p className="text-base text-state-later">No campaigns yet.</p> : null}
-      {data && campaigns.length > 0 ? (
+      {data ? (
         <IdeateBoard
           campaigns={campaigns}
           accounts={data.accounts}

@@ -53,6 +53,7 @@ const post = (id: string, extra: Partial<PostizPostView> = {}): PostizPostView =
   publishedAt: at(23),
   views: null,
   viewsAt: null,
+  campaign: null,
   ...extra,
 })
 
@@ -116,6 +117,12 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+/** A student's page opens on all their campaigns; the notes live on one. */
+async function openVertus(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole('tab', { name: /^Vertus/ }))
+  await screen.findByRole('group', { name: 'Vertus figures' })
+}
+
 function renderAt(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
@@ -170,15 +177,28 @@ describe('/coach/:studentId', () => {
 
     expect(await screen.findByRole('heading', { name: 'Sam Rivera' })).toBeInTheDocument()
     expect(loadStudent).toHaveBeenCalledWith(STUDENT, { from: new Date(2026, 10, 22).toISOString(), to: new Date(2026, 10, 29).toISOString() })
-    expect(screen.getByRole('tab', { name: 'Vertus' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByLabelText('Posted')).toHaveTextContent('2')
-    expect(screen.getByLabelText('Average views')).toHaveTextContent('4,550')
-    expect(screen.getByRole('link', { name: /^Best, TikTok, Tue, Nov 24/ })).toHaveAttribute('href', 'https://www.tiktok.com/@sam.ugc/video/best')
+    // All of their campaigns first, the way IDEATE opens.
+    expect(screen.getByRole('tab', { name: /^All campaigns/ })).toHaveAttribute('aria-selected', 'true')
+    expect(within(screen.getByRole('group', { name: 'Overview' })).getByLabelText('Videos out')).toHaveTextContent('2')
+
+    const user = userEvent.setup()
+    await openVertus(user)
+    expect(screen.getByRole('tab', { name: /^Vertus/ })).toHaveAttribute('aria-selected', 'true')
+    const figures = screen.getByRole('group', { name: 'Vertus figures' })
+    expect(within(figures).getByLabelText('Videos out')).toHaveTextContent('2')
+    expect(within(figures).getByLabelText('Average views')).toHaveTextContent('4,550')
+    const working = screen.getByRole('region', { name: "What's working" })
+    expect(within(working).getByRole('link', { name: /^TikTok, Tue, Nov 24, 9,000 views/ })).toHaveAttribute(
+      'href',
+      'https://www.tiktok.com/@sam.ugc/video/best',
+    )
   })
 
   it("lets him write Ziad's notes, and keeps the student's own notes read only", async () => {
     loadStudent.mockResolvedValue(week())
+    const user = userEvent.setup()
     renderAt(`/coach/${STUDENT}`)
+    await openVertus(user)
 
     const theirs = await screen.findByRole('region', { name: "Sam's notes" })
     expect(within(theirs).getByText('Try a green screen')).toBeInTheDocument()
@@ -197,8 +217,9 @@ describe('/coach/:studentId', () => {
     )
     const user = userEvent.setup()
     renderAt(`/coach/${STUDENT}`)
+    await openVertus(user)
 
-    await user.click(await screen.findByRole('button', { name: 'Note on the best video' }))
+    await user.click(screen.getByRole('button', { name: 'Note on this video: TikTok, Tue, Nov 24, 9,000 views' }))
     const his = screen.getByRole('region', { name: 'Notes from Ziad' })
     expect(within(his).getByText('TikTok, Tue, Nov 24')).toBeInTheDocument()
     await user.type(within(his).getByRole('textbox', { name: 'Notes from Ziad' }), 'More of this')
@@ -223,6 +244,7 @@ describe('/coach/:studentId', () => {
     loadStudent.mockResolvedValue(week())
     const user = userEvent.setup()
     renderAt(`/coach/${STUDENT}`)
+    await openVertus(user)
 
     const his = await screen.findByRole('region', { name: 'Notes from Ziad' })
     await user.click(within(his).getByRole('button', { name: 'Delete' }))
@@ -236,6 +258,7 @@ describe('/coach/:studentId', () => {
     saveCoachNote.mockRejectedValue(new Error('Network down'))
     const user = userEvent.setup()
     renderAt(`/coach/${STUDENT}`)
+    await openVertus(user)
 
     const his = await screen.findByRole('region', { name: 'Notes from Ziad' })
     const box = within(his).getByRole('textbox', { name: 'Notes from Ziad' })

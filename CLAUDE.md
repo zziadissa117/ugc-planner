@@ -24,12 +24,18 @@ Five tabs:
   "Used for warm-ups", and one "Hook generation" button (`/hooks`,
   `Hooks.tsx`). No posts row.
 - **POST** (`Posting.tsx`): "X of Y posts done today" and the tick grid.
+  Between each campaign's name and its Analytics button, what the cutter (or
+  Postiz) has going out for it today and when - "1 posted · 9:04 am",
+  "1 scheduled · 6:00 pm" (`LinedUpToday.tsx`, `videosByCampaign` in
+  `goingOut.ts`). Read only, beside the name, never on a box.
 - **CAMPAIGNS** (`Campaigns.tsx`, `NewCampaign.tsx`, `Campaign.tsx`): a
   campaign is typed in on one page - name, pay per video, videos a day,
   minimum views, platforms and accounts. High-quality campaigns (a minimum view
   count) are listed first, because they are recorded first. Money sits at the
   bottom of the list; there is no Money tab.
-- **IDEATE** (`Ideate.tsx`, `IdeateBoard.tsx`): "All campaigns" first - videos
+- **IDEATE** (`Ideate.tsx`, `IdeateBoard.tsx`): "All campaigns" first (less
+  his personal brand, Instagram @ziadtps, at his request - `LEFT_OUT_OF_ALL`
+  in `ideate.ts`; it still shows under its own campaign) - videos
   out, total / average / median views, 1K+ and 10K+ hit rates, best videos,
   by campaign, by platform, by day - then one campaign at a time: the same
   figures, "What's working" for that campaign only (best and weakest), by

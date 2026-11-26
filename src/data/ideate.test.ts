@@ -17,6 +17,7 @@ import {
   headlineViews,
   homeOptions,
   ideateVideos,
+  isLeftOutOfAll,
   median,
   percent,
   periodDays,
@@ -24,6 +25,7 @@ import {
   standouts,
   sundayOf,
   videoStats,
+  videosForAll,
   videosIn,
   viewsComingIn,
   weekName,
@@ -439,5 +441,45 @@ describe('campaign order', () => {
       [],
     )
     expect(ordered.map((c) => c.id)).toEqual(['quality', 'quick-high', 'quick-low'])
+  })
+})
+
+describe('his personal brand, left out of All campaigns', () => {
+  const personal = (id: string, extra: Partial<PostizPostView> = {}) =>
+    post(id, { platform: 'Instagram', handle: 'ziadtps', url: `https://www.instagram.com/reel/${id}/`, ...extra })
+
+  it('knows the account by platform and exact handle only', () => {
+    expect(isLeftOutOfAll({ platform: 'Instagram', handle: 'ziadtps' })).toBe(true)
+    expect(isLeftOutOfAll({ platform: 'Instagram', handle: '@ZiadTPS' })).toBe(true)
+    expect(isLeftOutOfAll({ platform: 'TikTok', handle: 'ziadtps' })).toBe(false)
+    expect(isLeftOutOfAll({ platform: 'Instagram', handle: 'ziadtps2' })).toBe(false)
+  })
+
+  it('takes its videos and views out of All campaigns, and keeps them under their own campaign', () => {
+    const videos = build([
+      post('a', { views: 400 }),
+      personal('b', { views: 90_000, campaign: cutter('cut-trial', 'Trial reels') }),
+      personal('c', { views: 50_000 }),
+    ])
+    const all = videosIn(videos, ALL)
+    expect(all.map((v) => v.id)).toEqual(['a'])
+    expect(videoStats(all).total).toBe(400)
+    expect(videosForAll(videos).leftOut).toBe(2)
+    expect(homeOptions(campaigns, videos)[0]).toMatchObject({ key: ALL, count: 1 })
+    // Picked on its own, it is all there.
+    expect(videosIn(videos, 'cutter:cut-trial').map((v) => v.views)).toEqual([90_000])
+    expect(videosIn(videos, NO_HOME).map((v) => v.views)).toEqual([50_000])
+  })
+
+  it('counts a video posted there and on a campaign account by the campaign account alone', () => {
+    const videos = build([
+      post('tt', { group: 'v1', views: 1_200 }),
+      personal('ig', { group: 'v1', views: 80_000 }),
+    ])
+    const [video] = videosIn(videos, ALL)
+    expect(video.views).toBe(1_200)
+    expect(video.posts.map((p) => p.post.id)).toEqual(['tt'])
+    expect(video.primary.post.id).toBe('tt')
+    expect(videosIn(videos, 'c1')[0].views).toBe(81_200)
   })
 })

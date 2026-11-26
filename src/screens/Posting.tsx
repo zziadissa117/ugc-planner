@@ -32,7 +32,9 @@ import {
   PlusIcon,
   SoundIcon,
 } from '../components/icons'
+import { LinedUpToday } from '../components/LinedUpToday'
 import { SideIncomeToday } from '../components/SideIncomeToday'
+import { useLinedUpToday, type LinedUp } from '../components/useLinedUpToday'
 import { buttonClass } from '../components/styles'
 import { Card, ScreenHeader } from '../components/ui'
 import { SPRINGS, useSpring } from '../motion'
@@ -57,6 +59,7 @@ import { useData } from '../data/useData'
 import { useLoaded } from '../data/useLoaded'
 import { formatCents, hasOwnPostOrder, inPostOrder, sideIncomeUsdCents, toCadCents } from '../money'
 import { useIsOwner } from '../sync/owner'
+import { loadPostizPosts } from '../sync/postizPosts'
 import { isMuted, playCashRegister, primeCashRegister, setMuted } from '../sound'
 import { CORE_ID, layoutNetwork, type NetworkEdgeDef, type NetworkNodeDef } from './neuralLayout'
 import { NeuralCanvas } from './NeuralCanvas'
@@ -116,7 +119,7 @@ function useRises(value: number): number {
   return rises
 }
 
-export function Posting() {
+export function Posting({ load = loadPostizPosts }: { load?: typeof loadPostizPosts } = {}) {
   const data = useData()
   const [busy, setBusy] = useState<string | null>(null)
   const [view, setView] = useState<'list' | 'network'>(readView)
@@ -190,6 +193,9 @@ export function Posting() {
   // converted to USD at the app's fixed rate.
   const earned = loaded === null ? 0 : earnedOnDate(loaded.events, today) + sideIncomeUsdCents(loaded.side)
   const owner = useIsOwner()
+  // What the cutter (or Postiz) has going out today, beside each name. Read
+  // only - see LinedUpToday.
+  const linedUp = useLinedUpToday(today, loaded, load)
 
   const toggle = useCallback(
     async (board: PostingBoard, account: CampaignAccount, slot: number, post: VideoPost | null) => {
@@ -415,6 +421,7 @@ export function Posting() {
                 )}
                 busy={busy}
                 owner={owner}
+                linedUp={linedUp}
                 onToggle={(account, slot, post) => void toggle(board, account, slot, post)}
                 onCheckAll={() => void checkAll(board)}
                 onUncheckAll={() => void uncheckAll(board)}
@@ -985,6 +992,7 @@ function CampaignBoard({
   made,
   busy,
   owner = false,
+  linedUp = null,
   onToggle,
   onCheckAll,
   onUncheckAll,
@@ -995,6 +1003,9 @@ function CampaignBoard({
   busy: string | null
   /** His own account: the views (read from the cutter) are his only. */
   owner?: boolean
+  /** Today's videos going out, by campaign; null while there is nothing to
+   *  show. */
+  linedUp?: LinedUp | null
   onToggle: (account: CampaignAccount, slot: number, post: VideoPost | null) => void
   onCheckAll: () => void
   onUncheckAll: () => void
@@ -1039,14 +1050,27 @@ function CampaignBoard({
             {/* The money, quietly: posts are what this card is for. */}
             {money.length > 0 ? <p className="numeric meta text-state-later">{money.join(' · ')}</p> : null}
           </div>
-          {owner ? (
-            <Link
-              to={`/post/${campaign.id}/analytics`}
-              aria-label={`Analytics for ${campaign.name}`}
-              className={`${ICON_BUTTON_EDGED} size-11`}
-            >
-              <ChartIcon className="h-5 w-5" />
-            </Link>
+          {linedUp || owner ? (
+            <div className="flex shrink-0 items-start gap-3">
+              {/* Between the name and Analytics, as he asked: today's videos
+                  and when they go. Beside the name, never on a box. */}
+              {linedUp ? (
+                <LinedUpToday
+                  videos={linedUp.byCampaign.get(campaign.id) ?? []}
+                  complete={linedUp.complete}
+                  className="max-w-[8rem] pt-1 sm:max-w-none"
+                />
+              ) : null}
+              {owner ? (
+                <Link
+                  to={`/post/${campaign.id}/analytics`}
+                  aria-label={`Analytics for ${campaign.name}`}
+                  className={`${ICON_BUTTON_EDGED} size-11`}
+                >
+                  <ChartIcon className="h-5 w-5" />
+                </Link>
+              ) : null}
+            </div>
           ) : null}
         </div>
 

@@ -66,12 +66,36 @@ export interface PostizRange {
   to: string
 }
 
+/** TODAY's Going out and POST's line beside each campaign ask for the same
+ *  day, and a tab switch remounts both. A clean answer is kept this long,
+ *  per person and range, so moving between screens does not spend another
+ *  of the key's Postiz requests. A failed read or one with a warning is
+ *  never kept: "Try again" must really try again. */
+const KEEP_MS = 60_000
+const kept = new Map<string, { at: number; answer: Promise<PostizPostsAnswer> }>()
+
 export async function loadPostizPosts(range: PostizRange): Promise<PostizPostsAnswer | null> {
   const client = getSupabaseClient()
   if (!client) return null
   const { data: session } = await client.auth.getSession()
   if (!session.session) return null
-  const { data, error } = await client.functions.invoke('postiz-posts', { body: { from: range.from, to: range.to } })
-  if (error) throw new Error((await toAiError(error)).message)
-  return data as PostizPostsAnswer
+
+  const key = [session.session.user.id, range.from, range.to].join('|')
+  const now = Date.now()
+  const recent = kept.get(key)
+  if (recent && now - recent.at < KEEP_MS) return recent.answer
+
+  const answer = (async () => {
+    const { data, error } = await client.functions.invoke('postiz-posts', { body: { from: range.from, to: range.to } })
+    if (error) throw new Error((await toAiError(error)).message)
+    return data as PostizPostsAnswer
+  })()
+  kept.set(key, { at: now, answer })
+  const forget = () => {
+    if (kept.get(key)?.answer === answer) kept.delete(key)
+  }
+  answer.then((found) => {
+    if (found?.error) forget()
+  }, forget)
+  return answer
 }

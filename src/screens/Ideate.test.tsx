@@ -210,6 +210,27 @@ describe('All campaigns', () => {
     ])
   })
 
+  it('leaves his personal brand out of every overall figure, says so, and still shows it on its own', async () => {
+    const user = userEvent.setup()
+    loadPostizPosts.mockResolvedValue(
+      answer([
+        ...POSTS,
+        post('tps', { platform: 'Instagram', handle: 'ziadtps', views: 500_000, publishedAt: at(24, 8) }),
+      ]),
+    )
+    renderScreen()
+    await screen.findByRole('group', { name: 'Overview' })
+    expect(tab('All campaigns')).toHaveAttribute('aria-label', 'All campaigns, 5 videos')
+    expect(figure('Overview', 'Videos out')).toHaveTextContent('5')
+    expect(figure('Overview', 'Total views')).toHaveAttribute('title', '105,999')
+    expect(screen.getByText('Leaves out @ziadtps, your personal brand.')).toBeInTheDocument()
+    expect(within(region('Best videos')).queryByText('Other accounts')).not.toBeInTheDocument()
+
+    await openCampaign(user, 'Other accounts')
+    expect(figure('Other accounts figures', 'Total views')).toHaveAttribute('title', '500,000')
+    expect(screen.queryByText('Leaves out @ziadtps, your personal brand.')).not.toBeInTheDocument()
+  })
+
   it('says plainly when nothing went out in the period', async () => {
     loadPostizPosts.mockResolvedValue(answer([]))
     renderScreen()

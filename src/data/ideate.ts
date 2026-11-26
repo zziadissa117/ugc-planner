@@ -298,9 +298,56 @@ export function ideateVideos(
   return videos.sort((a, b) => timeOf(b.publishedAt) - timeOf(a.publishedAt) || a.id.localeCompare(b.id))
 }
 
-/** One campaign's videos (or every video, for 'all'). */
+/** One campaign's videos (or every video "All campaigns" counts, for
+ *  'all' - see videosForAll). */
 export function videosIn(videos: readonly IdeateVideo[], key: string): IdeateVideo[] {
-  return key === ALL ? [...videos] : videos.filter((v) => v.homeKey === key)
+  return key === ALL ? videosForAll(videos).videos : videos.filter((v) => v.homeKey === key)
+}
+
+// --- Left out of "All campaigns" ---------------------------------------------------
+
+/** Accounts "All campaigns" does not count. His personal brand, Instagram
+ *  @ziadtps, is not campaign work and outdraws every campaign, so counted in
+ *  it hid what the campaigns were doing; he asked for it out: "Don't include
+ *  it here inside of the All Campaigns". Its videos still show when their
+ *  own campaign (or "Other accounts") is picked. */
+export const LEFT_OUT_OF_ALL: readonly { platform: string; handle: string }[] = [{ platform: 'Instagram', handle: 'ziadtps' }]
+
+const handleKey = (handle: string) => handle.trim().replace(/^@+/, '').toLowerCase()
+
+/** True for a post on one of LEFT_OUT_OF_ALL's accounts: the same platform
+ *  and exactly the same handle, give or take an @ and capitals. */
+export function isLeftOutOfAll(post: Pick<PostizPostView, 'platform' | 'handle'>): boolean {
+  const platform = post.platform.trim().toLowerCase()
+  const handle = handleKey(post.handle)
+  return LEFT_OUT_OF_ALL.some((a) => platform.startsWith(a.platform.toLowerCase()) && handleKey(a.handle) === handle)
+}
+
+/** The videos "All campaigns" counts: every video less its posts on the
+ *  accounts left out. A video that went out only there is not counted at
+ *  all; one that also went out on another account counts that account's
+ *  posts and views only. `leftOut` is how many videos lost a post. */
+export function videosForAll(videos: readonly IdeateVideo[]): { videos: IdeateVideo[]; leftOut: number } {
+  let leftOut = 0
+  const kept = videos.flatMap((video): IdeateVideo[] => {
+    const posts = video.posts.filter((p) => !isLeftOutOfAll(p.post))
+    if (posts.length === video.posts.length) return [video]
+    leftOut++
+    if (posts.length === 0) return []
+    const read = posts.map((p) => viewsOf(p.post)).filter((v): v is number => v !== null)
+    const primary =
+      posts.find((p) => isInstagram(p.post.platform) && isHttp(p.post.url)) ?? posts.find((p) => isHttp(p.post.url)) ?? posts[0]
+    return [
+      {
+        ...video,
+        posts,
+        views: read.length === 0 ? null : read.reduce((sum, v) => sum + v, 0),
+        unread: posts.length - read.length,
+        primary,
+      },
+    ]
+  })
+  return { videos: kept, leftOut }
 }
 
 // --- The figures ------------------------------------------------------------------
@@ -429,7 +476,7 @@ export function homeOptions(
   const count = (key: string) => (videos === null ? null : (counts.get(key) ?? 0))
 
   const options: HomeOption[] = [
-    { key: ALL, name: 'All campaigns', kind: 'all', campaignId: null, count: videos === null ? null : videos.length },
+    { key: ALL, name: 'All campaigns', kind: 'all', campaignId: null, count: videos === null ? null : videosForAll(videos).videos.length },
     ...campaigns.map((c): HomeOption => ({ key: c.id, name: c.name, kind: 'campaign', campaignId: c.id, count: count(c.id) })),
     ...[...cutter.entries()]
       .map(([key, name]): HomeOption => ({ key, name, kind: 'cutter', campaignId: null, count: count(key) }))

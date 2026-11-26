@@ -51,6 +51,7 @@ import {
   headlineViews,
   homeOptions,
   ideateVideos,
+  LEFT_OUT_OF_ALL,
   percent,
   periodDays,
   rankedByViews,
@@ -58,6 +59,7 @@ import {
   standouts,
   sundayOf,
   videoStats,
+  videosForAll,
   videosIn,
   viewsComingIn,
   type AccountRow,
@@ -161,6 +163,8 @@ export function IdeateBoard(props: IdeateBoardProps) {
   const options = useMemo(() => homeOptions(campaigns, videos, [chosen]), [campaigns, videos, chosen])
   const selected = options.find((o) => o.key === chosen.key) ?? options[0]
   const scoped = useMemo(() => (videos ? videosIn(videos, selected.key) : null), [videos, selected.key])
+  // How many videos "All campaigns" does not count, for the line saying so.
+  const leftOut = useMemo(() => (videos ? videosForAll(videos).leftOut : 0), [videos])
   const days = useMemo(() => periodDays(period), [period])
   const tabsId = useId()
   // Picking a campaign from the overview's table lands at the top of its
@@ -190,6 +194,11 @@ export function IdeateBoard(props: IdeateBoardProps) {
 
         {notice ? <div className="settle-in -mt-5">{notice}</div> : null}
         {status ? <p className="meta -mt-5 text-text-dim">{status}</p> : null}
+        {selected.kind === 'all' && leftOut > 0 ? (
+          <p className="meta -mt-5 text-text-dim">
+            Leaves out {LEFT_OUT_OF_ALL.map((a) => `@${a.handle}`).join(', ')}, your personal brand.
+          </p>
+        ) : null}
 
         {selected.kind === 'all' ? (
           scoped ? (

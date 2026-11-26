@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { PostizPostView } from '../sync/postizPosts'
 import { dayBounds, weekBounds } from '../todaySchedule'
-import { OTHER_ACCOUNTS, breakdown, goingOutRows, isShort, type GoingOutInput } from './goingOut'
+import { OTHER_ACCOUNTS, breakdown, goingOutRows, isShort, lineUp, videosByCampaign, type GoingOutInput } from './goingOut'
 import type { Campaign, CampaignAccount } from './schema'
 
 // 2026-11-22 is a Sunday, so 24 November is a Tuesday. Local times.
@@ -190,5 +190,43 @@ describe('going out, by campaign', () => {
     expect(breakdown({ posted: 3, scheduled: 2, waiting: 1, failed: 1 })).toBe('3 out · 2 scheduled · 1 to approve · 1 failed')
     expect(breakdown({ posted: 0, scheduled: 4, waiting: 0, failed: 0 })).toBe('4 scheduled')
     expect(breakdown({ posted: 0, scheduled: 0, waiting: 0, failed: 0 })).toBe('')
+  })
+})
+
+describe("POST's line beside a campaign's name", () => {
+  const today = (posts: PostizPostView[]) => videosByCampaign({ posts, campaigns: CAMPAIGNS, accounts: ACCOUNTS, ...dayBounds(NOW) })
+
+  it("gives each planner campaign today's videos in time order, once each", () => {
+    const byCampaign = today([
+      post({ id: 'late', group: 'v2', publishedAt: at(24, 18) }),
+      post({ id: 'early-tt', group: 'v1', status: 'posted', publishedAt: at(24, 9, 4) }),
+      post({ id: 'early-ig', group: 'v1', platform: 'Instagram', handle: 'pump.ig', status: 'posted', publishedAt: at(24, 9, 4) }),
+      godaddy({ id: 'gd', status: 'waiting', publishedAt: at(24, 12) }),
+      // Tomorrow, yesterday, and an account no campaign lists: not here.
+      post({ id: 'tomorrow', publishedAt: at(25, 9) }),
+      post({ id: 'yesterday', status: 'posted', publishedAt: at(23, 22) }),
+      post({ id: 'stranger', handle: 'someone.else' }),
+    ])
+    expect(byCampaign.get('pump')?.map((v) => [v.id, v.status])).toEqual([
+      ['v1', 'posted'],
+      ['v2', 'scheduled'],
+    ])
+    expect(byCampaign.get('godaddy')?.map((v) => v.id)).toEqual(['gd'])
+    expect([...byCampaign.keys()].sort()).toEqual(['godaddy', 'pump'])
+  })
+
+  it('splits them by where they stand, with their times', () => {
+    const videos = today([
+      post({ id: 'a', status: 'posted', publishedAt: at(24, 9) }),
+      post({ id: 'b', status: 'scheduled', publishedAt: at(24, 15) }),
+      post({ id: 'c', status: 'scheduled', publishedAt: at(24, 18) }),
+      post({ id: 'd', status: 'failed', publishedAt: at(24, 11) }),
+    ]).get('pump')!
+    expect(lineUp(videos)).toEqual([
+      { status: 'posted', count: 1, times: [at(24, 9)] },
+      { status: 'scheduled', count: 2, times: [at(24, 15), at(24, 18)] },
+      { status: 'failed', count: 1, times: [at(24, 11)] },
+    ])
+    expect(lineUp([])).toEqual([])
   })
 })

@@ -199,3 +199,37 @@ export function breakdown(counts: GoingOutCounts): string {
     .filter(Boolean)
     .join(' · ')
 }
+
+/** Today's videos for each of the planner's campaigns, in time order - the
+ *  Post screen's line beside a campaign's name: "1 posted · 9:04 am",
+ *  "1 scheduled · 6:00 pm". Read only, and only beside the name: nothing
+ *  here ticks, colours or moves a Post box (CLAUDE.md, "He ticks every Post
+ *  box himself"). Placed by the same rule as Going out, so the two agree. */
+export function videosByCampaign(
+  input: Pick<GoingOutInput, 'posts' | 'campaigns' | 'accounts' | 'from' | 'to'>,
+): Map<string, GoingOutVideo[]> {
+  const out = new Map<string, GoingOutVideo[]>()
+  for (const { video, home } of videosInSpan(input)) {
+    if (home.kind !== 'campaign') continue
+    out.set(home.campaignId, [...(out.get(home.campaignId) ?? []), video])
+  }
+  for (const videos of out.values()) videos.sort((a, b) => instant(a.publishedAt) - instant(b.publishedAt) || a.id.localeCompare(b.id))
+  return out
+}
+
+/** One status's share of a campaign's day: how many, and when each goes (or
+ *  went) out, in time order. */
+export interface LineUpPart {
+  status: VideoStatus
+  count: number
+  times: string[]
+}
+
+/** Out, then scheduled, then waiting for his approval, then failed - only
+ *  the ones there are. */
+export function lineUp(videos: readonly GoingOutVideo[]): LineUpPart[] {
+  return (['posted', 'scheduled', 'waiting', 'failed'] as const).flatMap((status) => {
+    const times = videos.filter((v) => v.status === status).map((v) => v.publishedAt)
+    return times.length > 0 ? [{ status, count: times.length, times }] : []
+  })
+}

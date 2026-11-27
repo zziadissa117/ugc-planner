@@ -270,7 +270,6 @@ describe('going out', () => {
     // Inflow owes 1 today and has nothing lined up: that is what is next.
     expect(inflow).toContain('Inflow')
     expect(inflow).toContain('0 of 1')
-    expect(inflow).toContain('1 to go')
     // Three videos on two accounts each: 3 of 3, nothing to go.
     expect(godaddy).toContain('GoDaddy')
     expect(godaddy).toContain('3 of 3')
@@ -307,6 +306,30 @@ describe('going out', () => {
     expect(section.queryByRole('list', { name: 'GoDaddy videos' })).toBeNull()
   })
 
+  it('lays the campaigns out as tiles, and opens one at a time right after its own tile', async () => {
+    await withGoDaddy()
+    renderScreen()
+    const section = await going()
+    const godaddy = await section.findByRole('button', { name: /^GoDaddy/ })
+    const inflow = section.getByRole('button', { name: /^Inflow/ })
+    // Side by side, not one tall row each.
+    expect(godaddy.closest('ul')?.className).toContain('grid-cols-2')
+    // No words under the number: the bar says out and scheduled.
+    expect(within(godaddy).queryByText(/to go/)).toBeNull()
+
+    fireEvent.click(godaddy)
+    const videos = section.getByRole('list', { name: 'GoDaddy videos' })
+    // The videos come straight after GoDaddy's tile, spanning the grid.
+    expect(godaddy.closest('li')?.nextElementSibling).toBe(videos.closest('li'))
+    expect(videos.closest('li')?.className).toContain('col-span-full')
+
+    fireEvent.click(inflow)
+    expect(godaddy).toHaveAttribute('aria-expanded', 'false')
+    expect(inflow).toHaveAttribute('aria-expanded', 'true')
+    expect(section.queryByRole('list', { name: 'GoDaddy videos' })).toBeNull()
+    expect(section.getByText('Nothing lined up yet.')).toBeInTheDocument()
+  })
+
   it('switches to this week, Sunday to Sunday, against what the week owes', async () => {
     await withGoDaddy()
     renderScreen()
@@ -315,7 +338,6 @@ describe('going out', () => {
     fireEvent.click(section.getByRole('tab', { name: 'This week' }))
     await waitFor(() => expect(loadPostizPosts).toHaveBeenCalledWith({ from: at(22, 0).toISOString(), to: at(29, 0).toISOString() }))
     expect(await section.findByRole('button', { name: /^GoDaddy/ })).toHaveTextContent('3 of 21')
-    expect(section.getByRole('button', { name: /^GoDaddy/ })).toHaveTextContent('18 to go')
     expect(section.getByRole('button', { name: /^Trial reels/ })).toHaveTextContent('0 this week')
   })
 

@@ -18,8 +18,10 @@ Five tabs:
 
 - **TODAY** (`src/screens/Now.tsx`), top to bottom as he ordered it: the week
   as a calendar with a red now line, "Going out" (by campaign: videos out or
-  scheduled today or this week against what it owes, "3 of 4", tap for its
-  videos; read only - `GoingOut.tsx`, `src/data/goingOut.ts`), today's
+  scheduled today or this week against what it owes, "3 of 4", as small
+  tiles two or three across - he found one row per campaign "too long
+  vertically" - tap one for its videos, one line each, under its row; read
+  only - `GoingOut.tsx`, `src/data/goingOut.ts`), today's
   sessions, the Trybe timer with "+1 video" (`trybe_videos`), a countdown
   "Used for warm-ups", and one "Hook generation" button (`/hooks`,
   `Hooks.tsx`). No posts row.
